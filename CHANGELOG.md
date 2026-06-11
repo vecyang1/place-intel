@@ -1,5 +1,12 @@
 # Changelog — place-intel
 
+## v0.4.7 — 2026-06-12 — dossier modal focus trap
+- The shop dossier now traps Tab and Shift+Tab inside the modal while it is open,
+  so keyboard users do not land on hidden background controls.
+- Extended the deterministic Playwright dossier test to prove focus entry,
+  backward edge trapping, forward edge trapping, Escape close, and opener focus
+  restoration from the same mocked detail response.
+
 ## v0.4.6 — 2026-06-12 — dossier dialog keyboard focus polish
 - The shop dossier overlay now moves keyboard focus to the close control as soon
   as it opens, including while data is still loading.

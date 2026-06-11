@@ -105,6 +105,13 @@ test('shop dossier focuses close control and restores opener focus', async ({ pa
   await page.evaluate(() => window.__pi.openDetail('focus-test'));
   await expect(page.locator('#detail-close')).toBeFocused();
 
+  await page.keyboard.press('Shift+Tab');
+  await expect.poll(() => page.evaluate(() => Boolean(document.activeElement?.closest('#detail-overlay')))).toBe(true);
+
+  await page.locator('.detail-reviews summary').focus();
+  await page.keyboard.press('Tab');
+  await expect.poll(() => page.evaluate(() => Boolean(document.activeElement?.closest('#detail-overlay')))).toBe(true);
+
   await page.keyboard.press('Escape');
   await expect(page.locator('#focus-opener')).toBeFocused();
 });

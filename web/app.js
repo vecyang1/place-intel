@@ -495,6 +495,14 @@ function closeDetail() {
   state.detailReturnFocus = null;
   if (returnFocus && document.contains(returnFocus)) returnFocus.focus({ preventScroll: true });
 }
+function trapDetailFocus(e) {
+  const panel = $('.detail-panel');
+  const xs = $$('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])', panel).filter((x) => x.offsetParent !== null || x === document.activeElement);
+  if (!xs.length) return;
+  const first = xs[0], last = xs[xs.length - 1], active = document.activeElement;
+  if (e.shiftKey && (!panel.contains(active) || active === first)) { e.preventDefault(); return last.focus({ preventScroll: true }); }
+  if (!e.shiftKey && active === last) { e.preventDefault(); first.focus({ preventScroll: true }); }
+}
 
 /* ============ tabs ============ */
 function switchTab(name, syncHash = true) {
@@ -687,6 +695,7 @@ function bindGlobal() {
       $(`#tab-${TAB_NAMES[n]}`).focus();
       return;
     }
+    if (e.key === 'Tab' && !$('#detail-overlay').hidden) trapDetailFocus(e);
     if (e.key === 'Escape' && !$('#detail-overlay').hidden) closeDetail();
   });
 }
