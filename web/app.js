@@ -128,6 +128,7 @@ const state = {
   libraryLoaded: false,
   jobs: { scout: null, shop: null },
   detail: null,
+  detailReturnFocus: null,
   meta: null, // {version, reason: {model, provider}, embed: {model, provider}}
 };
 
@@ -470,9 +471,12 @@ async function loadLibrary() {
 async function openDetail(placeId) {
   const overlay = $('#detail-overlay');
   const body = $('#detail-body');
+  const close = $('#detail-close');
+  if (overlay.hidden) state.detailReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   overlay.hidden = false;
   document.body.classList.add('no-scroll');
   body.innerHTML = loadingHtml('读取店铺档案');
+  close.focus({ preventScroll: true });
   try {
     const data = await apiGet(`/api/places/${encodeURIComponent(placeId)}`);
     state.detail = data;
@@ -487,6 +491,9 @@ function closeDetail() {
   $('#detail-overlay').hidden = true;
   document.body.classList.remove('no-scroll');
   state.detail = null;
+  const returnFocus = state.detailReturnFocus;
+  state.detailReturnFocus = null;
+  if (returnFocus && document.contains(returnFocus)) returnFocus.focus({ preventScroll: true });
 }
 
 /* ============ tabs ============ */
@@ -776,18 +783,8 @@ init();
 window.__pi = {
   state,
   esc, mdToHtml, relTime, stars, fmtClock, safeUrl,
-  render: {
-    event: renderEvent,
-    planCard: renderPlanCard,
-    verdicts: renderVerdicts,
-    result: renderResult,
-    report: renderReportArticle,
-    libraryGrid: renderLibraryGrid,
-    shopCard: renderShopCard,
-    searchRow: renderSearchRow,
-    detail: renderDetail,
-    review: renderReviewCard,
-    hours: renderHours,
-  },
+  render: { event: renderEvent, planCard: renderPlanCard, verdicts: renderVerdicts, result: renderResult,
+    report: renderReportArticle, libraryGrid: renderLibraryGrid, shopCard: renderShopCard,
+    searchRow: renderSearchRow, detail: renderDetail, review: renderReviewCard, hours: renderHours },
   openDetail, closeDetail, switchTab, loadLibrary, startJob,
 };

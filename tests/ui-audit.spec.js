@@ -74,3 +74,37 @@ test('tabs are deep-linkable and keyboard navigable', async ({ page }) => {
   await expect(page.locator('#tab-ask')).toHaveAttribute('aria-selected', 'true');
   await expect(page).toHaveURL(/#ask$/);
 });
+
+test('shop dossier focuses close control and restores opener focus', async ({ page }) => {
+  await page.route('**/api/places/focus-test', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      place: {
+        place_id: 'focus-test',
+        name: 'Focus Test Cafe',
+        category: 'Cafe',
+        rating: 4.5,
+        review_count: 12,
+        cached_reviews: 12,
+        last_refreshed: Date.now() / 1000,
+      },
+      reviews: [],
+      report: null,
+    }),
+  }));
+  await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  await page.evaluate(() => {
+    const btn = document.createElement('button');
+    btn.id = 'focus-opener';
+    btn.type = 'button';
+    btn.textContent = 'Open focus test';
+    document.body.appendChild(btn);
+  });
+
+  await page.locator('#focus-opener').focus();
+  await page.evaluate(() => window.__pi.openDetail('focus-test'));
+  await expect(page.locator('#detail-close')).toBeFocused();
+
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#focus-opener')).toBeFocused();
+});

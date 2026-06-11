@@ -1,5 +1,14 @@
 # Changelog — place-intel
 
+## v0.4.6 — 2026-06-12 — dossier dialog keyboard focus polish
+- The shop dossier overlay now moves keyboard focus to the close control as soon
+  as it opens, including while data is still loading.
+- Closing a dossier with Escape, the close button, backdrop, or cache-delete flow
+  restores focus to the opener when that opener is still present in the document.
+- Added a deterministic Playwright regression that mocks the detail API response,
+  opens a synthetic dossier, and verifies focus entry plus focus return without
+  depending on local cached places.
+
 ## v0.4.5 — 2026-06-12 — accessibility + deep-link navigation polish
 - Added a skip link and main landmark target so keyboard users can jump past the
   masthead/tabs into the primary app surface.
