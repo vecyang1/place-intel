@@ -67,7 +67,18 @@ python3 -m venv .venv
 
 python3 -m venv "$VENDOR_DIR/.venv"
 "$VENDOR_DIR/.venv/bin/python" -m pip install --upgrade pip wheel
-"$VENDOR_DIR/.venv/bin/pip" install -e "$VENDOR_DIR"
+(
+  cd "$VENDOR_DIR"
+  "$VENDOR_DIR/.venv/bin/python" - <<'PY'
+import pathlib
+import subprocess
+import sys
+import tomllib
+
+deps = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["dependencies"]
+subprocess.check_call([sys.executable, "-m", "pip", "install", *deps])
+PY
+)
 
 cat >/etc/systemd/system/$SERVICE_NAME.service <<EOF
 [Unit]
