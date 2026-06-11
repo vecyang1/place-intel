@@ -11,6 +11,7 @@
   <script src="/static/app.js" defer></script>
 </head>
 <body>
+<a class="skip-link" href="#main">跳到主要内容</a>
 <div class="shell">
 
   <header class="masthead">
@@ -19,44 +20,44 @@
   </header>
 
   <nav class="tabs" role="tablist" aria-label="主导航">
-    <button type="button" class="tab is-active" id="tab-scout" role="tab" aria-selected="true" aria-controls="panel-scout" data-tab="scout">侦察 <span class="tab-en">Scout</span></button>
-    <button type="button" class="tab" id="tab-shop" role="tab" aria-selected="false" aria-controls="panel-shop" data-tab="shop">单店 <span class="tab-en">Shop</span></button>
-    <button type="button" class="tab" id="tab-library" role="tab" aria-selected="false" aria-controls="panel-library" data-tab="library">资料库 <span class="tab-en">Library</span></button>
-    <button type="button" class="tab" id="tab-ask" role="tab" aria-selected="false" aria-controls="panel-ask" data-tab="ask">提问 <span class="tab-en">Ask</span></button>
+    <button type="button" class="tab is-active" id="tab-scout" role="tab" aria-selected="true" aria-controls="panel-scout" tabindex="0" data-tab="scout">侦察 <span class="tab-en">Scout</span></button>
+    <button type="button" class="tab" id="tab-shop" role="tab" aria-selected="false" aria-controls="panel-shop" tabindex="-1" data-tab="shop">单店 <span class="tab-en">Shop</span></button>
+    <button type="button" class="tab" id="tab-library" role="tab" aria-selected="false" aria-controls="panel-library" tabindex="-1" data-tab="library">资料库 <span class="tab-en">Library</span></button>
+    <button type="button" class="tab" id="tab-ask" role="tab" aria-selected="false" aria-controls="panel-ask" tabindex="-1" data-tab="ask">提问 <span class="tab-en">Ask</span></button>
   </nav>
 
-  <main>
+  <main id="main" tabindex="-1">
 
     <!-- ============ SCOUT ============ -->
     <section class="panel" id="panel-scout" role="tabpanel" aria-labelledby="tab-scout">
       <form id="scout-form" novalidate>
         <div class="field">
           <label for="scout-query">想找什么 <span class="label-en">query</span></label>
-          <textarea id="scout-query" class="query-input" rows="2" required
+          <textarea id="scout-query" name="query" class="query-input" rows="2" required
             placeholder="店名 / 需求 / Maps URL，任何语言&#10;例：会安吉他租赁 · guitar lessons Da Nang"></textarea>
         </div>
         <div class="field">
           <label for="scout-near">在哪里 <span class="label-en">near · 可选</span></label>
-          <input id="scout-near" type="text" autocomplete="off" placeholder="Hoi An, Vietnam（留空让 AI 决定）">
+          <input id="scout-near" name="near" type="text" autocomplete="off" placeholder="Hoi An, Vietnam（留空让 AI 决定）">
         </div>
         <details class="advanced" id="scout-advanced">
           <summary>高级 <span class="label-en">advanced</span></summary>
           <div class="advanced-grid">
             <div class="field">
               <label for="scout-profile">报告类型 <span class="label-en">profile</span></label>
-              <select id="scout-profile"><option value="">auto（AI 决定）</option></select>
+              <select id="scout-profile" name="profile"><option value="">auto（AI 决定）</option></select>
             </div>
             <div class="field">
               <label for="scout-top">深挖几家 <span class="label-en">top-n</span></label>
-              <input id="scout-top" type="number" value="3" min="1" max="8">
+              <input id="scout-top" name="top" type="number" inputmode="numeric" value="3" min="1" max="8">
             </div>
             <div class="field">
               <label for="scout-maxr">每家最多评价数 <span class="label-en">max</span></label>
-              <input id="scout-maxr" type="number" value="300" min="20" step="20">
+              <input id="scout-maxr" name="max_reviews" type="number" inputmode="numeric" value="300" min="20" step="20">
             </div>
             <div class="field checks">
-              <label class="check"><input type="checkbox" id="scout-refresh"> 强制刷新缓存 <span class="label-en">refresh</span></label>
-              <label class="check"><input type="checkbox" id="scout-noai"> 关闭AI规划 <span class="label-en">no_ai</span></label>
+              <label class="check"><input type="checkbox" id="scout-refresh" name="refresh"> 强制刷新缓存 <span class="label-en">refresh</span></label>
+              <label class="check"><input type="checkbox" id="scout-noai" name="no_ai"> 关闭AI规划 <span class="label-en">no_ai</span></label>
             </div>
           </div>
         </details>
@@ -75,26 +76,26 @@
       <form id="shop-form" novalidate>
         <div class="field">
           <label for="shop-target">哪家店 <span class="label-en">target</span></label>
-          <input id="shop-target" class="query-input" type="text" required autocomplete="off"
+          <input id="shop-target" name="target" class="query-input" type="text" required autocomplete="off"
             placeholder="店名或 Google Maps 链接，只深挖这一家">
         </div>
         <div class="field">
           <label for="shop-near">在哪里 <span class="label-en">near · 可选</span></label>
-          <input id="shop-near" type="text" autocomplete="off" placeholder="城市或地区，帮 AI 锁定同名店">
+          <input id="shop-near" name="near" type="text" autocomplete="off" placeholder="城市或地区，帮 AI 锁定同名店">
         </div>
         <details class="advanced" id="shop-advanced">
           <summary>高级 <span class="label-en">advanced</span></summary>
           <div class="advanced-grid">
             <div class="field">
               <label for="shop-profile">报告类型 <span class="label-en">profile</span></label>
-              <select id="shop-profile"><option value="">auto（AI 决定）</option></select>
+              <select id="shop-profile" name="profile"><option value="">auto（AI 决定）</option></select>
             </div>
             <div class="field">
               <label for="shop-maxr">最多评价数 <span class="label-en">max</span></label>
-              <input id="shop-maxr" type="number" value="300" min="20" step="20">
+              <input id="shop-maxr" name="max_reviews" type="number" inputmode="numeric" value="300" min="20" step="20">
             </div>
             <div class="field checks">
-              <label class="check"><input type="checkbox" id="shop-refresh"> 强制刷新缓存 <span class="label-en">refresh</span></label>
+              <label class="check"><input type="checkbox" id="shop-refresh" name="refresh"> 强制刷新缓存 <span class="label-en">refresh</span></label>
             </div>
           </div>
         </details>
@@ -129,7 +130,7 @@
       <form id="ask-form" novalidate>
         <div class="field">
           <label for="ask-question">问缓存里的所有评价 <span class="label-en">ask the cache</span></label>
-          <textarea id="ask-question" class="query-input" rows="2" required
+          <textarea id="ask-question" name="question" class="query-input" rows="2" required
             placeholder="哪家老师最有耐心？哪家有坑？跨店比较也可以。"></textarea>
         </div>
         <button type="submit" class="btn-primary" id="ask-submit">提问 Ask →</button>
@@ -145,8 +146,8 @@
     <span id="meta-line" class="meta-line"></span>
     <button type="button" class="btn-model" id="model-switch" hidden>更换模型 ⇄</button>
     <div class="model-picker" id="model-picker" hidden>
-      <select id="model-select" aria-label="推理模型"></select>
-      <input id="model-custom" type="text" placeholder="手输模型名" hidden>
+      <select id="model-select" name="reason_model" aria-label="推理模型"></select>
+      <input id="model-custom" name="custom_reason_model" type="text" placeholder="手输模型名" hidden>
       <button type="button" class="btn-model" id="model-save">保存</button>
       <span class="model-status" id="model-status" role="status"></span>
     </div></footer>

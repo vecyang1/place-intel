@@ -60,3 +60,17 @@ test('activity risk renders as a cautious visible tag', async ({ page }) => {
   expect(html).toContain('activity-risk');
   expect(html).toContain('出发前应核实仍在营业');
 });
+
+test('tabs are deep-linkable and keyboard navigable', async ({ page }) => {
+  await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
+  await expect(page.locator('#panel-library')).toBeVisible();
+  await expect(page.locator('#tab-library')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#tab-library')).toHaveAttribute('tabindex', '0');
+  await expect(page.locator('#tab-scout')).toHaveAttribute('tabindex', '-1');
+
+  await page.locator('#tab-library').focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#panel-ask')).toBeVisible();
+  await expect(page.locator('#tab-ask')).toHaveAttribute('aria-selected', 'true');
+  await expect(page).toHaveURL(/#ask$/);
+});

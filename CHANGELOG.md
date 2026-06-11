@@ -1,5 +1,18 @@
 # Changelog — place-intel
 
+## v0.4.5 — 2026-06-12 — accessibility + deep-link navigation polish
+- Added a skip link and main landmark target so keyboard users can jump past the
+  masthead/tabs into the primary app surface.
+- Tightened tab semantics: tabs now use roving `tabindex`, URL hash deep links
+  (`#scout`, `#shop`, `#library`, `#ask`), and Arrow/Home/End keyboard navigation.
+- Added stable `name` attributes and numeric input hints to form controls, making
+  the no-build SPA friendlier to browser autofill, accessibility tooling, and
+  future form instrumentation.
+- Fixed FastAPI app metadata drift by deriving `app.version` from the package
+  version instead of a stale literal.
+- Added regression coverage for the accessibility shell, app-version contract,
+  and hash/keyboard tab behavior.
+
 ## v0.4.4 — 2026-06-12 — stale review activity risk tag
 - Added a deterministic `activity_risk` signal for places with many historical
   reviews but no recent known reviews. Current thresholds are conservative:

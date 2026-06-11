@@ -118,6 +118,8 @@ const STAGES = {
   report: { zh: '推理报告', en: 'report' },
   done: { zh: '完成', en: 'done' },
 };
+const TAB_NAMES = ['scout', 'shop', 'library', 'ask'];
+const tabFromHash = () => (TAB_NAMES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'scout');
 const state = {
   tab: 'scout',
   profiles: [],
@@ -488,14 +490,17 @@ function closeDetail() {
 }
 
 /* ============ tabs ============ */
-function switchTab(name) {
+function switchTab(name, syncHash = true) {
+  if (!TAB_NAMES.includes(name)) name = 'scout';
   state.tab = name;
   $$('.tab').forEach((t) => {
     const on = t.dataset.tab === name;
     t.classList.toggle('is-active', on);
     t.setAttribute('aria-selected', String(on));
+    t.tabIndex = on ? 0 : -1;
   });
-  $$('.panel').forEach((p) => { p.hidden = p.id !== `panel-${name}`; });
+  $$('.panel').forEach((p) => { const on = p.id === `panel-${name}`; p.hidden = !on; p.tabIndex = on ? 0 : -1; });
+  if (syncHash && location.hash !== `#${name}`) history.replaceState(null, '', `#${name}`);
   if (name === 'library') {
     state.libraryLoaded = true;
     loadLibrary();
@@ -665,6 +670,16 @@ function bindGlobal() {
     $('#model-custom').hidden = $('#model-select').value !== CUSTOM_MODEL;
   });
   document.addEventListener('keydown', (e) => {
+    const tab = e.target.closest('.tab');
+    if (tab && ['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) {
+      e.preventDefault();
+      const i = TAB_NAMES.indexOf(tab.dataset.tab);
+      const n = e.key === 'Home' ? 0 : e.key === 'End' ? TAB_NAMES.length - 1
+        : e.key === 'ArrowRight' ? (i + 1) % TAB_NAMES.length : (i - 1 + TAB_NAMES.length) % TAB_NAMES.length;
+      switchTab(TAB_NAMES[n]);
+      $(`#tab-${TAB_NAMES[n]}`).focus();
+      return;
+    }
     if (e.key === 'Escape' && !$('#detail-overlay').hidden) closeDetail();
   });
 }
@@ -750,6 +765,8 @@ async function saveModel() {
 function init() {
   bindForms();
   bindGlobal();
+  switchTab(tabFromHash(), false);
+  window.addEventListener('hashchange', () => switchTab(tabFromHash(), false));
   loadProfiles();
   loadMeta();
 }

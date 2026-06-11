@@ -52,6 +52,21 @@ class WebStaticContractTest(unittest.TestCase):
                 longest = max(len(line) for line in placeholder.splitlines())
                 self.assertLessEqual(longest, 48)
 
+    def test_shell_has_skip_link_main_target_and_named_controls(self) -> None:
+        html = (WEB / "index.html").read_text(encoding="utf-8")
+        self.assertIn('class="skip-link" href="#main"', html)
+        self.assertRegex(html, r"<main[^>]+id=\"main\"")
+        for field_id in [
+            "scout-query", "scout-near", "scout-profile", "scout-top",
+            "scout-maxr", "scout-refresh", "scout-noai", "shop-target",
+            "shop-near", "shop-profile", "shop-maxr", "shop-refresh",
+            "ask-question", "model-select", "model-custom",
+        ]:
+            with self.subTest(field_id=field_id):
+                match = re.search(rf'<(?:input|select|textarea)[^>]+id="{field_id}"[^>]*>', html)
+                self.assertIsNotNone(match)
+                self.assertRegex(match.group(0), r'\sname="[^"]+"')
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,10 +19,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import cache, config, pipeline, profiles
+from . import __version__, cache, config, pipeline, profiles
 
 log = logging.getLogger(__name__)
-app = FastAPI(title="placeintel", version="0.4.0")
+app = FastAPI(title="placeintel", version=__version__)
 
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
