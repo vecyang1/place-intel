@@ -1,5 +1,18 @@
 # Changelog — place-intel
 
+## v0.4.4 — 2026-06-12 — stale review activity risk tag
+- Added a deterministic `activity_risk` signal for places with many historical
+  reviews but no recent known reviews. Current thresholds are conservative:
+  80+ total reviews, newest parsed review at least 180 days old, high severity at
+  365+ days. The tag warns to verify current operation; it does not claim closure.
+- Fed the activity signal into the reasoning prompt and saved report JSON/Markdown
+  so generated reports include the current-status caveat even when the model is
+  otherwise focused on price/facts/review complaints.
+- Exposed `activity_risk` on `/api/places` and `/api/places/{id}`, and rendered a
+  small cautious badge in the library plus a fuller warning line in shop detail.
+- Added unit coverage for stale/recent/low-volume boundaries and Playwright
+  coverage for visible badge/detail rendering.
+
 ## v0.4.3 — 2026-06-12 — list-valued Google category binding fix
 - Fixed a single-shop Google Maps failure where provider payloads could carry a
   list-valued category/metadata field into a SQLite `TEXT` column, causing

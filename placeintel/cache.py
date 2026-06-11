@@ -13,11 +13,16 @@ import sqlite3
 import time
 import unicodedata
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 
 from . import config
+
+ACTIVITY_RISK_MIN_TOTAL_REVIEWS = 80
+ACTIVITY_RISK_STALE_DAYS = 180
+ACTIVITY_RISK_HIGH_DAYS = 365
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS places (
@@ -344,6 +349,131 @@ def newest_review_scrape(conn: sqlite3.Connection, place_id: str | None = None) 
         f"SELECT MAX(scraped_at) AS ts FROM reviews {where}", params
     ).fetchone()
     return row["ts"] if row and row["ts"] else None
+
+
+def _review_date_ts(value, now_ts: float | None = None) -> float | None:
+    """Best-effort timestamp for provider review dates, including ISO and relative text."""
+    if value is None or value == "":
+        return None
+    now_ts = now_ts or time.time()
+    if isinstance(value, (int, float)):
+        numeric = float(value)
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            numeric = float(text)
+        except ValueError:
+            numeric = None
+        if numeric is None:
+            lower = text.casefold()
+            if lower in {"today", "just now", "now"}:
+                return now_ts
+            if lower == "yesterday":
+                return now_ts - 86400
+            match = re.search(
+                r"\b(a|an|one|\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago\b",
+                lower,
+            )
+            if match:
+                amount = 1 if match.group(1) in {"a", "an", "one"} else int(match.group(1))
+                unit_seconds = {
+                    "second": 1,
+                    "minute": 60,
+                    "hour": 3600,
+                    "day": 86400,
+                    "week": 7 * 86400,
+                    "month": 30 * 86400,
+                    "year": 365 * 86400,
+                }[match.group(2)]
+                return now_ts - amount * unit_seconds
+            match = re.search(r"(\d+)\s*(天|日|周|星期|个月|月|年)前", text)
+            if match:
+                amount = int(match.group(1))
+                unit_seconds = {
+                    "天": 86400,
+                    "日": 86400,
+                    "周": 7 * 86400,
+                    "星期": 7 * 86400,
+                    "个月": 30 * 86400,
+                    "月": 30 * 86400,
+                    "年": 365 * 86400,
+                }[match.group(2)]
+                return now_ts - amount * unit_seconds
+            normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
+            for candidate in (
+                lambda s: datetime.fromisoformat(s),
+                lambda s: datetime.strptime(s, "%Y-%m-%d"),
+                lambda s: datetime.strptime(s, "%Y/%m/%d"),
+            ):
+                try:
+                    dt = candidate(normalized)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    return dt.timestamp()
+                except ValueError:
+                    continue
+            return None
+    if numeric > 10_000_000_000:
+        numeric /= 1000
+    if numeric > 946684800:  # avoid interpreting bare years/counts as epochs
+        return numeric
+    return None
+
+
+def activity_risk(
+    conn: sqlite3.Connection,
+    place_id: str,
+    now_ts: float | None = None,
+    min_total_reviews: int = ACTIVITY_RISK_MIN_TOTAL_REVIEWS,
+    stale_days: int = ACTIVITY_RISK_STALE_DAYS,
+    high_days: int = ACTIVITY_RISK_HIGH_DAYS,
+) -> dict | None:
+    """Flag popular places whose latest known review is stale enough to verify live status."""
+    place = get_place(conn, place_id)
+    if not place:
+        return None
+    cached_reviews = conn.execute(
+        "SELECT COUNT(*) AS n FROM reviews WHERE place_id=?", (place_id,)
+    ).fetchone()["n"]
+    total_reviews = max(int(place["review_count"] or 0), int(cached_reviews or 0))
+    if total_reviews < min_total_reviews:
+        return None
+
+    now_ts = now_ts or time.time()
+    rows = conn.execute(
+        "SELECT review_date FROM reviews WHERE place_id=? AND review_date IS NOT NULL",
+        (place_id,),
+    ).fetchall()
+    parsed_dates = [
+        ts for ts in (_review_date_ts(row["review_date"], now_ts) for row in rows)
+        if ts is not None
+    ]
+    if not parsed_dates:
+        return None
+    newest_ts = max(parsed_dates)
+    days_since = max(0, int((now_ts - newest_ts) // 86400))
+    if days_since < stale_days:
+        return None
+
+    newest_date = datetime.fromtimestamp(newest_ts, tz=timezone.utc).date().isoformat()
+    severity = "high" if days_since >= high_days else "medium"
+    label = "可能已停业/低活跃" if severity == "high" else "近期活跃度偏低"
+    return {
+        "kind": "stale_review_activity",
+        "severity": severity,
+        "label": label,
+        "reason": (
+            f"历史累计约 {total_reviews} 条评价，但最新已知评价是 {newest_date}，"
+            f"距今约 {days_since} 天；出发前应核实仍在营业。"
+        ),
+        "total_reviews": total_reviews,
+        "cached_reviews": int(cached_reviews or 0),
+        "newest_review_date": newest_date,
+        "days_since_newest_review": days_since,
+        "stale_days": stale_days,
+    }
 
 
 def norm_name(s: str) -> str:

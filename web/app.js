@@ -232,6 +232,7 @@ function renderShopCard(p, featured) {
   return `<button type="button" class="shop-card${featured ? ' is-featured' : ''}" data-open-place="${esc(p.place_id)}">
     <div class="shop-card-top">
       <span class="shop-rating">${esc(stars(p.rating))}</span>
+      ${p.activity_risk ? `<span class="badge badge-risk">${esc(p.activity_risk.severity === 'high' ? '低活跃风险' : '近期偏静')}</span>` : ''}
       ${p.report_count ? `<span class="badge">报告 ×${fmtInt(p.report_count)}</span>` : ''}
     </div>
     <h3 class="shop-name">${esc(p.name)}</h3>
@@ -309,6 +310,7 @@ function renderDetail(data) {
   return `<header class="detail-shop">
     <p class="detail-kicker">${esc(p.category || '店铺')} · ${esc(stars(p.rating))} · ${fmtInt(p.review_count)} 条在列</p>
     <h2 class="detail-name">${esc(p.name || '未命名')}</h2>
+    ${p.activity_risk ? `<p class="activity-risk">${esc(p.activity_risk.label)} · ${esc(p.activity_risk.reason)}</p>` : ''}
     <p class="detail-fresh">已缓存 ${reviews.length} 条评价 · 更新于 ${esc(relTime(p.last_refreshed))}
       <button type="button" class="btn-ghost btn-danger" data-delete-place="${esc(p.place_id)}" data-place-name="${esc(p.name || '')}">从缓存移除 ✕</button>
     </p>

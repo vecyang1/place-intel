@@ -61,8 +61,18 @@ def _format_review(r: sqlite3.Row) -> str:
     return " ".join(parts)
 
 
+def _activity_risk_note(risk: dict | None) -> str:
+    if not risk:
+        return "none"
+    return (
+        f"{risk.get('severity', 'medium').upper()} {risk.get('label', 'activity risk')} — "
+        f"{risk.get('reason', '')}"
+    ).strip()
+
+
 def _build_prompt(place: sqlite3.Row, body: str, coverage: str, profile: dict,
-                  report_lang: str, evidence_lang: str) -> tuple[str, str]:
+                  report_lang: str, evidence_lang: str,
+                  activity_risk: dict | None = None) -> tuple[str, str]:
     dims = "\n".join(
         f"- KEY `{key}` — {d.get('title', key)}: {d.get('goal', '').strip()}"
         for key, d in profile["dimensions"].items()
@@ -77,6 +87,9 @@ the requested dimensions. Rules:
 - Evidence or it didn't happen: every finding cites 1-3 short review quotes with date+rating.
 - Prices: always note the review date next to any amount (prices drift).
 - Weigh recent reviews heavier; call out when old and new reviews disagree.
+- If an ACTIVITY RISK SIGNAL is present, treat it as a deterministic app signal:
+  mention it as a possible low-activity/not-currently-operating risk, but do not
+  claim the place is closed without direct evidence.
 - Detect fake-review patterns (bursts of thin same-day 5★) and say so.
 - {lang_rule}
 
@@ -103,6 +116,7 @@ walk_in_brief / verdict spec:
         f"({place['review_count']} reviews)\nphone: {place['phone']}\n"
         f"website: {place['website']}\nlisted hours: {hours}\n"
         f"price level: {place['price_level']}\n"
+        f"ACTIVITY RISK SIGNAL: {_activity_risk_note(activity_risk)}\n"
     )
     user = f"{listing}\nREVIEW EVIDENCE ({coverage}):\n{body}"
     return system, user
@@ -148,6 +162,15 @@ def render_markdown(report: dict, place: sqlite3.Row, profile_name: str,
         f"> {place['address'] or ''} · ★{place['rating']} ({place['review_count']} listed reviews, "
         f"{review_count} analyzed) · profile: {profile_name}",
         "",
+    ]
+    risk = report.get("activity_risk")
+    if isinstance(risk, dict):
+        lines += [
+            f"> **Activity risk tag:** {risk.get('label', 'low recent activity')} — "
+            f"{risk.get('reason', 'verify current operating status before going')}",
+            "",
+        ]
+    lines += [
         f"**Verdict:** {report.get('verdict', '?')}",
         "",
         "## 🚪 Walk-in Brief（进门前 30 秒）",
@@ -209,7 +232,10 @@ def analyze_place(conn: sqlite3.Connection, place_id: str, profile: dict,
         coverage = (f"ALL {len(reviews)} cached reviews mined via {len(chunks)} "
                     f"map-reduce digests; {place['review_count'] or '?'} listed on Google")
 
-    system, user = _build_prompt(place, body, coverage, profile, report_lang, evidence_lang)
+    activity_risk = cache.activity_risk(conn, place_id)
+    system, user = _build_prompt(
+        place, body, coverage, profile, report_lang, evidence_lang, activity_risk
+    )
     model = model or config.reason_model()
     log.info("analyzing %s: %d reviews → %s", place["name"], len(reviews), model)
 
@@ -219,6 +245,8 @@ def analyze_place(conn: sqlite3.Connection, place_id: str, profile: dict,
         config=types.GenerateContentConfig(system_instruction=system, temperature=0.2),
     )
     report = _parse_json(response.text)
+    if activity_risk:
+        report["activity_risk"] = activity_risk
     md = render_markdown(report, place, profile["name"], len(reviews))
     cache.save_report(conn, place_id, profile["name"], model, report, md, len(reviews))
     return report, md

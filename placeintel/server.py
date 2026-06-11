@@ -172,7 +172,12 @@ def places() -> JSONResponse:
            LEFT JOIN reports rep ON rep.place_id = p.place_id
            GROUP BY p.place_id ORDER BY p.last_refreshed DESC"""
     ).fetchall()
-    return JSONResponse([dict(r) for r in rows])
+    out = []
+    for row in rows:
+        item = dict(row)
+        item["activity_risk"] = cache.activity_risk(conn, row["place_id"])
+        out.append(item)
+    return JSONResponse(out)
 
 
 @app.get("/api/places/{place_id}")
@@ -191,10 +196,12 @@ def place_detail(place_id: str) -> dict:
            WHERE place_id=? ORDER BY created_at DESC LIMIT 1""",
         (place_id,),
     ).fetchone()
-    return {
-        "place": {k: place[k] for k in (
+    place_payload = {k: place[k] for k in (
             "place_id", "name", "category", "address", "phone", "website",
-            "hours_json", "rating", "review_count", "maps_url", "last_refreshed")},
+            "hours_json", "rating", "review_count", "maps_url", "last_refreshed")}
+    place_payload["activity_risk"] = cache.activity_risk(conn, place_id)
+    return {
+        "place": place_payload,
         "reviews": [dict(r) for r in reviews],
         "report": ({"md": report["report_md"], "json": json.loads(report["report_json"]),
                     "profile": report["profile"], "model": report["model"],

@@ -31,3 +31,32 @@ test('home has no console errors, no horizontal overflow, and visible first acti
   expect(metrics.buttonBg).not.toBe('rgba(0, 0, 0, 0)');
   expect(metrics.placeholderColor).not.toBe('rgba(0, 0, 0, 0)');
 });
+
+test('activity risk renders as a cautious visible tag', async ({ page }) => {
+  await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  const html = await page.evaluate(() => {
+    const place = {
+      place_id: 'synthetic-stale',
+      name: 'Synthetic Stale Cafe',
+      category: 'Cafe',
+      rating: 4.6,
+      review_count: 240,
+      cached_reviews: 120,
+      last_refreshed: Date.now() / 1000,
+      activity_risk: {
+        severity: 'high',
+        label: '可能已停业/低活跃',
+        reason: '历史评价很多，但最近没有新评价；出发前应核实仍在营业。',
+      },
+    };
+    return [
+      window.__pi.render.shopCard(place, false),
+      window.__pi.render.detail({ place, reviews: [], report: null }),
+    ].join('\n');
+  });
+
+  expect(html).toContain('badge-risk');
+  expect(html).toContain('低活跃风险');
+  expect(html).toContain('activity-risk');
+  expect(html).toContain('出发前应核实仍在营业');
+});
