@@ -33,6 +33,37 @@ jobs:
             fi
           done
 
+      - name: Run local verification gate
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+          PLACEINTEL_REASON_MODEL: ${{ secrets.PLACEINTEL_REASON_MODEL }}
+        run: |
+          set -euo pipefail
+          python3 -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -e ".[web]"
+          python -m unittest tests.test_web_static_contract -v
+          npm ci
+          npx playwright install --with-deps chromium
+          PLACEINTEL_PORT=9618 placeintel-web > /tmp/placeintel-web.log 2>&1 &
+          web_pid=$!
+          cleanup() {
+            kill "$web_pid" >/dev/null 2>&1 || true
+            cat /tmp/placeintel-web.log
+          }
+          trap cleanup EXIT
+          for _ in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:9618/api/meta; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:9618/api/meta
+          npm run test:web
+
       - name: Configure SSH
         env:
           GMR_DEPLOY_HOST: ${{ secrets.GMR_DEPLOY_HOST }}

@@ -8,6 +8,8 @@
 - Added repeatable web guards: Python static contract tests for the no-build SPA
   limits/contrast/copy, plus a Playwright smoke test for console errors, horizontal
   overflow, and first-action visibility.
+- The private VPS deploy workflow now runs those checks against a local web server
+  before SSH sync/restart, so broken UI changes fail before touching systemd.
 
 ## v0.4.1 — 2026-06-12 — private VPS deployment lane
 - Added a private GitHub Actions deployment workflow for a native systemd service
