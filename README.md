@@ -43,7 +43,7 @@ report, scoped ask, review browser), **提问 Ask** (cross-shop RAG).
 ## Verify locally
 
 ```bash
-.venv/bin/python -m unittest tests.test_web_static_contract -v
+.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v
 npm install
 npm run test:web   # requires the local web app on http://127.0.0.1:9618
 ```

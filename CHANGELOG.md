@@ -1,5 +1,13 @@
 # Changelog — place-intel
 
+## v0.4.3 — 2026-06-12 — list-valued Google category binding fix
+- Fixed a single-shop Google Maps failure where provider payloads could carry a
+  list-valued category/metadata field into a SQLite `TEXT` column, causing
+  `Error binding parameter 3: type 'list' is not supported`.
+- Added a cache contract regression that writes a `Place` with a list category and
+  verifies it is stored as readable text instead of crashing. Raw provider payloads
+  remain preserved in `raw_json`.
+
 ## v0.4.2 — 2026-06-12 — mobile UX hardening + repeatable web smoke
 - Strengthened the web UI contrast system so helper text, placeholders, and the
   primary Scout action read as active controls instead of disabled chrome on mobile.

@@ -146,6 +146,17 @@ def _migrate(conn: sqlite3.Connection) -> None:
             pass  # column already exists
 
 
+def _text_or_none(value) -> str | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, (list, tuple, set)):
+        parts = [_text_or_none(item) for item in value]
+        return " · ".join(part for part in parts if part) or None
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, default=str)
+    return str(value)
+
+
 def upsert_place(conn: sqlite3.Connection, place: Place) -> None:
     now = time.time()
     conn.execute(
@@ -164,10 +175,13 @@ def upsert_place(conn: sqlite3.Connection, place: Place) -> None:
             raw_json=excluded.raw_json
         """,
         (
-            place.place_id, place.name, place.category, place.address, place.lat,
-            place.lng, place.rating, place.review_count, place.phone, place.website,
+            place.place_id, place.name, _text_or_none(place.category),
+            _text_or_none(place.address), place.lat,
+            place.lng, place.rating, place.review_count,
+            _text_or_none(place.phone), _text_or_none(place.website),
             json.dumps(place.hours, ensure_ascii=False) if place.hours else None,
-            place.price_level, place.maps_url, place.source, now, now,
+            _text_or_none(place.price_level), _text_or_none(place.maps_url),
+            _text_or_none(place.source), now, now,
             json.dumps(place.raw, ensure_ascii=False, default=str),
         ),
     )
