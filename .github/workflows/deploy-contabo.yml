@@ -44,7 +44,7 @@ jobs:
           install -d -m 700 ~/.ssh
           printf '%s\n' "$GMR_DEPLOY_SSH_KEY" > ~/.ssh/gmr_deploy_key
           chmod 600 ~/.ssh/gmr_deploy_key
-          ssh-keyscan -p "$port" "$GMR_DEPLOY_HOST" >> ~/.ssh/known_hosts
+          ssh-keyscan -p "$port" -t rsa,ecdsa,ed25519 "$GMR_DEPLOY_HOST" >> ~/.ssh/known_hosts
 
       - name: Write deployment env file
         env:
@@ -75,7 +75,8 @@ jobs:
           set -euo pipefail
           port="${GMR_DEPLOY_PORT:-22}"
           remote="$GMR_DEPLOY_USER@$GMR_DEPLOY_HOST"
-          ssh_opts=(-i ~/.ssh/gmr_deploy_key -p "$port" -o StrictHostKeyChecking=yes)
+          keyfile="$HOME/.ssh/gmr_deploy_key"
+          ssh_opts=(-i "$keyfile" -p "$port" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20)
           ssh "${ssh_opts[@]}" "$remote" "mkdir -p '$GMR_DEPLOY_DIR/app'"
           rsync -az --delete \
             --exclude='.git/' \
@@ -85,7 +86,7 @@ jobs:
             --exclude='vendor/' \
             --exclude='.env' \
             --exclude='.env.*' \
-            -e "ssh -i ~/.ssh/gmr_deploy_key -p $port -o StrictHostKeyChecking=yes" \
+            -e "ssh -i '$keyfile' -p $port -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20" \
             ./ "$remote:$GMR_DEPLOY_DIR/app/"
           scp "${ssh_opts[@]}" .deploy.env "$remote:$GMR_DEPLOY_DIR/app/.env"
 
@@ -99,7 +100,7 @@ jobs:
           set -euo pipefail
           port="${GMR_DEPLOY_PORT:-22}"
           remote="$GMR_DEPLOY_USER@$GMR_DEPLOY_HOST"
-          ssh -i ~/.ssh/gmr_deploy_key -p "$port" -o StrictHostKeyChecking=yes "$remote" \
+          ssh -i "$HOME/.ssh/gmr_deploy_key" -p "$port" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 "$remote" \
             "GMR_DEPLOY_DIR='$GMR_DEPLOY_DIR' bash '$GMR_DEPLOY_DIR/app/deploy/remote-bootstrap.sh'"
 
       - name: Verify service health through SSH
@@ -111,5 +112,5 @@ jobs:
           set -euo pipefail
           port="${GMR_DEPLOY_PORT:-22}"
           remote="$GMR_DEPLOY_USER@$GMR_DEPLOY_HOST"
-          ssh -i ~/.ssh/gmr_deploy_key -p "$port" -o StrictHostKeyChecking=yes "$remote" \
+          ssh -i "$HOME/.ssh/gmr_deploy_key" -p "$port" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 "$remote" \
             "curl -fsS http://127.0.0.1:9618/api/meta"
