@@ -48,6 +48,32 @@ class WebStaticContractTest(unittest.TestCase):
                     f"{token} should mix against paper for predictable contrast",
                 )
 
+    def test_browser_chrome_matches_light_dark_theme(self) -> None:
+        html = (WEB / "index.html").read_text(encoding="utf-8")
+        css = (WEB / "app.css").read_text(encoding="utf-8")
+        self.assertRegex(
+            html,
+            r'<meta name="theme-color" content="[^"]+" media="\(prefers-color-scheme: light\)">',
+        )
+        self.assertRegex(
+            html,
+            r'<meta name="theme-color" content="[^"]+" media="\(prefers-color-scheme: dark\)">',
+        )
+        self.assertRegex(css, r"html\s*\{[^}]*color-scheme:\s*light dark;", re.S)
+
+    def test_accent_buttons_use_on_accent_text_token(self) -> None:
+        css = (WEB / "app.css").read_text(encoding="utf-8")
+        self.assertIn("--on-accent:", css)
+        for selector in [".btn-primary", ".btn-small"]:
+            self.assertRegex(
+                css,
+                rf"{re.escape(selector)}\s*\{{[^}}]*color:\s*var\(--on-accent\);",
+            )
+            self.assertNotRegex(
+                css,
+                rf"{re.escape(selector)}\s*\{{[^}}]*color:\s*var\(--paper\);",
+            )
+
     def test_textarea_placeholder_lines_fit_mobile_width(self) -> None:
         html = (WEB / "index.html").read_text(encoding="utf-8")
         for field_id in ["scout-query", "ask-question"]:

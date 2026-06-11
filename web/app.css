@@ -5,6 +5,7 @@
   --paper: oklch(97% 0.005 90);
   --ink: oklch(22% 0.01 270);
   --accent: oklch(45% 0.2 25);
+  --on-accent: oklch(99% 0.003 90);
   --accent-soft: oklch(92% 0.055 25);
   --ok: oklch(52% 0.11 155);
   --line: oklch(85% 0.01 270);
@@ -38,7 +39,7 @@
 /* ============ base ============ */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 [hidden] { display: none !important; }
-html { scrollbar-gutter: stable; }
+html { color-scheme: light dark; scrollbar-gutter: stable; }
 body {
   background: var(--paper);
   color: var(--ink);
@@ -187,7 +188,7 @@ textarea.query-input { min-height: 6em; }
   font-size: 1.02rem;
   font-weight: 650;
   background: var(--accent);
-  color: var(--paper);
+  color: var(--on-accent);
   border-radius: var(--radius-sm);
   transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), opacity var(--dur-fast);
 }
@@ -210,7 +211,7 @@ textarea.query-input { min-height: 6em; }
   font-size: 0.9rem;
   padding: 0.55rem 1rem;
   background: var(--accent);
-  color: var(--paper);
+  color: var(--on-accent);
   border-radius: var(--radius-sm);
   flex-shrink: 0;
 }

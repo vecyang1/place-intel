@@ -1,5 +1,15 @@
 # Changelog — place-intel
 
+## v0.4.9 — 2026-06-12 — browser chrome theming
+- Added light/dark `theme-color` metadata so mobile and desktop browser chrome
+  matches the app surface instead of falling back to default colors.
+- Declared CSS `color-scheme: light dark` on the document root so native form
+  controls and scrollbars align with the app's light/dark tokens.
+- Added an explicit on-accent text token so primary buttons stay readable and
+  intentional in dark mode.
+- Added static regressions for browser chrome metadata, CSS theme support, and
+  accent-button text color.
+
 ## v0.4.8 — 2026-06-12 — placeholder polish + JS headroom
 - Tightened input placeholders against the Web Interface Guidelines: every
   placeholder now shows an example pattern and ends with an ellipsis.
