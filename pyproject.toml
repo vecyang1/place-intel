@@ -1,0 +1,26 @@
+[project]
+name = "placeintel"
+version = "0.4.0"
+description = "Google Maps place + review intelligence: scrape, cache, embed, reason. Walk in armed."
+requires-python = ">=3.10"
+dependencies = [
+    "google-genai>=1.0",
+    "python-dotenv>=1.0",
+    "pyyaml>=6.0",
+    "numpy>=1.26",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+web = ["fastapi>=0.110", "uvicorn>=0.29"]
+
+[project.scripts]
+placeintel = "placeintel.cli:main"
+placeintel-web = "placeintel.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["placeintel"]

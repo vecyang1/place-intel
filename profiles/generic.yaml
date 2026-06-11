@@ -1,0 +1,3 @@
+# Profile: generic — core dimensions only (price, hard facts, red flags).
+# Use for any place type without a specialized profile.
+dimensions: {}

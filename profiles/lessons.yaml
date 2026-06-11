@@ -1,0 +1,18 @@
+# Profile: lessons / classes (music school, guitar teacher, language class, gym coach...)
+dimensions:
+  people:
+    title: "人和服务 Teachers & Staff"
+    goal: >
+      Identify every teacher/instructor mentioned by name, what reviewers say about
+      each (style, patience, skill level taught), and which one is most praised.
+      Note staff turnover signals (old reviews praise X, new ones never mention X).
+  schedule:
+    title: "时间安排 Schedule Reality"
+    goal: >
+      Reconstruct how lessons actually run from reviews: class times, booking lead
+      time, walk-in friendliness, cancellation policy, busy vs quiet hours.
+  level_fit:
+    title: "水平匹配 Level Fit"
+    goal: >
+      What student levels do reviewers represent (beginner/intermediate/advanced)?
+      Does the place handle adult beginners and travelers/short-term students well?
