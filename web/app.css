@@ -4,15 +4,15 @@
 :root {
   --paper: oklch(97% 0.005 90);
   --ink: oklch(22% 0.01 270);
-  --accent: oklch(58% 0.18 25);
-  --accent-soft: oklch(94% 0.04 25);
+  --accent: oklch(45% 0.2 25);
+  --accent-soft: oklch(92% 0.055 25);
   --ok: oklch(52% 0.11 155);
   --line: oklch(85% 0.01 270);
   --line-soft: oklch(90% 0.008 270);
   --card: color-mix(in oklab, var(--paper) 96%, var(--accent));
-  --ink-70: color-mix(in oklab, var(--ink) 70%, transparent);
-  --ink-55: color-mix(in oklab, var(--ink) 55%, transparent);
-  --ink-40: color-mix(in oklab, var(--ink) 40%, transparent);
+  --ink-70: color-mix(in oklab, var(--ink) 82%, var(--paper));
+  --ink-55: color-mix(in oklab, var(--ink) 72%, var(--paper));
+  --ink-40: color-mix(in oklab, var(--ink) 62%, var(--paper));
   --mono: "SF Mono", ui-monospace, Menlo, monospace;
   --serif: "Songti SC", "Noto Serif SC", Georgia, serif;
   --sans: -apple-system, "PingFang SC", "Segoe UI", sans-serif;
@@ -129,7 +129,7 @@ input, select, textarea {
   color: var(--ink);
   transition: border-color var(--dur-fast) var(--ease);
 }
-input::placeholder, textarea::placeholder { color: var(--ink-40); }
+input::placeholder, textarea::placeholder { color: var(--ink-40); opacity: 1; }
 input:hover, select:hover, textarea:hover { border-color: var(--ink-55); }
 input:focus, select:focus, textarea:focus {
   outline: 2px solid var(--accent);
@@ -137,6 +137,7 @@ input:focus, select:focus, textarea:focus {
   border-color: transparent;
 }
 textarea { resize: vertical; min-height: 3.2em; }
+textarea.query-input { min-height: 6em; }
 .query-input { font-size: 1.12rem; padding: 0.85rem 1rem; line-height: 1.55; }
 .is-invalid { border-color: var(--accent) !important; animation: shake 0.3s var(--ease); }
 

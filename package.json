@@ -1,0 +1,11 @@
+{
+  "name": "placeintel-web-smoke",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:web": "playwright test tests/ui-audit.spec.js --browser=chromium --reporter=list --output=output/playwright/test-results"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1"
+  }
+}

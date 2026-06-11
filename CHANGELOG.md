@@ -1,5 +1,14 @@
 # Changelog — place-intel
 
+## v0.4.2 — 2026-06-12 — mobile UX hardening + repeatable web smoke
+- Strengthened the web UI contrast system so helper text, placeholders, and the
+  primary Scout action read as active controls instead of disabled chrome on mobile.
+- Enlarged the natural-language query textarea and shortened the mobile placeholder
+  copy so examples no longer clip in the first viewport.
+- Added repeatable web guards: Python static contract tests for the no-build SPA
+  limits/contrast/copy, plus a Playwright smoke test for console errors, horizontal
+  overflow, and first-action visibility.
+
 ## v0.4.1 — 2026-06-12 — private VPS deployment lane
 - Added a private GitHub Actions deployment workflow for a native systemd service
   on a Contabo/Ubuntu VPS. The service stays bound to `127.0.0.1:9618` by default

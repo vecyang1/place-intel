@@ -4,6 +4,8 @@
 
 # Generated / local data (SQLite caches, scraped reviews, reports, logs, settings)
 data/
+output/
+node_modules/
 
 # Vendored third-party scraper — cloned at setup time (see README)
 vendor/

@@ -40,6 +40,14 @@ the AI's plan, filter verdicts, and every pipeline stage), **单店 Shop** (one 
 focused dossier), **资料库 Library** (cached shops + past searches → shop dossier with
 report, scoped ask, review browser), **提问 Ask** (cross-shop RAG).
 
+## Verify locally
+
+```bash
+.venv/bin/python -m unittest tests.test_web_static_contract -v
+npm install
+npm run test:web   # requires the local web app on http://127.0.0.1:9618
+```
+
 ## Private VPS deploy
 
 The private deployment path is GitHub Actions → SSH → native systemd service. It
