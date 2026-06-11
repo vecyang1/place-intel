@@ -51,7 +51,8 @@ fi
 
 install -d -m 0755 "$APP_DIR/data" "$APP_DIR/vendor"
 chown -R "$RUN_USER:$RUN_USER" "$APP_DIR/data"
-chmod 600 "$ENV_FILE"
+chown "root:$RUN_USER" "$ENV_FILE"
+chmod 640 "$ENV_FILE"
 
 if [ ! -d "$VENDOR_DIR/.git" ]; then
   rm -rf "$VENDOR_DIR"
