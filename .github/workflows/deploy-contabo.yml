@@ -1,0 +1,115 @@
+name: Deploy to Contabo EU VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: placeintel-contabo-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Validate required secrets
+        env:
+          GMR_DEPLOY_HOST: ${{ secrets.GMR_DEPLOY_HOST }}
+          GMR_DEPLOY_USER: ${{ secrets.GMR_DEPLOY_USER }}
+          GMR_DEPLOY_SSH_KEY: ${{ secrets.GMR_DEPLOY_SSH_KEY }}
+          GMR_DEPLOY_DIR: ${{ secrets.GMR_DEPLOY_DIR }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+        run: |
+          set -euo pipefail
+          for name in GMR_DEPLOY_HOST GMR_DEPLOY_USER GMR_DEPLOY_SSH_KEY GMR_DEPLOY_DIR GOOGLE_API_KEY VECTORENGINE_API_KEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required secret: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Configure SSH
+        env:
+          GMR_DEPLOY_HOST: ${{ secrets.GMR_DEPLOY_HOST }}
+          GMR_DEPLOY_PORT: ${{ secrets.GMR_DEPLOY_PORT }}
+          GMR_DEPLOY_SSH_KEY: ${{ secrets.GMR_DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          port="${GMR_DEPLOY_PORT:-22}"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$GMR_DEPLOY_SSH_KEY" > ~/.ssh/gmr_deploy_key
+          chmod 600 ~/.ssh/gmr_deploy_key
+          ssh-keyscan -p "$port" "$GMR_DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Write deployment env file
+        env:
+          GMR_DEPLOY_DIR: ${{ secrets.GMR_DEPLOY_DIR }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+          PLACEINTEL_REASON_MODEL: ${{ secrets.PLACEINTEL_REASON_MODEL }}
+        run: |
+          set -euo pipefail
+          reason_model="${PLACEINTEL_REASON_MODEL:-gemini-2.5-flash}"
+          {
+            printf 'GOOGLE_API_KEY=%s\n' "$GOOGLE_API_KEY"
+            printf 'VECTORENGINE_API_KEY=%s\n' "$VECTORENGINE_API_KEY"
+            printf 'SERPAPI_API_KEY=%s\n' "${SERPAPI_API_KEY:-}"
+            printf 'PLACEINTEL_REASON_MODEL=%s\n' "$reason_model"
+            printf 'PLACEINTEL_DATA_DIR=%s/app/data\n' "$GMR_DEPLOY_DIR"
+          } > .deploy.env
+          chmod 600 .deploy.env
+
+      - name: Sync app to VPS
+        env:
+          GMR_DEPLOY_HOST: ${{ secrets.GMR_DEPLOY_HOST }}
+          GMR_DEPLOY_USER: ${{ secrets.GMR_DEPLOY_USER }}
+          GMR_DEPLOY_PORT: ${{ secrets.GMR_DEPLOY_PORT }}
+          GMR_DEPLOY_DIR: ${{ secrets.GMR_DEPLOY_DIR }}
+        run: |
+          set -euo pipefail
+          port="${GMR_DEPLOY_PORT:-22}"
+          remote="$GMR_DEPLOY_USER@$GMR_DEPLOY_HOST"
+          ssh_opts=(-i ~/.ssh/gmr_deploy_key -p "$port" -o StrictHostKeyChecking=yes)
+          ssh "${ssh_opts[@]}" "$remote" "mkdir -p '$GMR_DEPLOY_DIR/app'"
+          rsync -az --delete \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='.venv/' \
+            --exclude='data/' \
+            --exclude='vendor/' \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            -e "ssh -i ~/.ssh/gmr_deploy_key -p $port -o StrictHostKeyChecking=yes" \
+            ./ "$remote:$GMR_DEPLOY_DIR/app/"
+          scp "${ssh_opts[@]}" .deploy.env "$remote:$GMR_DEPLOY_DIR/app/.env"
+
+      - name: Bootstrap and restart service
+        env:
+          GMR_DEPLOY_HOST: ${{ secrets.GMR_DEPLOY_HOST }}
+          GMR_DEPLOY_USER: ${{ secrets.GMR_DEPLOY_USER }}
+          GMR_DEPLOY_PORT: ${{ secrets.GMR_DEPLOY_PORT }}
+          GMR_DEPLOY_DIR: ${{ secrets.GMR_DEPLOY_DIR }}
+        run: |
+          set -euo pipefail
+          port="${GMR_DEPLOY_PORT:-22}"
+          remote="$GMR_DEPLOY_USER@$GMR_DEPLOY_HOST"
+          ssh -i ~/.ssh/gmr_deploy_key -p "$port" -o StrictHostKeyChecking=yes "$remote" \
+            "GMR_DEPLOY_DIR='$GMR_DEPLOY_DIR' bash '$GMR_DEPLOY_DIR/app/deploy/remote-bootstrap.sh'"
+
+      - name: Verify service health through SSH
+        env:
+          GMR_DEPLOY_HOST: ${{ secrets.GMR_DEPLOY_HOST }}
+          GMR_DEPLOY_USER: ${{ secrets.GMR_DEPLOY_USER }}
+          GMR_DEPLOY_PORT: ${{ secrets.GMR_DEPLOY_PORT }}
+        run: |
+          set -euo pipefail
+          port="${GMR_DEPLOY_PORT:-22}"
+          remote="$GMR_DEPLOY_USER@$GMR_DEPLOY_HOST"
+          ssh -i ~/.ssh/gmr_deploy_key -p "$port" -o StrictHostKeyChecking=yes "$remote" \
+            "curl -fsS http://127.0.0.1:9618/api/meta"

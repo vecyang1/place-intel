@@ -1,5 +1,14 @@
 # Changelog — place-intel
 
+## v0.4.1 — 2026-06-12 — private VPS deployment lane
+- Added a private GitHub Actions deployment workflow for a native systemd service
+  on a Contabo/Ubuntu VPS. The service stays bound to `127.0.0.1:9618` by default
+  so the AI-key-backed web UI is not exposed publicly without an explicit proxy.
+- Added `deploy/remote-bootstrap.sh`: idempotent remote setup for Python venv,
+  Google Chrome, vendored review scraper, service restart, and local health check.
+- Expanded secret hygiene: `.env.*` is ignored, app/runtime keys are expected via
+  local/VPS env files and GitHub Secrets, never committed.
+
 ## Open-sourced — 2026-06-11 (MIT)
 - First public release on GitHub: <https://github.com/vecyang1/place-intel>.
 - Added `LICENSE` (MIT), `.env.example`, and install/setup docs (including cloning

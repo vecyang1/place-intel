@@ -40,6 +40,33 @@ the AI's plan, filter verdicts, and every pipeline stage), **单店 Shop** (one 
 focused dossier), **资料库 Library** (cached shops + past searches → shop dossier with
 report, scoped ask, review browser), **提问 Ask** (cross-shop RAG).
 
+## Private VPS deploy
+
+The private deployment path is GitHub Actions → SSH → native systemd service. It
+keeps the FastAPI web app on VPS loopback (`127.0.0.1:9618`) by default; use an
+SSH tunnel or add a deliberate HTTPS/auth proxy before exposing it publicly.
+
+Required private-repo secrets:
+
+```text
+GMR_DEPLOY_HOST
+GMR_DEPLOY_USER
+GMR_DEPLOY_PORT
+GMR_DEPLOY_SSH_KEY
+GMR_DEPLOY_DIR
+GOOGLE_API_KEY
+VECTORENGINE_API_KEY
+SERPAPI_API_KEY
+PLACEINTEL_REASON_MODEL
+```
+
+After deploy, tunnel the frontend from your Mac:
+
+```bash
+ssh -N -L 9619:127.0.0.1:9618 <vps-ssh-alias>
+open http://127.0.0.1:9619
+```
+
 ## How it works
 
 ```
