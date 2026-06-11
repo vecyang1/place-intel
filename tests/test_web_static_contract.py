@@ -18,6 +18,12 @@ class WebStaticContractTest(unittest.TestCase):
                     800,
                     f"{path.name} has {line_count} lines; AGENTS.md keeps web files below 800",
                 )
+                if path.name == "app.js":
+                    self.assertLessEqual(
+                        line_count,
+                        780,
+                        "app.js should keep at least 19 spare lines for future urgent UX fixes",
+                    )
 
     def test_mobile_query_textarea_has_readable_height(self) -> None:
         css = (WEB / "app.css").read_text(encoding="utf-8")
@@ -51,6 +57,21 @@ class WebStaticContractTest(unittest.TestCase):
                 placeholder = unescape(match.group(1))
                 longest = max(len(line) for line in placeholder.splitlines())
                 self.assertLessEqual(longest, 48)
+
+    def test_placeholders_use_example_pattern_and_ellipsis(self) -> None:
+        sources = [
+            ("index.html", (WEB / "index.html").read_text(encoding="utf-8")),
+            ("app.js", (WEB / "app.js").read_text(encoding="utf-8")),
+        ]
+        for source_name, source in sources:
+            for raw in re.findall(r'placeholder="([^"]+)"', source):
+                placeholder = unescape(raw)
+                with self.subTest(source=source_name, placeholder=placeholder):
+                    self.assertIn("例", placeholder)
+                    self.assertTrue(
+                        placeholder.rstrip().endswith("…"),
+                        "placeholder should end with ellipsis",
+                    )
 
     def test_shell_has_skip_link_main_target_and_named_controls(self) -> None:
         html = (WEB / "index.html").read_text(encoding="utf-8")

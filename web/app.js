@@ -5,11 +5,9 @@
    FIRST, then transformed. */
 'use strict';
 
-/* ============ DOM helpers ============ */
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-/* ============ escaping & formatting (pure) ============ */
 const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ESC_MAP[ch]);
@@ -51,7 +49,6 @@ function safeUrl(u) {
   return /^https?:\/\//i.test(String(u || '')) ? String(u) : null;
 }
 
-/* ============ markdown — escape FIRST, then transform (pure) ============ */
 function mdInline(escaped) {
   return escaped
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
@@ -81,7 +78,6 @@ function mdToHtml(md) {
   return out.join('');
 }
 
-/* ============ api ============ */
 async function apiGet(path) {
   const res = await fetch(path, { headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error(`HTTP ${res.status} — GET ${path}`);
@@ -106,7 +102,6 @@ async function apiDelete(path) {
   return res.json();
 }
 
-/* ============ state ============ */
 const POLL_MS = 2000;
 const MAX_POLL_FAILS = 5;
 const STAGES = {
@@ -132,7 +127,6 @@ const state = {
   meta: null, // {version, reason: {model, provider}, embed: {model, provider}}
 };
 
-/* ============ small UI fragments (pure) ============ */
 function loadingHtml(msg) {
   return `<p class="loading">${esc(msg)} <span class="dots">●●●</span></p>`;
 }
@@ -146,7 +140,6 @@ function emptyHtml(msg, gotoTab, gotoLabel) {
   return `<div class="empty">${esc(msg)}${btn}</div>`;
 }
 
-/* ============ render: timeline (pure) ============ */
 function renderPlanCard(plan) {
   if (!plan) return '';
   const queries = (plan.queries || [])
@@ -188,7 +181,6 @@ function renderEvent(ev) {
   </li>`;
 }
 
-/* ============ render: results (pure) ============ */
 function renderReportArticle(rep) {
   const mdHasTitle = /^#\s/.test(String(rep.md ?? '')); // avoid doubling the serif title
   return `<article class="report">
@@ -230,7 +222,6 @@ function renderResult(result) {
   return parts.join('');
 }
 
-/* ============ render: library (pure) ============ */
 function renderShopCard(p, featured) {
   return `<button type="button" class="shop-card${featured ? ' is-featured' : ''}" data-open-place="${esc(p.place_id)}">
     <div class="shop-card-top">
@@ -272,7 +263,6 @@ function renderSearchRow(s) {
   </li>`;
 }
 
-/* ============ render: shop detail (pure) ============ */
 function renderHours(hoursJson) {
   if (!hoursJson) return '';
   let h = hoursJson;
@@ -329,7 +319,7 @@ function renderDetail(data) {
     <form class="ask-shop-form" data-place-id="${esc(p.place_id)}">
       <label>只问这家店 <span class="label-en">ask this shop</span></label>
       <div class="ask-inline">
-        <input type="text" class="ask-shop-input" autocomplete="off" placeholder="例：他们家能修琴吗？老板态度怎么样？">
+        <input type="text" class="ask-shop-input" autocomplete="off" placeholder="例：他们家能修琴吗？老板态度怎么样？…">
         <button type="submit" class="btn-small">问 →</button>
       </div>
     </form>
@@ -342,7 +332,6 @@ function renderDetail(data) {
   </details>`;
 }
 
-/* ============ jobs: submit + poll (append-only timeline) ============ */
 function jobEls(kind) {
   return {
     wrap: $(`#${kind}-job`),
@@ -438,7 +427,6 @@ async function pollJob(kind) {
   if (state.libraryLoaded) loadLibrary(); // keep library tab fresh in background
 }
 
-/* ============ library ============ */
 async function loadLibrary() {
   const grid = $('#library-grid');
   const status = $('#library-status');
@@ -467,7 +455,6 @@ async function loadLibrary() {
   }
 }
 
-/* ============ shop detail overlay ============ */
 async function openDetail(placeId) {
   const overlay = $('#detail-overlay');
   const body = $('#detail-body');
@@ -504,7 +491,6 @@ function trapDetailFocus(e) {
   if (!e.shiftKey && active === last) { e.preventDefault(); first.focus({ preventScroll: true }); }
 }
 
-/* ============ tabs ============ */
 function switchTab(name, syncHash = true) {
   if (!TAB_NAMES.includes(name)) name = 'scout';
   state.tab = name;
@@ -526,7 +512,6 @@ function switchTab(name, syncHash = true) {
   }
 }
 
-/* ============ forms ============ */
 function flashInvalid(el) {
   el.classList.add('is-invalid');
   el.focus();
@@ -597,7 +582,6 @@ function bindForms() {
   });
 }
 
-/* ============ ask: shared runner + QA answer cache ============ */
 function renderAnswer(res, q, placeId) {
   const cachedNote = res.cached
     ? `<div class="answer-cached">⚡ 缓存答案 · 来自 ${esc(relTime(res.created_at))}的相同问题
@@ -648,7 +632,6 @@ async function loadQaHistory(placeId) {
   } catch { /* history is optional decoration */ }
 }
 
-/* ============ global delegation & init ============ */
 function bindGlobal() {
   document.addEventListener('click', (e) => {
     const tab = e.target.closest('[data-tab]');
@@ -731,7 +714,6 @@ async function loadMeta() {
   } catch { /* backend offline — footer stays minimal */ }
 }
 
-/* ============ model picker — list is LIVE from the provider, never baked in ============ */
 const CUSTOM_MODEL = '__custom__';
 async function toggleModelPicker() {
   const picker = $('#model-picker');
@@ -788,7 +770,6 @@ function init() {
 }
 init();
 
-/* debug handle — pure renderers, state, and actions for integration debugging */
 window.__pi = {
   state,
   esc, mdToHtml, relTime, stars, fmtClock, safeUrl,

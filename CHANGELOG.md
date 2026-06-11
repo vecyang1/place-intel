@@ -1,5 +1,13 @@
 # Changelog — place-intel
 
+## v0.4.8 — 2026-06-12 — placeholder polish + JS headroom
+- Tightened input placeholders against the Web Interface Guidelines: every
+  placeholder now shows an example pattern and ends with an ellipsis.
+- Added a static regression so future placeholders keep that shape across the
+  HTML shell and rendered shop-dossier ask form.
+- Reduced `web/app.js` from 799 to 780 lines, leaving budget headroom for urgent
+  no-build SPA fixes while staying inside the 3-file app constraint.
+
 ## Deployment — 2026-06-12 — protected public domain
 - Added the production domain `gmr.worldinspirelab.com` through Cloudflare and
   the existing EU VPS Traefik stack.
