@@ -1,5 +1,11 @@
 # Changelog — place-intel
 
+## Open-sourced — 2026-06-11 (MIT)
+- First public release on GitHub: <https://github.com/vecyang1/place-intel>.
+- Added `LICENSE` (MIT), `.env.example`, and install/setup docs (including cloning
+  the vendored MIT review scraper). Config now also loads a project-local `.env`.
+- Open-source credits added (gosom maps scraper, google-reviews-scraper-pro, Gemini, SerpAPI).
+
 ## v0.4.0 — 2026-06-11 — front-end model switching (live list, persisted)
 - **The reasoning model is now user-switchable and remembered**: footer 「更换模型 ⇄」
   opens a picker; the choice is persisted in `data/settings.json` and shared by
