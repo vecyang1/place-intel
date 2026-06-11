@@ -1,5 +1,13 @@
 # Changelog — place-intel
 
+## Deployment — 2026-06-12 — protected public domain
+- Added the production domain `gmr.worldinspirelab.com` through Cloudflare and
+  the existing EU VPS Traefik stack.
+- Kept the app process loopback-only on `127.0.0.1:9618`; public traffic enters
+  through a dedicated `/docker/gmr-proxy` bridge and Traefik Basic Auth.
+- Stored the public-domain login in local `.env.gmr-domain` (gitignored by
+  `.env.*`); the VPS stores only the Basic Auth hash.
+
 ## v0.4.7 — 2026-06-12 — dossier modal focus trap
 - The shop dossier now traps Tab and Shift+Tab inside the modal while it is open,
   so keyboard users do not land on hidden background controls.

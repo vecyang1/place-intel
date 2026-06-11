@@ -51,8 +51,7 @@ npm run test:web   # requires the local web app on http://127.0.0.1:9618
 ## Private VPS deploy
 
 The private deployment path is GitHub Actions → SSH → native systemd service. It
-keeps the FastAPI web app on VPS loopback (`127.0.0.1:9618`) by default; use an
-SSH tunnel or add a deliberate HTTPS/auth proxy before exposing it publicly.
+keeps the FastAPI web app on VPS loopback (`127.0.0.1:9618`) by default.
 
 Required private-repo secrets:
 
@@ -73,6 +72,39 @@ After deploy, tunnel the frontend from your Mac:
 ```bash
 ssh -N -L 9619:127.0.0.1:9618 <vps-ssh-alias>
 open http://127.0.0.1:9619
+```
+
+### Protected public domain
+
+Production URL: <https://gmr.worldinspirelab.com>
+
+The public domain is intentionally protected with Traefik Basic Auth because the
+web app can spend API credits and mutate the local cache. The login is stored in
+the gitignored local env file:
+
+```bash
+source .env.gmr-domain
+open "$GMR_PUBLIC_URL"
+```
+
+On the VPS, the app remains loopback-only under `placeintel.service`. Traefik
+exposes it through a small bridge compose unit at `/docker/gmr-proxy`:
+
+- `gmr-host-bridge`: host-network `socat`, listens only on the Docker bridge
+  gateway `172.18.0.1:9619`, forwards to `127.0.0.1:9618`.
+- `gmr-proxy`: attached to `n8n_default`, forwards container port `9618` to the
+  host bridge, and carries the Traefik router/middleware labels.
+- UFW allows only `172.18.0.0/16 -> 172.18.0.1:9619` on the n8n Docker bridge.
+- Cloudflare DNS record: `gmr.worldinspirelab.com` A record, proxied, targeting
+  the EU VPS origin.
+
+Verify:
+
+```bash
+source .env.gmr-domain
+curl -fsS -u "$GMR_PUBLIC_BASIC_USER:$GMR_PUBLIC_BASIC_PASSWORD" \
+  "$GMR_PUBLIC_URL/api/meta"
+curl -sSI "$GMR_PUBLIC_URL/api/meta" | head
 ```
 
 ## How it works
