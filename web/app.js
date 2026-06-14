@@ -226,7 +226,7 @@ function renderHours(hoursJson) {
   return esc(String(hoursJson));
 }
 const LANG_META = { zh: ['中文', 'Chinese', 'Vec native / Chinese readers'], en: ['English', 'EN', 'Global travelers'], vi: ['Tiếng Việt', 'Vietnamese', 'Local Vietnamese voices'], ko: ['한국어', 'Korean', 'Korean visitors'], ja: ['日本語', 'Japanese', 'Japanese visitors'], th: ['ไทย', 'Thai', 'Thai visitors'], other: ['其他语言', 'Other', 'Mixed language'], unknown: ['无文字', 'No text', 'Rating-only'] };
-const LANG_ORDER = ['zh', 'en', 'vi', 'ko', 'ja', 'th', 'other', 'unknown'];
+const LANG_ORDER = ['zh', 'en', 'vi', 'ko', 'ja', 'th', 'other', 'unknown'], RATING_FILTERS = [['all', '全部评分', 'All'], ['5', '5★', 'great'], ['4', '4★', 'ok'], ['low', '≤3★', '问题']];
 const VI_RE = /[ăâđêôơưáàảãạắằẳẵặấầẩẫậéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]|\b(và|không|nhưng|đẹp|đường|người|nên|khó|rất|chơi|biển|rác|nước|nơi|này|cửa hàng|phục vụ|chất lượng)\b/i;
 const THEME_RULES = [['price', '价格', 'price', /价格|价钱|公道|押金|贵|便宜|price|cost|cheap|expensive|deposit|phí|giá|tiền/i], ['service', '服务/态度', 'service', /服务|老板|态度|helpful|friendly|owner|staff|service|phục vụ|nhân viên|chủ|친절/i], ['quality', '质量/效果', 'quality', /质量|品质|效果|好用|guitar|instrument|quality|selection|đàn|chất lượng|악기/i], ['access', '到达/停车', 'access', /停车|到达|难找|滑|parking|road|access|enter|đường|vào|khó|trượt|leo|주차/i], ['repair', '维修/调琴', 'repair', /修|维修|调琴|调整|repair|setup|action|eq|fix|lắp|chỉnh/i], ['rental', '租赁', 'rental', /租|租赁|rental|rent|hire|thuê/i], ['availability', '选择/库存', 'availability', /选择|库存|现货|available|selection|stock|nhiều|lựa chọn/i], ['crowd', '人流/安静', 'crowd', /人多|排队|拥挤|安静|crowd|busy|quiet|overcrowded|đông|ồn ào/i], ['clean', '清洁/垃圾', 'cleanliness', /干净|垃圾|塑料|clean|trash|plastic|rác|chai nhựa/i], ['view', '景色/氛围', 'view', /漂亮|景色|氛围|view|beautiful|gorgeous|serene|đẹp|trong xanh|mát/i], ['food', '饮食', 'food/drink', /咖啡|椰子|吃|drink|coffee|coconut|food|cafe|nước/i]];
 function langMeta(code) { return LANG_META[code] || LANG_META.other; }
@@ -239,6 +239,7 @@ function detectReviewLang(text) {
   return /[a-z]/i.test(s) ? 'en' : 'other';
 }
 function reviewThemes(text) { const hits = THEME_RULES.filter((t) => t[3].test(text)).slice(0, 3); return hits.length ? hits : [['general', '整体体验', 'general']]; }
+function reviewRatingBand(rating) { const n = Number(rating); return Number.isFinite(n) && n > 0 ? (n >= 4.5 ? '5' : n >= 3.5 ? '4' : 'low') : 'none'; }
 function languageGroups(reviews) {
   const groups = new Map();
   for (const r of reviews) {
@@ -255,17 +256,16 @@ function languageGroups(reviews) {
 function renderLanguageLens(reviews) {
   if (!reviews.length) return '';
   const groups = languageGroups(reviews);
-  const filters = ['all', ...groups.map((g) => g.code)].map((code) => {
-    const m = code === 'all' ? ['全部', 'All'] : langMeta(code);
-    return `<button type="button" class="lang-filter${code === 'all' ? ' is-active' : ''}" data-review-lang-filter="${esc(code)}" aria-pressed="${code === 'all'}">${esc(m[0])}<span>${esc(m[1])}</span></button>`;
-  }).join('');
+  const filters = ['all', ...groups.map((g) => g.code)].map((code) => { const m = code === 'all' ? ['全部', 'All'] : langMeta(code); return `<button type="button" class="lang-filter${code === 'all' ? ' is-active' : ''}" data-review-lang-filter="${esc(code)}" aria-pressed="${code === 'all'}">${esc(m[0])}<span>${esc(m[1])}</span></button>`; }).join('');
+  const ratingCounts = reviews.reduce((m, r) => { const k = reviewRatingBand(r.rating); m[k] = (m[k] || 0) + 1; return m; }, { all: reviews.length });
+  const ratingFilters = RATING_FILTERS.map(([code, zh, en]) => `<button type="button" class="rating-filter${code === 'all' ? ' is-active' : ''}" data-review-rating-filter="${esc(code)}" aria-pressed="${code === 'all'}">${esc(zh)}<span>${esc(en)} · ${ratingCounts[code] || 0}</span></button>`).join('');
   const cards = groups.slice(0, 6).map((g) => {
     const m = langMeta(g.code), avg = g.count ? (g.sum / g.count).toFixed(1) : '—';
     const themes = Array.from(g.themes.values()).sort((a, b) => b.count - a.count).slice(0, 4).map((x) => `<span>${esc(x.row[1])}<small>${esc(x.row[2])} · ${x.count}</small></span>`).join('');
     return `<article class="language-card" data-review-lang-card="${esc(g.code)}"><h4>${esc(m[0])} <span>${esc(m[1])}</span></h4><p>${g.count} 条 · ★ ${avg} · ${esc(m[2])}</p><div class="language-themes">${themes}</div>${g.sample ? `<blockquote>${esc(g.sample)}</blockquote>` : ''}</article>`;
   }).join('');
   const target = `<label class="translation-target-wrap">译成 <select class="translation-target" aria-label="译文目标语言"><option value="zh"${state.translationTarget === 'zh' ? ' selected' : ''}>中文 CN</option><option value="en"${state.translationTarget === 'en' ? ' selected' : ''}>English</option></select></label>`;
-  return `<section class="language-lens" aria-label="review language lens"><div class="language-lens-head"><div><h3>语言视角 <span>language lens</span></h3><p>language tab 保留给读原文；细分洞察可展开。</p></div><div class="language-actions">${target}<p class="review-filter-count" aria-live="polite">显示全部 ${reviews.length}</p></div></div><div class="language-filters">${filters}</div><details class="language-insights"><summary>展开语言洞察 <span>insight cards · ${groups.length}</span></summary><div class="language-grid">${cards}</div></details></section>`;
+  return `<section class="language-lens" aria-label="review language lens"><div class="language-lens-head"><div><h3>语言视角 <span>language lens</span></h3><p>language tab 保留给读原文；细分洞察可展开。</p></div><div class="language-actions">${target}<p class="review-filter-count" aria-live="polite">显示全部 ${reviews.length}</p></div></div><div class="language-filters">${filters}</div><div class="rating-filters">${ratingFilters}</div><details class="language-insights"><summary>展开语言洞察 <span>insight cards · ${groups.length}</span></summary><div class="language-grid">${cards}</div></details></section>`;
 }
 function renderReviewCard(r) {
   const lang = detectReviewLang(reviewBody(r));
@@ -273,7 +273,7 @@ function renderReviewCard(r) {
   const m = langMeta(lang);
   const target = state.translationTarget;
   const tx = r.review_id && r.text ? `<button type="button" class="review-translate" data-review-translate="${esc(r.review_id)}" data-review-translate-target="${target}">译文 ${txLabel(target)}</button>` : '';
-  return `<article class="review" data-review-lang="${esc(lang)}"><header class="review-meta">
+  return `<article class="review" data-review-lang="${esc(lang)}" data-review-rating="${esc(reviewRatingBand(r.rating))}"><header class="review-meta">
       <span class="review-stars">${esc(stars(r.rating))}</span><span class="review-author">${esc(r.author || '匿名')}</span><span class="review-lang">${esc(m[0])}</span>${dateStr ? `<span class="review-date">${esc(dateStr)}</span>` : ''}${tx}</header>
     ${r.text ? `<p class="review-text">${esc(r.text)}</p>` : ''}
     ${r.owner_response ? `<div class="owner-reply"><span class="owner-label">店家回复</span><p>${esc(r.owner_response)}</p></div>` : ''}
@@ -628,8 +628,8 @@ function bindGlobal() {
       $('#ask-question').value = again.dataset.askAgain;
       return runAsk(again.dataset.askAgain, place, $('#ask-answer'), false);
     }
-    const langFilter = e.target.closest('[data-review-lang-filter]');
-    if (langFilter) return filterReviewLanguage(langFilter);
+    const reviewFilter = e.target.closest('[data-review-lang-filter],[data-review-rating-filter]');
+    if (reviewFilter) return filterReviewLanguage(reviewFilter);
     const tx = e.target.closest('[data-review-translate]');
     if (tx) return translateReview(tx);
     const del = e.target.closest('[data-delete-place]');
@@ -661,19 +661,19 @@ function bindGlobal() {
   });
 }
 function filterReviewLanguage(btn) {
-  const panel = btn.closest('.detail-reviews');
-  const code = btn.dataset.reviewLangFilter;
-  if (!panel || !code) return;
-  $$('[data-review-lang-filter]', panel).forEach((b) => { b.classList.toggle('is-active', b === btn); b.setAttribute('aria-pressed', String(b === btn)); });
+  const panel = btn.closest('.detail-reviews'); if (!panel) return;
+  const selector = btn.dataset.reviewRatingFilter != null ? '[data-review-rating-filter]' : '[data-review-lang-filter]';
+  $$(selector, panel).forEach((b) => { b.classList.toggle('is-active', b === btn); b.setAttribute('aria-pressed', String(b === btn)); });
+  const code = $('[data-review-lang-filter].is-active', panel)?.dataset.reviewLangFilter || 'all', rating = $('[data-review-rating-filter].is-active', panel)?.dataset.reviewRatingFilter || 'all';
   const cards = $$('.review', panel);
   let shown = 0;
   for (const card of cards) {
-    const keep = code === 'all' || card.dataset.reviewLang === code;
+    const keep = (code === 'all' || card.dataset.reviewLang === code) && (rating === 'all' || card.dataset.reviewRating === rating);
     card.hidden = !keep;
     if (keep) shown += 1;
   }
   const label = $('.review-filter-count', panel);
-  if (label) label.textContent = code === 'all' ? `显示全部 ${cards.length}` : `显示 ${shown} / ${cards.length}`;
+  if (label) label.textContent = code === 'all' && rating === 'all' ? `显示全部 ${cards.length}` : `显示 ${shown} / ${cards.length}`;
 }
 function setTranslationTarget(sel) {
   const panel = sel.closest('.detail-reviews'), target = ['zh', 'en'].includes(sel.value) ? sel.value : 'zh';

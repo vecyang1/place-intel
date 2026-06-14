@@ -154,9 +154,20 @@ test('shop dossier segments reviews by language and filters raw comments', async
   await expect(page.locator('.language-lens')).toContainText('价格');
   await expect(page.locator('.language-lens')).toContainText('到达');
 
-  await page.locator('[data-review-lang-filter="en"]').click();
-  await expect(page.locator('.review[data-review-lang="en"]')).toBeVisible();
+  await expect(page.locator('.rating-filters')).toBeVisible();
+  await expect(page.locator('[data-review-rating-filter="low"]')).toContainText('≤3★');
+  await page.locator('[data-review-rating-filter="low"]').click();
+  await expect(page.locator('.review[data-review-lang="ko"]')).toBeVisible();
   await expect(page.locator('.review[data-review-lang="zh"]')).toBeHidden();
+  await expect(page.locator('.review-filter-count')).toContainText('显示 1 / 4');
+
+  await page.locator('[data-review-lang-filter="en"]').click();
+  await expect(page.locator('.review[data-review-lang="en"]')).toBeHidden();
+  await expect(page.locator('.review[data-review-lang="zh"]')).toBeHidden();
+  await expect(page.locator('.review-filter-count')).toContainText('显示 0 / 4');
+
+  await page.locator('[data-review-rating-filter="all"]').click();
+  await expect(page.locator('.review[data-review-lang="en"]')).toBeVisible();
   await expect(page.locator('.review-filter-count')).toContainText('显示 1 / 4');
 
   await page.locator('[data-review-lang-filter="all"]').click();
@@ -206,6 +217,36 @@ test('review translate click translates all visible comments on demand', async (
     { review_id: 'review-vi-1', target_lang: 'zh' },
     { review_id: 'review-en-1', target_lang: 'zh' },
   ]);
+});
+
+test('review translation respects combined rating and language filters', async ({ page }) => {
+  const translateBodies = [];
+  await page.route('**/api/reviews/translate', (route) => {
+    const body = route.request().postDataJSON();
+    translateBodies.push(body);
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ review_id: body.review_id, target_lang: body.target_lang, source_lang: 'en', text: '低分原因：停车困难，员工态度差。', cached: false, model: 'gemini-3.1-flash-lite', provider: 'test-provider', created_at: Date.now() / 1000 }),
+    });
+  });
+  await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  await page.evaluate(() => {
+    const place = { place_id: 'filtered-translate-test', name: 'Filtered Translate Test', rating: 3.8, review_count: 3 };
+    const reviews = [
+      { review_id: 'review-low-en', rating: 2, author: 'Grace', text: 'Bad parking and rude staff.', lang: 'en' },
+      { review_id: 'review-high-en', rating: 5, author: 'Sam', text: 'Helpful owner and transparent prices.', lang: 'en' },
+      { review_id: 'review-low-vi', rating: 2, author: 'Minh', text: 'Đường vào khó và chỗ đậu xe tệ.', lang: 'vi' },
+    ];
+    document.body.insertAdjacentHTML('beforeend', `<div id="filtered-translate-host">${window.__pi.render.detail({ place, reviews, report: null })}</div>`);
+    document.querySelector('#filtered-translate-host .detail-reviews').open = true;
+  });
+
+  await page.locator('#filtered-translate-host [data-review-rating-filter="low"]').click();
+  await page.locator('#filtered-translate-host [data-review-lang-filter="en"]').click();
+  await expect(page.locator('#filtered-translate-host .review-filter-count')).toContainText('显示 1 / 3');
+  await page.locator('#filtered-translate-host [data-review-translate="review-low-en"]').click();
+  await expect(page.locator('#filtered-translate-host .review-translation')).toHaveCount(1);
+  expect(translateBodies).toEqual([{ review_id: 'review-low-en', target_lang: 'zh' }]);
 });
 
 test('review translation target is configurable and remembered', async ({ page }) => {

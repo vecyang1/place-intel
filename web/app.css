@@ -569,8 +569,9 @@ textarea.query-input { min-height: 6em; }
 .translation-target-wrap { display: inline-flex; align-items: center; gap: 0.35rem; font-family: var(--mono); font-size: 0.68rem; color: var(--ink-55); }
 .translation-target { min-height: 1.75rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink); }
 .review-filter-count { flex-shrink: 0; font-family: var(--mono); color: var(--accent) !important; }
-.language-filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.55rem 0 0.3rem; }
-.lang-filter {
+.language-filters, .rating-filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.55rem 0 0.3rem; }
+.rating-filters { margin-top: 0.1rem; }
+.lang-filter, .rating-filter {
   min-width: 5.5rem;
   padding: 0.35rem 0.6rem;
   border: 1.5px solid var(--line);
@@ -580,9 +581,9 @@ textarea.query-input { min-height: 6em; }
   line-height: 1.2;
   text-align: left;
 }
-.lang-filter span { display: block; color: var(--ink-40); font-size: 0.62rem; }
-.lang-filter:hover, .lang-filter.is-active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
-.lang-filter.is-active span { color: var(--accent); }
+.lang-filter span, .rating-filter span { display: block; color: var(--ink-40); font-size: 0.62rem; }
+.lang-filter:hover, .lang-filter.is-active, .rating-filter:hover, .rating-filter.is-active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.lang-filter.is-active span, .rating-filter.is-active span { color: var(--accent); }
 .language-insights { margin-top: 0.35rem; }
 .language-insights summary { cursor: pointer; width: fit-content; color: var(--ink-55); font-family: var(--mono); font-size: 0.7rem; }
 .language-insights summary::-webkit-details-marker { display: none; }

@@ -1,5 +1,14 @@
 # Changelog — place-intel
 
+## v0.4.17 — 2026-06-14 — review rating filters
+- Added a rating filter row to the dossier raw-review lens: all, 5-star, 4-star,
+  and `≤3★` issue reviews.
+- Rating filters combine with the existing language filters, making it easier to
+  isolate low-score comments and understand which concrete issues caused bad
+  ratings.
+- Translation batches continue to respect the currently visible filtered review
+  list, so users can translate only the low-rating issue set when needed.
+
 ## v0.4.16 — 2026-06-14 — cheaper batch review translation
 - Review translations now use a separate low-cost translation model role,
   defaulting to `gemini-3.1-flash-lite` via the VectorEngine reasoning route,

@@ -1,3 +1,3 @@
 """placeintel — Google Maps place + review intelligence. Walk in armed."""
 
-__version__ = "0.4.16"
+__version__ = "0.4.17"
