@@ -291,6 +291,15 @@ Response:
 {"ok": true, "reason": {}, "translate": {}, "embed": {}}
 ```
 
+## Backup and Restore
+
+Backup and restore are CLI-only operations, not HTTP endpoints. Use
+`placeintel backup --format json` and
+`placeintel restore <manifest-or-dir> --yes --format json`; see
+`docs/agent-cli.md` and `docs/operations.md` for the machine contract and
+runbook. This keeps destructive restore actions out of the unauthenticated local
+web surface.
+
 ## Review Translation
 
 ### `POST /api/reviews/translate`

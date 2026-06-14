@@ -133,16 +133,48 @@ gitignored files, not in public docs.
 
 ## Backup and Restore Status
 
-First-class backup/restore commands are not implemented yet. Before destructive
-manual work, back up the data directory with the app stopped or use SQLite's
-safe backup mechanism.
+First-class backup/restore is implemented through the CLI. Backups are
+allow-list based and do not scan/copy `.env`, provider keys, logs, or arbitrary
+project files.
 
-PRD target:
+Create a backup:
 
-- `placeintel backup --format json`
-- backup manifest with file sizes and SHA-256 hashes.
-- restore requiring explicit confirmation.
-- temp DB round-trip test.
+```bash
+.venv/bin/placeintel backup --format json
+```
+
+Default destination:
+
+```text
+data/backups/placeintel-backup-<UTC>/
+```
+
+Included when present:
+
+- `placeintel.db` through SQLite's online backup API.
+- `scraper_pro_reviews.db` through SQLite's online backup API.
+- `settings.json` (non-secret preferences only).
+- generated `reports/`.
+
+Each package has `manifest.json` with relative paths, file sizes, and SHA-256
+hashes. Restore accepts either the backup directory or the manifest path:
+
+```bash
+.venv/bin/placeintel restore data/backups/placeintel-backup-YYYYMMDDTHHMMSSZ/manifest.json --yes --format json
+```
+
+Restore behavior:
+
+- Refuses to run without `--yes`.
+- Refuses paths outside `data/backups` unless `--force` is supplied for a
+  trusted backup.
+- Verifies file sizes, SHA-256 hashes, and required `placeintel.db` tables before
+  replacing runtime files.
+- Restores databases from the manifest package and removes stale SQLite
+  `-wal`/`-shm` sidecars for those restored DB files.
+- Verifies manifest hashes before replacing files.
+- Validates the restored `placeintel.db` schema before and after restore.
+- Replaces generated `reports/` atomically via a temporary directory.
 
 ## Rollback
 

@@ -1,5 +1,17 @@
 # Changelog — place-intel
 
+## v0.4.24 — 2026-06-14 — backup and restore
+- Added `placeintel backup --format json`, creating an allow-listed local backup
+  package under `data/backups` with `manifest.json`, file sizes, and SHA-256
+  hashes.
+- Backups include `placeintel.db`, `scraper_pro_reviews.db` when present,
+  `settings.json`, and generated `reports/`, while excluding `.env` and other
+  unlisted files.
+- Added `placeintel restore <manifest-or-dir> --yes --format json`, with hash
+  verification, required explicit confirmation, default restore-root safety, and
+  post-restore SQLite schema validation.
+- Added temp-data backup/restore round-trip tests.
+
 ## v0.4.23 — 2026-06-14 — resumable job event stream
 - Added `GET /api/jobs/{id}/events` as an SSE stream over durable
   `job_events`, with `after` and `Last-Event-ID` resume support.

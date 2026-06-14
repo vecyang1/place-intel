@@ -1,6 +1,6 @@
 # PRD: placeintel Production Operations Readiness
 
-Status: 🔨 In Progress — US-OPS-004 complete; backup/deploy/refresh remain
+Status: 🔨 In Progress — US-OPS-005 complete; deploy/refresh remain
 Last Updated: 2026-06-14
 Parent PRD: `tasks/prd-placeintel-production-grade-master.md`
 Scope: Reliability, deployment, health checks, job durability, backups, observability, and operational safety.
@@ -12,7 +12,7 @@ Scope: Reliability, deployment, health checks, job durability, backups, observab
 - web jobs are in memory.
 - health is mainly `/api/meta`.
 - deployment exists but needs a product-level runbook.
-- backups/restores are not yet first-class.
+- backup/restore is CLI-first with manifest verification; deploy/refresh remain.
 - provider/scraper diagnostics are scattered across runtime behavior and docs.
 
 This PRD makes the product survivable: restart-safe jobs, health checks, visible diagnostics, backup/restore, cost guardrails, scheduled refresh with opt-in safety, and deployment verification.
@@ -102,12 +102,19 @@ Coverage: `tests/test_durable_jobs.py`, `tests/test_web_static_contract.py`,
 As the product owner, I want cache/report/settings backups before destructive operations or deployment changes.
 
 Acceptance Criteria:
-- [ ] `placeintel backup --format json` creates a timestamped backup manifest.
-- [ ] Backup includes `placeintel.db`, scraper DB if present, reports, and settings.
-- [ ] Backup excludes keys and `.env`.
-- [ ] Restore requires explicit confirmation and validates schema after restore.
-- [ ] Temp DB test proves backup/restore round trip.
-- [ ] Typecheck/lint passes.
+- [x] `placeintel backup --format json` creates a timestamped backup manifest.
+- [x] Backup includes `placeintel.db`, scraper DB if present, reports, and settings.
+- [x] Backup excludes keys and `.env`.
+- [x] Restore requires explicit confirmation and validates schema after restore.
+- [x] Temp DB test proves backup/restore round trip.
+- [x] Typecheck/lint passes.
+
+Implementation note 2026-06-14: Completed with `placeintel/backup.py`,
+`placeintel backup`, and `placeintel restore`. Backups are manifest directories
+under `data/backups/` by default, use SQLite's online backup API for databases,
+copy only declared non-secret artifacts, and verify SHA-256 + required DB tables
+before restore. Restore requires `--yes` and refuses external paths unless
+`--force` is passed. Coverage: `tests/test_backup_restore.py`.
 
 ### US-OPS-006: Deployment Runbook
 
@@ -383,10 +390,10 @@ No external log shipping by default.
 
 ## 14. Documentation Checklist
 
-- [ ] `docs/operations.md`
-- [ ] `docs/API.md` health/job sections
-- [ ] `docs/agent-cli.md` doctor/backup/job examples
+- [x] `docs/operations.md`
+- [x] `docs/API.md` health/job sections
+- [x] `docs/agent-cli.md` doctor/backup/job examples
 - [ ] `README.md` local verify and operations links
-- [ ] `AGENTS.md` new invariants if durable jobs or backup rules are added
-- [ ] `CHANGELOG.md`
-- [ ] `progress.md`
+- [x] `AGENTS.md` new invariants if durable jobs or backup rules are added
+- [x] `CHANGELOG.md`
+- [x] `progress.md`

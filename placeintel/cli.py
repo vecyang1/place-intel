@@ -15,8 +15,9 @@ import logging
 import sys
 import time
 from dataclasses import asdict
+from pathlib import Path
 
-from . import __version__, cache, config, doctor, profiles
+from . import __version__, backup as backup_mod, cache, config, doctor, profiles
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -156,6 +157,22 @@ CORE_SCHEMAS = {
             "stage": {"enum": ["plan", "search", "filter", "reviews", "embed", "report", "done"]},
             "msg": {"type": "string"},
             "data": {"type": "object"},
+        },
+    },
+    "backup_manifest": {
+        "type": "object",
+        "required": ["app", "version", "created_at", "files"],
+        "properties": {
+            "app": {"const": "placeintel"},
+            "version": {"type": "string"},
+            "created_at": {"type": "string"},
+            "files": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["path", "kind", "size", "sha256"],
+                },
+            },
         },
     },
 }
@@ -458,6 +475,58 @@ def _cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_backup(args: argparse.Namespace) -> int:
+    try:
+        data = backup_mod.create_backup(Path(args.output) if args.output else None)
+    except backup_mod.BackupError as exc:
+        payload = _json_payload(
+            "backup", {}, ok=False,
+            error={
+                "code": exc.code,
+                "message": exc.message,
+                "recoverable": True,
+                "next_action": exc.next_action,
+            },
+        )
+        if args.format == "json":
+            _print_json(payload)
+        else:
+            print(f"backup failed: {exc.message}\nnext: {exc.next_action}", file=sys.stderr)
+        return 1
+    if args.format == "json":
+        _print_json(_json_payload("backup", data))
+    else:
+        print(f"Backup created: {data['backup_dir']}")
+        print(f"Manifest: {data['manifest_path']}")
+    return 0
+
+
+def _cmd_restore(args: argparse.Namespace) -> int:
+    try:
+        data = backup_mod.restore_backup(Path(args.source), yes=args.yes, force=args.force)
+    except backup_mod.BackupError as exc:
+        payload = _json_payload(
+            "restore", {"source": args.source}, ok=False,
+            error={
+                "code": exc.code,
+                "message": exc.message,
+                "recoverable": True,
+                "next_action": exc.next_action,
+            },
+        )
+        if args.format == "json":
+            _print_json(payload)
+        else:
+            print(f"restore failed: {exc.message}\nnext: {exc.next_action}", file=sys.stderr)
+        return 1
+    if args.format == "json":
+        _print_json(_json_payload("restore", data))
+    else:
+        print(f"Restore complete from: {data['manifest_path']}")
+        print(f"Restored files: {data['restored_files']}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="placeintel", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -548,6 +617,20 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("place_id")
     _add_format_arg(e)
     e.set_defaults(func=_cmd_export)
+
+    b = sub.add_parser("backup", help="create a local non-secret cache backup")
+    b.add_argument("--output", "--dir", dest="output",
+                   help="backup directory (default: data/backups/placeintel-backup-UTC)")
+    _add_format_arg(b)
+    b.set_defaults(func=_cmd_backup)
+
+    rs = sub.add_parser("restore", help="restore a placeintel backup (requires --yes)")
+    rs.add_argument("source", help="backup manifest.json or backup directory")
+    rs.add_argument("--yes", action="store_true", help="confirm replacing local runtime data")
+    rs.add_argument("--force", action="store_true",
+                    help="allow restore from outside the configured data/backups directory")
+    _add_format_arg(rs)
+    rs.set_defaults(func=_cmd_restore)
 
     args = parser.parse_args(argv)
     _setup_logging(args.verbose)

@@ -141,7 +141,9 @@ warnings unless required.
 | `model [name] --list` | text | Live provider call when listing or switching. |
 | `export <place_id>` | JSON body, JSON envelope | Default remains the legacy raw JSON body; `--format json` uses the agent envelope. |
 | `doctor` | text, JSON | Implemented in this milestone. |
-| `schema` | text, JSON | `schema --format json` lists core CLI/API schemas, including `pipeline_result`, and docs paths. |
+| `schema` | text, JSON | `schema --format json` lists core CLI/API schemas, including `pipeline_result`, `backup_manifest`, and docs paths. |
+| `backup` | text, JSON | `backup --format json` creates a non-secret backup package with manifest hashes. |
+| `restore <manifest-or-dir>` | text, JSON | Requires `--yes`; verifies hashes and DB schema before replacing local runtime data. |
 
 ## Agent Recipes
 
@@ -192,6 +194,23 @@ Inspect core schemas:
 ```bash
 .venv/bin/placeintel schema --format json
 ```
+
+Create a backup before destructive work:
+
+```bash
+.venv/bin/placeintel backup --format json
+```
+
+Restore from the returned manifest path:
+
+```bash
+.venv/bin/placeintel restore "data/backups/placeintel-backup-YYYYMMDDTHHMMSSZ/manifest.json" --yes --format json
+```
+
+Restore refuses paths outside `data/backups/` unless `--force` is supplied for a
+trusted path. The JSON result includes `restored_files`; failure envelopes use
+codes such as `confirmation_required`, `outside_backup_root`,
+`bad_manifest`, and `hash_mismatch`.
 
 Run a scout from another agent and stream events:
 

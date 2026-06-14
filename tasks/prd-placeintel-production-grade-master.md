@@ -124,7 +124,7 @@ As the product owner, I want health, provider status, backups, and deploy smoke 
 Acceptance Criteria:
 - [ ] `/api/health` returns fast local health without model calls.
 - [ ] `/api/health/deep` or CLI `doctor --live` verifies provider/model/scraper availability safely.
-- [ ] SQLite backup and restore commands are documented and tested on a temp DB.
+- [x] SQLite backup and restore commands are documented and tested on a temp DB.
 - [ ] Deploy runbook verifies protected domain, Basic Auth, `/api/meta`, `/api/health`, one read-only UI flow, and logs.
 - [ ] Typecheck/lint passes.
 
