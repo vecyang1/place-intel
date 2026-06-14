@@ -130,6 +130,75 @@ test('scout tab shows past scouts below the form to avoid duplicate work', async
   await expect(page.locator('#scout-past-list .chip-cut')).toHaveCount(0);
 });
 
+test('scout results explain plan, verdicts, deep dives, timeline groups, and compare picks', async ({ page }) => {
+  const plan = {
+    intent: 'rent a guitar before walking in',
+    queries: ['guitar rental Hoi An', '会安 吉他租赁'],
+    near: 'Hoi An',
+    profile: 'rental',
+    report_lang: 'zh',
+    reasoning: 'Use bilingual searches because travelers and local shops describe rental differently.',
+  };
+  await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/scout', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ job_id: 'job-ui2' }) }));
+  await page.route('**/api/jobs/job-ui2/events*', (route) => route.fulfill({ status: 204, body: '' }));
+  await page.route('**/api/jobs/job-ui2', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      status: 'done',
+      events: [
+        { id: 1, t: Date.now() / 1000, stage: 'plan', msg: 'AI planned bilingual searches.', data: plan },
+        { id: 2, t: Date.now() / 1000, stage: 'filter', msg: 'AI kept 2 and excluded 1.', data: { verdicts: [
+          { place_id: 'dclass', name: "D'Class Guitar", relevant: true, reason: 'direct guitar rental evidence' },
+          { place_id: 'taxi', name: 'HoiAnGO E-Taxi', relevant: false, reason: 'transport company, not instrument rental' },
+        ] } },
+        { id: 3, t: Date.now() / 1000, stage: 'reviews', msg: '缓存命中 cache hit for DClass' },
+        { id: 4, t: Date.now() / 1000, stage: 'report', msg: '重试 retry 1/3 after provider timeout' },
+      ],
+      result: {
+        query: 'Hoi An guitar rental',
+        location: 'Hoi An',
+        profile: 'rental',
+        plan,
+        places: [
+          { place_id: 'dclass', name: "D'Class Guitar", rating: 4.9, review_count: 149, address: 'Hoi An old town' },
+          { place_id: 'hero', name: 'Hero Guitar', rating: 4.7, review_count: 20, address: 'Cam Chau' },
+        ],
+        filtered: [
+          { place_id: 'dclass', name: "D'Class Guitar", relevant: true, reason: 'direct guitar rental evidence' },
+          { place_id: 'hero', name: 'Hero Guitar', relevant: true, reason: 'music shop candidate' },
+          { place_id: 'taxi', name: 'HoiAnGO E-Taxi', relevant: false, reason: 'transport company, not instrument rental' },
+        ],
+        reports: [{ place_id: 'dclass', name: "D'Class Guitar", md: '# Report\n\nWalk in with rental questions.' }],
+        errors: [],
+      },
+    }),
+  }));
+
+  await page.goto('http://127.0.0.1:9618/#scout', { waitUntil: 'networkidle' });
+  await page.locator('#scout-query').fill('Hoi An guitar rental');
+  await page.locator('#scout-submit').click();
+
+  await expect(page.locator('#scout-results .plan-card')).toContainText('rent a guitar');
+  await expect(page.locator('#scout-results .plan-card')).toContainText('guitar rental Hoi An');
+  await expect(page.locator('#scout-results .plan-card')).toContainText('会安 吉他租赁');
+  await expect(page.locator('#scout-results .plan-card')).toContainText('Hoi An');
+  await expect(page.locator('#scout-results .plan-card')).toContainText('rental');
+  await expect(page.locator('#scout-results .verdict-reason.chip')).toHaveCount(3);
+  await expect(page.locator('#scout-results .verdict.is-cut .verdict-reason')).toContainText('transport company');
+  await expect(page.locator('#scout-results [data-open-place="dclass"]')).toHaveClass(/is-deep/);
+  await expect(page.locator('#scout-results [data-open-place="hero"]')).not.toHaveClass(/is-deep/);
+  await expect(page.locator('#scout-timeline .tl-cache')).toContainText('cache hit');
+  await expect(page.locator('#scout-timeline .tl-retry')).toContainText('retry');
+
+  const compare = page.locator('#scout-results [data-compare-place="dclass"]');
+  await expect(compare).toHaveAttribute('aria-pressed', 'false');
+  await compare.click();
+  await expect(compare).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#scout-results #compare-tray')).toContainText("D'Class");
+  await expect(page.locator('#detail-overlay')).toBeHidden();
+});
+
 test('library search filters cached shops and caps the initial list', async ({ page }) => {
   const now = Date.now() / 1000;
   const places = Array.from({ length: 14 }, (_, i) => ({

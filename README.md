@@ -38,8 +38,9 @@ cp .env.example .env             # then add at least one Gemini key
 The web app opens on a command-center Scout input: paste a Maps URL, type a shop
 name, ask a cached-evidence question, or describe a broad need, and it recommends
 Scout, Shop, or Ask before submit. The four views remain: **侦察 Scout** (free
-text + live progress timeline showing the AI's plan, filter verdicts, and every
-pipeline stage), **单店 Shop** (one name/URL → focused dossier), **资料库 Library**
+text + live progress timeline plus final results showing the AI's plan, filter
+verdicts, deep-dived shops, retry/cache groups, and Compare picks), **单店 Shop**
+(one name/URL → focused dossier), **资料库 Library**
 (cached shops + past searches → shop dossier with report, scoped ask, review
 browser), **提问 Ask** (cross-shop RAG + all previous questions, including
 shop-scoped ones labeled by shop).

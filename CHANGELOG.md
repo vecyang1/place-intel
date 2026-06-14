@@ -1,5 +1,16 @@
 # Changelog — place-intel
 
+## v0.4.28 — 2026-06-14 — clearer Scout results
+- Scout results now repeat the AI plan, bilingual queries, location/profile,
+  and reasoning in the final result area.
+- AI filter verdicts render kept/excluded places with reason pills, making
+  rejected candidates easier to scan without reading the raw timeline.
+- Result rows now distinguish shops that received a deep report from candidates
+  that were only discovered.
+- Timeline rows visually tag retry and cache-hit events.
+- Scout result rows can be added to a local Compare pick tray without opening
+  each dossier. The full comparison board remains a later UI PRD story.
+
 ## v0.4.27 — 2026-06-14 — command center
 - Turned the first Scout input into a command center: it accepts broad needs,
   shop names, Maps URLs, and cached-evidence questions without forcing the user

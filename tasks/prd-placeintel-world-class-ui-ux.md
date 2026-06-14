@@ -1,6 +1,6 @@
 # PRD: placeintel World-Class UI/UX
 
-Status: 🔨 In Progress — US-UI-001 complete; US-UI-002 next
+Status: 🔨 In Progress — US-UI-001 and US-UI-002 complete; US-UI-003 next
 Last Updated: 2026-06-14
 Parent PRD: `tasks/prd-placeintel-production-grade-master.md`
 Scope: Web UI, interaction design, mobile/desktop responsiveness, accessibility, and product workflows.
@@ -46,13 +46,20 @@ past scouts stop duplicate Scout submission unless force-refresh is checked.
 As a user, I want Scout output to explain what was searched, which candidates were excluded, and what should be read first.
 
 Acceptance Criteria:
-- [ ] Plan card shows intent, actual bilingual queries, location, profile, and reasoning.
-- [ ] Results show kept vs excluded candidates with reason pills.
-- [ ] Deep-dived shops are visually distinct from non-deep-dived candidates.
-- [ ] Timeline groups retries and cache hits clearly.
-- [ ] User can add result places to Compare without opening each dossier.
-- [ ] Typecheck/lint passes.
-- [ ] Visual verification via dev-browser or preview skill.
+- [x] Plan card shows intent, actual bilingual queries, location, profile, and reasoning.
+- [x] Results show kept vs excluded candidates with reason pills.
+- [x] Deep-dived shops are visually distinct from non-deep-dived candidates.
+- [x] Timeline groups retries and cache hits clearly.
+- [x] User can add result places to Compare without opening each dossier.
+- [x] Typecheck/lint passes.
+- [x] Visual verification via dev-browser or preview skill.
+
+Implementation note 2026-06-14: Completed in v0.4.28 by tightening Scout
+result rendering: plan cards are visible in final results, verdict reasons use
+scan-friendly pills, deep-report places get a distinct row state, retry/cache
+timeline events get grouped classes, and Scout rows can be added to a local
+Compare pick tray without opening dossiers. This is only the selection foothold;
+the full Compare board remains `US-UI-006`.
 
 ### US-UI-003: Library as Workspace
 

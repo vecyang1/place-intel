@@ -86,21 +86,11 @@ function renderPlanCard(plan) {
   if (!plan) return '';
   const queries = (plan.queries || []).map((q) => `<span class="chip">${esc(q)}</span>`).join('');
   const metaBits = [plan.near ? `near · ${esc(plan.near)}` : '', plan.profile ? `profile · ${esc(plan.profile)}` : '', plan.report_lang ? `lang · ${esc(plan.report_lang)}` : ''].filter(Boolean).join('<span class="sep">/</span>');
-  return `<div class="plan-card">
-    <div class="plan-label">AI 的计划 · the plan</div>
-    ${plan.reasoning ? `<p class="plan-reasoning">${esc(plan.reasoning)}</p>` : ''}
-    ${plan.intent ? `<p class="plan-intent">意图 — ${esc(plan.intent)}</p>` : ''}
-    ${queries ? `<div class="plan-queries"><span class="plan-q-label">实际执行的搜索</span>${queries}</div>` : ''}
-    ${metaBits ? `<p class="plan-meta">${metaBits}</p>` : ''}
-  </div>`;
+  return `<div class="plan-card"><div class="plan-label">AI 的计划 · the plan</div>${plan.reasoning ? `<p class="plan-reasoning">${esc(plan.reasoning)}</p>` : ''}${plan.intent ? `<p class="plan-intent">意图 — ${esc(plan.intent)}</p>` : ''}${queries ? `<div class="plan-queries"><span class="plan-q-label">实际执行的搜索</span>${queries}</div>` : ''}${metaBits ? `<p class="plan-meta">${metaBits}</p>` : ''}</div>`;
 }
 function renderVerdicts(verdicts) {
   if (!Array.isArray(verdicts) || !verdicts.length) return '';
-  const rows = verdicts.map((v) => `<li class="verdict ${v.relevant ? 'is-kept' : 'is-cut'}">
-    <span class="verdict-mark">${v.relevant ? '✓' : '✕'}</span>
-    <span class="verdict-name">${esc(v.name)}</span>
-    ${v.reason ? `<span class="verdict-reason">${esc(v.reason)}</span>` : ''}
-  </li>`).join('');
+  const rows = verdicts.map((v) => `<li class="verdict ${v.relevant ? 'is-kept' : 'is-cut'}"><span class="verdict-mark">${v.relevant ? '✓' : '✕'}</span><span class="verdict-name">${esc(v.name)}</span>${v.reason ? `<span class="verdict-reason chip">${esc(v.reason)}</span>` : ''}</li>`).join('');
   return `<ul class="verdicts">${rows}</ul>`;
 }
 function renderEvent(ev) {
@@ -108,15 +98,12 @@ function renderEvent(ev) {
   let extra = '';
   if (ev.stage === 'plan' && ev.data) extra = renderPlanCard(ev.data);
   if (ev.stage === 'filter' && ev.data) extra = renderVerdicts(ev.data.verdicts);
-  return `<li class="tl-item tl-${esc(ev.stage || 'misc')}${ev.stage === 'done' ? ' tl-done' : ''}">
-    <span class="tl-dot"></span>
-    <div class="tl-content">
-      <div class="tl-meta"><span class="tl-stage">${esc(meta.zh)} ${esc(meta.en)}</span><time class="tl-time">${esc(fmtClock(ev.t))}</time></div>
-      ${ev.msg ? `<p class="tl-msg">${esc(ev.msg)}</p>` : ''}
-      ${extra}
-    </div>
-  </li>`;
+  const tone = /重试|retry/i.test(ev.msg || '') ? ' tl-retry' : /缓存|cache/i.test(ev.msg || '') ? ' tl-cache' : '';
+  return `<li class="tl-item tl-${esc(ev.stage || 'misc')}${ev.stage === 'done' ? ' tl-done' : ''}${tone}"><span class="tl-dot"></span><div class="tl-content"><div class="tl-meta"><span class="tl-stage">${esc(meta.zh)} ${esc(meta.en)}</span><time class="tl-time">${esc(fmtClock(ev.t))}</time></div>${ev.msg ? `<p class="tl-msg">${esc(ev.msg)}</p>` : ''}${extra}</div></li>`;
 }
+function compareTrayHtml() { return '<div id="compare-tray" class="compare-tray" aria-live="polite">选择 2-5 家加入 Compare。</div>'; }
+function refreshCompareTray(scope) { const picks = $$('[data-compare-place][aria-pressed="true"]', scope).map((b) => b.dataset.placeName); const tray = $('#compare-tray', scope); if (tray) tray.innerHTML = picks.length ? `<span>Compare ${picks.length}/5</span>${picks.map((n) => `<span class="chip">${esc(n)}</span>`).join('')}` : '选择 2-5 家加入 Compare。'; }
+function toggleCompare(btn) { const scope = btn.closest('.job-results') || document, on = btn.getAttribute('aria-pressed') !== 'true'; if (on && $$('[data-compare-place][aria-pressed="true"]', scope).length >= 5) return; btn.setAttribute('aria-pressed', String(on)); btn.textContent = on ? '已加入' : '加入对比'; refreshCompareTray(scope); }
 function renderReportArticle(rep) {
   const mdHasTitle = /^#\s/.test(String(rep.md ?? '')); // avoid doubling the serif title
   return `<article class="report">
@@ -132,18 +119,20 @@ function renderResult(result) {
   const places = result.places || [];
   const reports = result.reports || [];
   const errors = result.errors || [];
+  const deepIds = new Set(reports.map((r) => r.place_id));
   const cut = (result.filtered || []).filter((v) => !v.relevant);
   const parts = [];
   parts.push(`<p class="result-summary">找到 <strong>${places.length}</strong> 家 · 深挖 <strong>${reports.length}</strong> 份报告${
     errors.length ? ` · <span class="warn">${errors.length} 个警告</span>` : ''}</p>`);
   if (result.plan) parts.push(renderPlanCard(result.plan));
   if (places.length) {
-    parts.push(`<div class="place-list">${places.map((p) => `<button type="button" class="place-row" data-open-place="${esc(p.place_id)}">
+    parts.push(compareTrayHtml());
+    parts.push(`<div class="place-list">${places.map((p) => `<div class="place-pick"><button type="button" class="place-row${deepIds.has(p.place_id) ? ' is-deep' : ''}" data-open-place="${esc(p.place_id)}">
       <span class="place-rating">${esc(stars(p.rating))}</span>
       <span class="place-name">${esc(p.name)}</span>
-      <span class="place-count">${fmtInt(p.review_count)} 评价</span>
+      <span class="place-count">${fmtInt(p.review_count)} 评价${deepIds.has(p.place_id) ? ' · 已深挖' : ''}</span>
       ${p.address ? `<span class="place-addr">${esc(p.address)}</span>` : ''}
-    </button>`).join('')}</div>`);
+    </button><button type="button" class="btn-ghost compare-pick" data-compare-place="${esc(p.place_id)}" data-place-name="${esc(p.name)}" aria-pressed="false">加入对比</button></div>`).join('')}</div>`);
   } else {
     parts.push(emptyHtml('一家都没找到 — 换个说法，或在「在哪里」里写明城市。'));
   }
@@ -630,6 +619,8 @@ function bindGlobal() {
     if (tx) return translateReview(tx);
     const fav = e.target.closest('[data-favorite-place]');
     if (fav) return toggleFavorite(fav);
+    const cmp = e.target.closest('[data-compare-place]');
+    if (cmp) return toggleCompare(cmp);
     const del = e.target.closest('[data-delete-place]');
     if (del) return deletePlace(del.dataset.deletePlace, del.dataset.placeName);
     const open = e.target.closest('[data-open-place]');
