@@ -139,8 +139,25 @@
           <option value="cached">缓存评价多 cached</option>
           <option value="rating">评分高 rating</option>
         </select>
+        <select id="library-category" name="library_category" aria-label="按类别筛选"><option value="">全部类别 category</option></select>
+        <select id="library-freshness" name="library_freshness" aria-label="按新鲜度筛选">
+          <option value="">全部新鲜度 freshness</option><option value="recent">近期更新 recent</option><option value="stale">可能过期 stale</option>
+        </select>
+        <select id="library-risk" name="library_risk" aria-label="按风险筛选">
+          <option value="">全部风险 risk</option><option value="risk">只看需核实</option><option value="ok">隐藏风险项</option>
+        </select>
+        <select id="library-language" name="library_language" aria-label="按评价语言筛选">
+          <option value="">全部语言 language</option><option value="zh">中文 zh</option><option value="en">English en</option><option value="vi">Tiếng Việt vi</option><option value="ko">한국어 ko</option><option value="other">其他 other</option>
+        </select>
+        <select id="library-cached" name="library_cached" aria-label="按缓存评价数筛选">
+          <option value="">全部缓存 cached</option><option value="50">50+ 已缓存</option><option value="100">100+ 已缓存</option><option value="300">300+ 已缓存</option>
+        </select>
+        <select id="library-report" name="library_report" aria-label="按报告筛选">
+          <option value="">全部报告 profile</option><option value="with-report">有报告</option><option value="no-report">无报告</option>
+        </select>
       </div>
       <div id="library-status"></div>
+      <div id="library-compare" aria-live="polite"></div>
       <div class="shop-grid" id="library-grid"></div>
 
       <div class="section-head history-head">

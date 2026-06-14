@@ -237,6 +237,68 @@ test('library search filters cached shops and caps the initial list', async ({ p
   await expect(page.locator('#library-status')).toContainText('显示 1 / 15');
 });
 
+test('library workspace filters decision signals and opens compare', async ({ page }) => {
+  const now = Date.now() / 1000;
+  const places = [
+    {
+      place_id: 'guitar-shop', name: "D'Class Guitar Hội An", category: 'Musical instrument store',
+      rating: 4.9, review_count: 149, cached_reviews: 149, address: 'Hoi An',
+      last_refreshed: now - 7200, report_count: 3, latest_report_at: now - 600,
+      latest_report_profile: 'rental', favorite: true, language_cohorts: [{ lang: 'zh' }, { lang: 'en' }],
+    },
+    {
+      place_id: 'quiet-tour', name: 'Quiet Lantern Tour', category: 'Tour operator',
+      rating: 4.2, review_count: 220, cached_reviews: 40, address: 'Cam Nam',
+      last_refreshed: now - 30 * 86400, report_count: 0, languages: ['vi'],
+      activity_risk: { severity: 'high', label: 'possible low activity', reason: 'latest known reviews are stale' },
+    },
+    {
+      place_id: 'tiny-cafe', name: 'Tiny Cafe', category: 'Cafe',
+      rating: 4.6, review_count: 12, cached_reviews: 5, address: 'Old town',
+      last_refreshed: now - 3600, report_count: 0, languages: ['ko'],
+    },
+  ];
+  await page.route('**/api/places', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(places) }));
+  await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+
+  await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
+
+  for (const id of ['#library-category', '#library-freshness', '#library-risk', '#library-language', '#library-cached', '#library-report']) {
+    await expect(page.locator(id)).toBeVisible();
+  }
+  const guitarCard = page.locator('#library-grid .shop-card').filter({ hasText: "D'Class Guitar" });
+  await expect(guitarCard).toContainText('最近报告');
+  await expect(guitarCard).toContainText('rental');
+  await expect(page.locator('[data-favorite-place="guitar-shop"]')).toHaveText('已收藏');
+
+  await page.locator('#library-category').selectOption('Musical instrument store');
+  await page.locator('#library-language').selectOption('zh');
+  await page.locator('#library-cached').selectOption('100');
+  await page.locator('#library-report').selectOption('rental');
+  await expect(page.locator('#library-grid .shop-card')).toHaveCount(1);
+  await expect(page.locator('#library-grid')).toContainText("D'Class Guitar");
+
+  await page.locator('#library-category').selectOption('');
+  await page.locator('#library-language').selectOption('');
+  await page.locator('#library-cached').selectOption('');
+  await page.locator('#library-report').selectOption('');
+  await page.locator('#library-risk').selectOption('risk');
+  await expect(page.locator('#library-grid .shop-card')).toHaveCount(1);
+  await expect(page.locator('#library-grid')).toContainText('Quiet Lantern Tour');
+  await page.locator('#library-freshness').selectOption('stale');
+  await expect(page.locator('#library-grid')).toContainText('Quiet Lantern Tour');
+
+  await page.locator('#library-risk').selectOption('');
+  await page.locator('#library-freshness').selectOption('');
+  await page.locator('[data-library-compare="guitar-shop"]').click();
+  await page.locator('[data-library-compare="quiet-tour"]').click();
+  await expect(page.locator('#library-compare')).toContainText('Compare 2/5');
+  await expect(page.locator('#library-compare')).toContainText("D'Class Guitar");
+  await expect(page.locator('#library-compare')).toContainText('Quiet Lantern Tour');
+  await page.locator('[data-library-compare-clear]').click();
+  await expect(page.locator('#library-compare')).toContainText('选择 2-5 家');
+});
+
 test('library favorite toggle posts state and rerenders without opening dossier', async ({ page }) => {
   const now = Date.now() / 1000;
   let favorite = false;

@@ -109,6 +109,17 @@ class ServerContractTest(unittest.TestCase):
                     name="D'Class Guitar",
                     source="test",
                 ))
+                conn.execute(
+                    """INSERT INTO reports (place_id, profile, model, report_json, report_md,
+                       review_count, created_at) VALUES (?,?,?,?,?,?,?)""",
+                    ("place-1", "generic", "test-model", "{}", "# Old", 1, 100.0),
+                )
+                conn.execute(
+                    """INSERT INTO reports (place_id, profile, model, report_json, report_md,
+                       review_count, created_at) VALUES (?,?,?,?,?,?,?)""",
+                    ("place-1", "rental", "test-model", "{}", "# New", 1, 200.0),
+                )
+                conn.commit()
                 conn.close()
 
                 client = TestClient(server.app)
@@ -125,6 +136,9 @@ class ServerContractTest(unittest.TestCase):
         self.assertEqual(places.status_code, 200)
         self.assertTrue(places.json()[0]["favorite"])
         self.assertFalse(places.json()[0]["refresh_enabled"])
+        self.assertEqual(places.json()[0]["report_count"], 2)
+        self.assertEqual(places.json()[0]["latest_report_at"], 200.0)
+        self.assertEqual(places.json()[0]["latest_report_profile"], "rental")
         self.assertEqual(detail.status_code, 200)
         self.assertTrue(detail.json()["place"]["favorite"])
 

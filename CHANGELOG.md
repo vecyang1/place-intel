@@ -1,5 +1,16 @@
 # Changelog — place-intel
 
+## v0.4.29 — 2026-06-14 — Library workspace filters
+- Added Library filters for category, cache freshness, activity risk, language
+  cohort, cached-review threshold, and newest report profile.
+- Library cards now show newest report age/profile when available, while keeping
+  cache freshness, risk, favorite, review count, and cached count visible.
+- Added a Library-local Compare tray for selecting 2-5 cached places without
+  opening dossiers. The full side-by-side evidence board remains a later UI PRD
+  story.
+- Extended `GET /api/places` with `latest_report_at` and
+  `latest_report_profile` for list-level report context.
+
 ## v0.4.28 — 2026-06-14 — clearer Scout results
 - Scout results now repeat the AI plan, bilingual queries, location/profile,
   and reasoning in the final result area.

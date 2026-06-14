@@ -1,6 +1,6 @@
 # PRD: placeintel World-Class UI/UX
 
-Status: 🔨 In Progress — US-UI-001 and US-UI-002 complete; US-UI-003 next
+Status: 🔨 In Progress — US-UI-001 through US-UI-003 complete; US-UI-004 next
 Last Updated: 2026-06-14
 Parent PRD: `tasks/prd-placeintel-production-grade-master.md`
 Scope: Web UI, interaction design, mobile/desktop responsiveness, accessibility, and product workflows.
@@ -66,12 +66,19 @@ the full Compare board remains `US-UI-006`.
 As a repeat user, I want the Library to feel like a useful workspace, not just a grid of cached cards.
 
 Acceptance Criteria:
-- [ ] Library includes search/filter controls for name, category, freshness, risk, language cohorts, cached review count, and report profile.
-- [ ] Cards show cache freshness, latest report age, activity risk, review count, cached count, and favorite state.
-- [ ] User can select 2-5 cards and open Compare.
-- [ ] Empty state guides user back to Scout without technical jargon.
-- [ ] Typecheck/lint passes.
-- [ ] Visual verification via dev-browser or preview skill.
+- [x] Library includes search/filter controls for name, category, freshness, risk, language cohorts, cached review count, and report profile.
+- [x] Cards show cache freshness, latest report age, activity risk, review count, cached count, and favorite state.
+- [x] User can select 2-5 cards and open Compare.
+- [x] Empty state guides user back to Scout without technical jargon.
+- [x] Typecheck/lint passes.
+- [x] Visual verification via dev-browser or preview skill.
+
+Implementation note 2026-06-14: Completed in v0.4.29. Library now has named
+filters for category, freshness, activity risk, language cohort, cached-review
+threshold, and latest report profile. Cards expose latest report age/profile
+when available, and users can select cached cards into a Library-local Compare
+tray without opening dossiers. This is still the Compare entry point; the full
+side-by-side evidence board remains `US-UI-006`.
 
 ### US-UI-004: Dossier Decision Brief
 

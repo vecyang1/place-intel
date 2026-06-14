@@ -227,8 +227,15 @@ Variants:
 
 ### `GET /api/places`
 
-Returns cached place cards with activity risk, cache counts, and favorite
-metadata.
+Returns cached place cards with activity risk, cache counts, favorite metadata,
+and latest report summary fields.
+
+Report/list fields:
+
+- `cached_reviews`: number of locally cached review rows for the place.
+- `report_count`: number of saved reports for the place.
+- `latest_report_at`: unix timestamp for the newest saved report, or null.
+- `latest_report_profile`: profile name for the newest saved report, or null.
 
 Favorite fields:
 

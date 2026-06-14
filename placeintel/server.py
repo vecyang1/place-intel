@@ -294,7 +294,12 @@ def places() -> JSONResponse:
                       COALESCE(f.refresh_enabled, 0) AS refresh_enabled,
                       f.refresh_interval_days, f.max_reviews, f.last_refresh_at,
                       COUNT(DISTINCT r.review_id) AS cached_reviews,
-                      COUNT(DISTINCT rep.id) AS report_count
+                      COUNT(DISTINCT rep.id) AS report_count,
+                      MAX(rep.created_at) AS latest_report_at,
+                      (SELECT rr.profile FROM reports rr
+                       WHERE rr.place_id = p.place_id
+                       ORDER BY rr.created_at DESC, rr.id DESC LIMIT 1)
+                       AS latest_report_profile
                FROM places p
                LEFT JOIN reviews r ON r.place_id = p.place_id
                LEFT JOIN reports rep ON rep.place_id = p.place_id

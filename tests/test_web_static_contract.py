@@ -107,7 +107,9 @@ class WebStaticContractTest(unittest.TestCase):
             "scout-query", "scout-near", "scout-profile", "scout-top",
             "scout-maxr", "scout-refresh", "scout-noai", "shop-target",
             "shop-near", "shop-profile", "shop-maxr", "shop-refresh",
-            "library-search", "library-sort", "ask-question", "model-select", "model-custom",
+            "library-search", "library-sort", "library-category", "library-freshness",
+            "library-risk", "library-language", "library-cached", "library-report",
+            "ask-question", "model-select", "model-custom",
         ]:
             with self.subTest(field_id=field_id):
                 match = re.search(rf'<(?:input|select|textarea)[^>]+id="{field_id}"[^>]*>', html)

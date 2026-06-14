@@ -72,8 +72,8 @@ const txLabel = (target) => (target === 'en' ? 'EN' : '中文');
 const STAGES = { plan: { zh: 'AI规划', en: 'plan' }, search: { zh: '搜索', en: 'search' }, filter: { zh: 'AI筛选', en: 'filter' }, reviews: { zh: '抓评价', en: 'reviews' }, embed: { zh: '向量化', en: 'embed' }, report: { zh: '推理报告', en: 'report' }, done: { zh: '完成', en: 'done' } };
 const TAB_NAMES = ['scout', 'shop', 'library', 'ask'];
 const tabFromHash = () => (TAB_NAMES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'scout');
-const SEARCH_ROW_CHIP_LIMIT = 8, LIBRARY_PAGE_SIZE = 12;
-const state = { tab: 'scout', profiles: [], places: [], libraryLoaded: false, libraryLimit: LIBRARY_PAGE_SIZE, jobs: { scout: null, shop: null }, detail: null, detailReturnFocus: null, meta: null, translationTarget: txTarget(), searches: [], commandMode: 'scout', commandManual: false }; // meta={version, reason/translate/embed}
+const SEARCH_ROW_CHIP_LIMIT = 8, LIBRARY_PAGE_SIZE = 12, LIBRARY_FILTERS = '#library-sort,#library-category,#library-freshness,#library-risk,#library-language,#library-cached,#library-report';
+const state = { tab: 'scout', profiles: [], places: [], libraryLoaded: false, libraryLimit: LIBRARY_PAGE_SIZE, libraryCompare: [], jobs: { scout: null, shop: null }, detail: null, detailReturnFocus: null, meta: null, translationTarget: txTarget(), searches: [], commandMode: 'scout', commandManual: false }; // meta={version, reason/translate/embed}
 function loadingHtml(msg) { return `<p class="loading">${esc(msg)} <span class="dots">●●●</span></p>`; }
 function errorHtml(msg) { return `<div class="error-box"><span class="error-label">出错 error</span>${esc(msg)}</div>`; }
 function emptyHtml(msg, gotoTab, gotoLabel) { const btn = gotoTab ? `<button type="button" class="btn-ghost" data-goto="${esc(gotoTab)}">${esc(gotoLabel || '去侦察 →')}</button>` : ''; return `<div class="empty">${esc(msg)}${btn}</div>`; }
@@ -147,30 +147,28 @@ function renderResult(result) {
   return parts.join('');
 }
 function renderShopCard(p, featured) {
-  return `<article class="shop-card${featured ? ' is-featured' : ''}">
-    <div class="shop-card-top">
-      <span class="shop-rating">${esc(stars(p.rating))}</span>
-      ${p.activity_risk ? `<span class="badge badge-risk">${esc(p.activity_risk.severity === 'high' ? '低活跃风险' : '近期偏静')}</span>` : ''}
-      ${p.report_count ? `<span class="badge">报告 ×${fmtInt(p.report_count)}</span>` : ''}
-    </div>
-    <h3 class="shop-name">${esc(p.name)}</h3>
-    ${p.category ? `<p class="shop-cat">${esc(p.category)}</p>` : ''}
-    <p class="shop-stats"><span>${fmtInt(p.review_count)} 条在列</span><span>${fmtInt(p.cached_reviews)} 条已缓存</span></p>
-    ${p.address ? `<p class="shop-addr">${esc(p.address)}</p>` : ''}
-    <p class="shop-fresh">更新于 ${esc(relTime(p.last_refreshed))}</p>
-    <div><button type="button" class="btn-ghost" data-favorite-place="${esc(p.place_id)}" aria-pressed="${p.favorite ? 'true' : 'false'}">${p.favorite ? '已收藏' : '收藏'}</button>
-    <button type="button" class="btn-ghost" data-open-place="${esc(p.place_id)}">打开档案</button></div>
-  </article>`;
+  const rep = reportKey(p), picked = state.libraryCompare.includes(p.place_id), latest = p.latest_report_at ? `最近报告 ${relTime(p.latest_report_at)}${rep ? ` · ${rep}` : ''}` : '';
+  return `<article class="shop-card${featured ? ' is-featured' : ''}"><div class="shop-card-top"><span class="shop-rating">${esc(stars(p.rating))}</span>${p.activity_risk ? `<span class="badge badge-risk">${esc(p.activity_risk.severity === 'high' ? '低活跃风险' : '近期偏静')}</span>` : ''}${p.report_count ? `<span class="badge">报告 ×${fmtInt(p.report_count)}</span>` : ''}</div>
+    <h3 class="shop-name">${esc(p.name)}</h3>${p.category ? `<p class="shop-cat">${esc(p.category)}</p>` : ''}<p class="shop-stats"><span>${fmtInt(p.review_count)} 条在列</span><span>${fmtInt(p.cached_reviews)} 条已缓存</span></p>${p.address ? `<p class="shop-addr">${esc(p.address)}</p>` : ''}
+    <p class="shop-fresh">更新于 ${esc(relTime(p.last_refreshed))}</p>${latest ? `<p class="shop-fresh">${esc(latest)}</p>` : ''}
+    <div><button type="button" class="btn-ghost" data-favorite-place="${esc(p.place_id)}" aria-pressed="${p.favorite ? 'true' : 'false'}">${p.favorite ? '已收藏' : '收藏'}</button> <button type="button" class="btn-ghost" data-library-compare="${esc(p.place_id)}" aria-pressed="${picked ? 'true' : 'false'}">${picked ? '已对比' : '对比'}</button> <button type="button" class="btn-ghost" data-open-place="${esc(p.place_id)}">打开档案</button></div></article>`;
 }
 function placeScore(p) { const age = Math.max(0, Date.now() / 1000 - (p.last_refreshed || 0)); return (p.report_count || 0) * 650 + (p.cached_reviews || 0) * 2 + (p.review_count || 0) * 0.02 + (Number(p.rating) || 0) * 25 + Math.max(0, 80 - age / 3600) - (p.activity_risk ? 80 : 0); }
-function libraryMatches() { const q = ($('#library-search')?.value || '').trim().toLowerCase(), sort = $('#library-sort')?.value || 'smart'; return state.places.filter((p) => !q || [p.name, p.category, p.address].join(' ').toLowerCase().includes(q)).sort((a, b) => sort === 'fresh' ? (b.last_refreshed || 0) - (a.last_refreshed || 0) : sort === 'cached' ? (b.cached_reviews || 0) - (a.cached_reviews || 0) : sort === 'rating' ? (Number(b.rating) || 0) - (Number(a.rating) || 0) : placeScore(b) - placeScore(a)); }
+const filterVal = (id) => $(`#${id}`)?.value || '', reportKey = (p) => String(p.latest_report_profile || p.report_profile || '').trim(), isStale = (p) => Boolean(p.activity_risk) || Date.now() / 1000 - (p.last_refreshed || 0) > 14 * 86400;
+function placeLangs(p) { return [p.languages, p.language_cohorts, p.review_languages, p.language_mix].flatMap((v) => Array.isArray(v) ? v : v ? [v] : []).map((x) => String((typeof x === 'object' ? x.lang || x.code || x.language || x.locale : x) || 'other').toLowerCase().slice(0, 2)).map((v) => ['zh', 'en', 'vi', 'ko'].includes(v) ? v : 'other'); }
+function setSelectOptions(id, items, label) { const el = $(`#${id}`); if (!el) return; const old = el.value, names = { 'with-report': '有报告', 'no-report': '无报告' }, vals = [...new Set(items.filter(Boolean).map(String).sort())]; el.innerHTML = `<option value="">${esc(label)}</option>${vals.map((v) => `<option value="${esc(v)}">${esc(names[v] || v)}</option>`).join('')}`; el.value = vals.includes(old) ? old : ''; }
+function syncLibraryControls() { setSelectOptions('library-category', state.places.map((p) => p.category), '全部类别 category'); setSelectOptions('library-report', ['with-report', 'no-report'].concat(state.places.map(reportKey)), '全部报告 profile'); }
+function libraryMatches() { const q = ($('#library-search')?.value || '').trim().toLowerCase(), sort = filterVal('library-sort') || 'smart', cat = filterVal('library-category'), fresh = filterVal('library-freshness'), risk = filterVal('library-risk'), lang = filterVal('library-language'), cached = Number(filterVal('library-cached') || 0), rep = filterVal('library-report'); return state.places.filter((p) => (!q || [p.name, p.category, p.address, reportKey(p)].join(' ').toLowerCase().includes(q)) && (!cat || p.category === cat) && (!fresh || (fresh === 'stale' ? isStale(p) : !isStale(p))) && (!risk || (risk === 'risk' ? p.activity_risk : !p.activity_risk)) && (!lang || placeLangs(p).includes(lang)) && (!cached || (p.cached_reviews || 0) >= cached) && (!rep || (rep === 'with-report' ? (p.report_count || 0) > 0 : rep === 'no-report' ? !(p.report_count || 0) : reportKey(p) === rep))).sort((a, b) => sort === 'fresh' ? (b.last_refreshed || 0) - (a.last_refreshed || 0) : sort === 'cached' ? (b.cached_reviews || 0) - (a.cached_reviews || 0) : sort === 'rating' ? (Number(b.rating) || 0) - (Number(a.rating) || 0) : placeScore(b) - placeScore(a)); }
 function renderLibraryGrid(places) { places = places || []; const featuredCount = places.length >= 5 ? 2 : places.length >= 3 ? 1 : 0; return places.map((p, i) => renderShopCard(p, i < featuredCount)).join(''); }
+function renderLibraryCompare() { const box = $('#library-compare'); if (!box) return; const picks = state.libraryCompare.map((id) => state.places.find((p) => p.place_id === id)).filter(Boolean); box.innerHTML = picks.length ? `<div class="compare-tray"><span>Compare ${picks.length}/5</span>${picks.map((p) => `<button type="button" class="chip chip-link" data-open-place="${esc(p.place_id)}">${esc(p.name)} · ${esc(stars(p.rating))} · ${fmtInt(p.cached_reviews)}缓存</button>`).join('')}<button type="button" class="btn-ghost" data-library-compare-clear>清空</button></div>` : '<div class="compare-tray">选择 2-5 家加入 Compare。</div>'; }
+function toggleLibraryCompare(btn) { const id = btn.dataset.libraryCompare; let xs = state.libraryCompare.filter((x) => x !== id); if (xs.length === state.libraryCompare.length) { if (xs.length >= 5) return; xs.push(id); } state.libraryCompare = xs; renderLibrary(); }
 function renderLibrary() {
   const grid = $('#library-grid'), status = $('#library-status'); if (!grid || !status) return;
-  if (!state.places.length) { grid.innerHTML = ''; status.innerHTML = emptyHtml('资料库是空的 — 去「侦察」跑第一票。', 'scout'); return; }
+  if (!state.places.length) { state.libraryCompare = []; grid.innerHTML = ''; status.innerHTML = emptyHtml('资料库是空的 — 去「侦察」跑第一票。', 'scout'); renderLibraryCompare(); return; }
   const xs = libraryMatches(), limit = state.libraryLimit || LIBRARY_PAGE_SIZE, shown = xs.slice(0, limit), q = ($('#library-search')?.value || '').trim();
   grid.innerHTML = renderLibraryGrid(shown) + (xs.length > limit ? `<button type="button" class="btn-ghost library-more" data-library-more="1">显示更多 ${xs.length - limit} 家</button>` : '');
   status.innerHTML = xs.length ? `<p class="library-count">显示 ${shown.length} / ${state.places.length}${q ? ` · 搜索 ${esc(q)}` : ''}</p>` : emptyHtml('没有匹配的店 — 换个关键词。');
+  renderLibraryCompare();
 }
 function renderSearchRow(s) {
   const places = s.places || [];
@@ -406,6 +404,7 @@ async function loadLibrary() {
   const [placesR, searchesR] = await Promise.allSettled([apiGet('/api/places'), apiGet('/api/searches')]);
   if (placesR.status === 'fulfilled') {
     state.places = placesR.value || [];
+    syncLibraryControls();
     renderLibrary();
   } else {
     grid.innerHTML = '';
@@ -621,6 +620,9 @@ function bindGlobal() {
     if (fav) return toggleFavorite(fav);
     const cmp = e.target.closest('[data-compare-place]');
     if (cmp) return toggleCompare(cmp);
+    if (e.target.closest('[data-library-compare-clear]')) { state.libraryCompare = []; return renderLibrary(); }
+    const lcmp = e.target.closest('[data-library-compare]');
+    if (lcmp) return toggleLibraryCompare(lcmp);
     const del = e.target.closest('[data-delete-place]');
     if (del) return deletePlace(del.dataset.deletePlace, del.dataset.placeName);
     const open = e.target.closest('[data-open-place]');
@@ -633,7 +635,7 @@ function bindGlobal() {
     if (e.target.closest('#model-save')) return saveModel();
   });
   document.addEventListener('input', (e) => { if (e.target.closest('#library-search')) { state.libraryLimit = LIBRARY_PAGE_SIZE; renderLibrary(); } });
-  document.addEventListener('change', (e) => { const sel = e.target.closest('.translation-target'); if (sel) setTranslationTarget(sel); if (e.target.closest('#library-sort')) { state.libraryLimit = LIBRARY_PAGE_SIZE; renderLibrary(); } });
+  document.addEventListener('change', (e) => { const sel = e.target.closest('.translation-target'); if (sel) setTranslationTarget(sel); if (e.target.closest(LIBRARY_FILTERS)) { state.libraryLimit = LIBRARY_PAGE_SIZE; renderLibrary(); } });
   $('#model-select').addEventListener('change', () => {
     $('#model-custom').hidden = $('#model-select').value !== CUSTOM_MODEL;
   });
