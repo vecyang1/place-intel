@@ -24,9 +24,6 @@ from . import __version__, cache, config, doctor, pipeline, profiles
 log = logging.getLogger(__name__)
 app = FastAPI(title="placeintel", version=__version__)
 
-_jobs: dict[str, dict] = {}
-_jobs_lock = threading.Lock()
-
 WEB_DIR = config.PROJECT_DIR / "web"
 DEFAULT_PORT = int(os.getenv("PLACEINTEL_PORT", "9618"))
 MAX_REVIEWS_IN_DETAIL = 500
@@ -76,25 +73,45 @@ class SettingsRequest(BaseModel):
     reason_model: str
 
 
-def _new_job(kind: str) -> tuple[str, callable]:
+def _request_payload(req: BaseModel) -> dict:
+    return req.model_dump() if hasattr(req, "model_dump") else req.dict()
+
+
+def _new_job(kind: str, request: dict | None = None) -> tuple[str, callable]:
     job_id = uuid.uuid4().hex[:12]
-    with _jobs_lock:
-        _jobs[job_id] = {"status": "running", "kind": kind, "events": []}
+    conn = cache.connect()
+    try:
+        cache.create_job(conn, job_id, kind, request or {}, process_id=os.getpid())
+    finally:
+        conn.close()
 
     def on_event(event: dict) -> None:
-        with _jobs_lock:
-            _jobs[job_id]["events"].append(event)
+        conn = cache.connect()
+        try:
+            cache.append_job_event(conn, job_id, event)
+        finally:
+            conn.close()
 
     return job_id, on_event
 
 
 def _finish_job(job_id: str, result=None, error: str | None = None) -> None:
-    with _jobs_lock:
-        job = _jobs[job_id]
-        if error is not None:
-            job.update(status="error", error=error)
-        else:
-            job.update(status="done", result=asdict(result))
+    conn = cache.connect()
+    try:
+        cache.finish_job(conn, job_id, result=asdict(result) if result is not None else None, error=error)
+    finally:
+        conn.close()
+
+
+@app.on_event("startup")
+def _interrupt_stale_jobs() -> None:
+    conn = cache.connect()
+    try:
+        count = cache.interrupt_running_jobs(conn, os.getpid())
+    finally:
+        conn.close()
+    if count:
+        log.warning("marked %s stale job(s) as interrupted", count)
 
 
 def _run_scout(job_id: str, req: ScoutRequest, on_event) -> None:
@@ -131,25 +148,28 @@ def index() -> HTMLResponse:
 
 @app.post("/api/scout")
 def start_scout(req: ScoutRequest) -> dict:
-    job_id, on_event = _new_job("scout")
+    job_id, on_event = _new_job("scout", _request_payload(req))
     threading.Thread(target=_run_scout, args=(job_id, req, on_event), daemon=True).start()
     return {"job_id": job_id}
 
 
 @app.post("/api/shop")
 def start_shop(req: ShopRequest) -> dict:
-    job_id, on_event = _new_job("shop")
+    job_id, on_event = _new_job("shop", _request_payload(req))
     threading.Thread(target=_run_shop, args=(job_id, req, on_event), daemon=True).start()
     return {"job_id": job_id}
 
 
 @app.get("/api/jobs/{job_id}")
 def job_status(job_id: str) -> dict:
-    with _jobs_lock:
-        job = _jobs.get(job_id)
-        if not job:
-            raise HTTPException(404, "unknown job")
-        return json.loads(json.dumps(job, default=str))  # snapshot, not live refs
+    conn = cache.connect()
+    try:
+        job = cache.get_job(conn, job_id)
+    finally:
+        conn.close()
+    if not job:
+        raise HTTPException(404, "unknown job")
+    return json.loads(json.dumps(job, default=str))  # snapshot, not live refs
 
 
 @app.post("/api/ask")

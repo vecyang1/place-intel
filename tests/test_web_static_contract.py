@@ -114,6 +114,12 @@ class WebStaticContractTest(unittest.TestCase):
                 self.assertIsNotNone(match)
                 self.assertRegex(match.group(0), r'\sname="[^"]+"')
 
+    def test_interrupted_jobs_show_retry_using_cache_action(self) -> None:
+        js = (WEB / "app.js").read_text(encoding="utf-8")
+        self.assertIn("interrupted", js)
+        self.assertIn("data-retry-job", js)
+        self.assertIn("用缓存重试", js)
+
 
 if __name__ == "__main__":
     unittest.main()

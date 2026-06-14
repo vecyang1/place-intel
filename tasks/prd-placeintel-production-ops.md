@@ -1,6 +1,6 @@
 # PRD: placeintel Production Operations Readiness
 
-Status: 📋 Draft
+Status: 🔨 In Progress — US-OPS-003 complete; backup/deploy/refresh remain
 Last Updated: 2026-06-14
 Parent PRD: `tasks/prd-placeintel-production-grade-master.md`
 Scope: Reliability, deployment, health checks, job durability, backups, observability, and operational safety.
@@ -65,13 +65,19 @@ warnings by default and become failures only when required by the CLI.
 As a user, I want long jobs to survive reloads/restarts enough that I can see whether they finished, failed, or were interrupted.
 
 Acceptance Criteria:
-- [ ] Job records are persisted in SQLite before worker thread start.
-- [ ] Job events are persisted append-only.
-- [ ] `/api/jobs/{id}` reads from durable state.
-- [ ] On startup, running jobs older than the current process are marked `interrupted` with a retry hint.
-- [ ] UI can show interrupted state and "retry using cache" action.
-- [ ] Existing event stage contract remains unchanged.
-- [ ] Typecheck/lint passes.
+- [x] Job records are persisted in SQLite before worker thread start.
+- [x] Job events are persisted append-only.
+- [x] `/api/jobs/{id}` reads from durable state.
+- [x] On startup, running jobs older than the current process are marked `interrupted` with a retry hint.
+- [x] UI can show interrupted state and "retry using cache" action.
+- [x] Existing event stage contract remains unchanged.
+- [x] Typecheck/lint passes.
+
+Implementation note 2026-06-14: Completed with SQLite `jobs` and `job_events`
+tables in `cache.py`, durable server job helpers in `server.py`, startup stale
+job interruption, and an interrupted-state web retry button. Coverage:
+`tests/test_durable_jobs.py` and
+`tests/test_web_static_contract.py::test_interrupted_jobs_show_retry_using_cache_action`.
 
 ### US-OPS-004: Streaming Progress
 

@@ -1,5 +1,16 @@
 # Changelog — place-intel
 
+## v0.4.22 — 2026-06-14 — durable web jobs
+- Persisted Scout/Shop job records in SQLite before worker threads start.
+- Added append-only `job_events` storage while preserving the existing
+  `{t, stage, msg, data?}` event contract.
+- Changed `/api/jobs/{id}` to read durable state, including results, errors,
+  request payloads, and retry hints.
+- Startup now marks old `running` jobs from a previous process as
+  `interrupted` instead of silently losing them.
+- The web UI shows interrupted jobs with a `用缓存重试` action that resubmits the
+  same request with cache reuse.
+
 ## v0.4.21 — 2026-06-14 — Scout/Shop machine output
 - Added `--format json|ndjson` to `placeintel scout` and `placeintel shop`.
 - NDJSON mode emits one compact `type:"event"` object per pipeline event using

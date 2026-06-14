@@ -343,7 +343,7 @@ async function startJob(kind, path, body) {
   const prev = state.jobs[kind];
   if (prev && prev.timer) clearTimeout(prev.timer);
   if (prev) prev.active = false;
-  const job = { id: null, rendered: 0, fails: 0, timer: null, active: true };
+  const job = { id: null, path, body, rendered: 0, fails: 0, timer: null, active: true };
   state.jobs[kind] = job;
   const els = jobEls(kind);
   els.submit.disabled = true;
@@ -394,6 +394,7 @@ async function pollJob(kind) {
     els.results.innerHTML = errorHtml(`任务失败：${data.error || '未知错误'} — 可直接重新提交，已完成的步骤会命中缓存。`);
     return;
   }
+  if (data.status === 'interrupted') { els.results.innerHTML = `<div class="error-box"><span class="error-label">中断 interrupted</span>${esc(`任务中断：${data.retry_hint || data.error || '后端重启，中止了这个任务。'}`)}<button type="button" class="btn-ghost" data-retry-job="${esc(kind)}">用缓存重试 →</button></div>`; return; }
   els.results.innerHTML = renderResult(data.result);
   if (kind === 'scout') loadScoutPast();
   if (state.libraryLoaded) loadLibrary(); // keep library tab fresh in background
@@ -604,6 +605,7 @@ function bindGlobal() {
     if (tab) return switchTab(tab.dataset.tab);
     const goto = e.target.closest('[data-goto]');
     if (goto) return switchTab(goto.dataset.goto);
+    const retry = e.target.closest('[data-retry-job]'); if (retry) { const j = state.jobs[retry.dataset.retryJob]; if (j) return startJob(retry.dataset.retryJob, j.path, { ...j.body, refresh: false }); }
     const refresh = e.target.closest('[data-refresh-q]');
     if (refresh) {
       const out = refresh.closest('.answer').parentElement;

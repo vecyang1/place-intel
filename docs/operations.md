@@ -74,6 +74,21 @@ Use `--require` in CLI when a missing external wheel should fail the command:
 .venv/bin/placeintel doctor --live --json --require google,vectorengine,chrome,docker
 ```
 
+## Durable Jobs
+
+Scout and Shop jobs are persisted in SQLite:
+
+- `jobs` stores `job_id`, kind, status, request, result/error, process id, and
+  timestamps.
+- `job_events` stores append-only pipeline events with the existing
+  `{t, stage, msg, data?}` contract.
+- `GET /api/jobs/{job_id}` reads SQLite, so page reloads do not lose known job
+  state.
+- On web-server startup, old `running` jobs from another process are marked
+  `interrupted` with a retry hint.
+- The web UI shows interrupted jobs with a `用缓存重试` action that resubmits the
+  same request with `refresh:false`, so completed cached work is reused.
+
 ## Local Verification
 
 Cheap smoke:

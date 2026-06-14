@@ -104,6 +104,28 @@ CREATE TABLE IF NOT EXISTS qa (
     created_at    REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_qa_place ON qa(place_id);
+CREATE TABLE IF NOT EXISTS jobs (
+    job_id        TEXT PRIMARY KEY,
+    kind          TEXT NOT NULL,
+    status        TEXT NOT NULL,
+    request_json  TEXT,
+    result_json   TEXT,
+    error         TEXT,
+    retry_hint    TEXT,
+    process_id    INTEGER,
+    created_at    REAL NOT NULL,
+    updated_at    REAL NOT NULL,
+    finished_at   REAL
+);
+CREATE TABLE IF NOT EXISTS job_events (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id        TEXT NOT NULL REFERENCES jobs(job_id),
+    t             REAL NOT NULL,
+    stage         TEXT NOT NULL,
+    msg           TEXT NOT NULL,
+    data_json     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_job_events_job ON job_events(job_id, id);
 """
 
 
@@ -376,6 +398,102 @@ def save_search(
          json.dumps(plan, ensure_ascii=False) if plan else None),
     )
     conn.commit()
+
+
+def create_job(
+    conn: sqlite3.Connection, job_id: str, kind: str, request: dict | None,
+    process_id: int | None = None,
+) -> None:
+    now = time.time()
+    conn.execute(
+        """INSERT INTO jobs
+           (job_id, kind, status, request_json, process_id, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?)""",
+        (
+            job_id, kind, "running",
+            json.dumps(request or {}, ensure_ascii=False, default=str),
+            process_id, now, now,
+        ),
+    )
+    conn.commit()
+
+
+def append_job_event(conn: sqlite3.Connection, job_id: str, event: dict) -> None:
+    conn.execute(
+        """INSERT INTO job_events (job_id, t, stage, msg, data_json)
+           VALUES (?,?,?,?,?)""",
+        (
+            job_id, float(event.get("t") or time.time()),
+            str(event.get("stage") or "event"),
+            str(event.get("msg") or ""),
+            json.dumps(event["data"], ensure_ascii=False, default=str)
+            if "data" in event else None,
+        ),
+    )
+    conn.execute("UPDATE jobs SET updated_at=? WHERE job_id=?", (time.time(), job_id))
+    conn.commit()
+
+
+def finish_job(
+    conn: sqlite3.Connection, job_id: str, result: dict | None = None,
+    error: str | None = None,
+) -> None:
+    now = time.time()
+    status = "error" if error is not None else "done"
+    conn.execute(
+        """UPDATE jobs SET status=?, result_json=?, error=?, updated_at=?, finished_at=?
+           WHERE job_id=?""",
+        (
+            status,
+            json.dumps(result, ensure_ascii=False, default=str) if result is not None else None,
+            error, now, now, job_id,
+        ),
+    )
+    conn.commit()
+
+
+def interrupt_running_jobs(conn: sqlite3.Connection, process_id: int) -> int:
+    now = time.time()
+    hint = "Retry the same Scout/Shop request; completed work will be reused from cache."
+    cur = conn.execute(
+        """UPDATE jobs SET status='interrupted', error=?, retry_hint=?,
+                  updated_at=?, finished_at=?
+           WHERE status='running' AND (process_id IS NULL OR process_id != ?)""",
+        ("job interrupted by server restart", hint, now, now, process_id),
+    )
+    conn.commit()
+    return cur.rowcount
+
+
+def get_job(conn: sqlite3.Connection, job_id: str) -> dict | None:
+    row = conn.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+    if not row:
+        return None
+    events = []
+    for ev in conn.execute(
+        "SELECT t, stage, msg, data_json FROM job_events WHERE job_id=? ORDER BY id",
+        (job_id,),
+    ).fetchall():
+        item = {"t": ev["t"], "stage": ev["stage"], "msg": ev["msg"]}
+        if ev["data_json"] is not None:
+            item["data"] = json.loads(ev["data_json"])
+        events.append(item)
+    payload = {
+        "job_id": row["job_id"],
+        "status": row["status"],
+        "kind": row["kind"],
+        "request": json.loads(row["request_json"] or "{}"),
+        "events": events,
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+    if row["result_json"]:
+        payload["result"] = json.loads(row["result_json"])
+    if row["error"]:
+        payload["error"] = row["error"]
+    if row["retry_hint"]:
+        payload["retry_hint"] = row["retry_hint"]
+    return payload
 
 
 def latest_report(conn: sqlite3.Connection, place_id: str,

@@ -125,13 +125,13 @@ Response:
 
 ### `GET /api/jobs/{job_id}`
 
-Current job state. Jobs are still in memory in this milestone; durable job rows
-are required by the production-ops PRD.
+Current job state. Jobs are persisted in SQLite before the worker thread starts;
+events are appended to `job_events`, and this endpoint reads the durable row.
 
 Running:
 
 ```json
-{"status": "running", "kind": "scout", "events": []}
+{"job_id": "abc123def456", "status": "running", "kind": "scout", "request": {}, "events": []}
 ```
 
 Done:
@@ -161,6 +161,18 @@ Error:
 
 ```json
 {"status": "error", "kind": "scout", "events": [], "error": "message"}
+```
+
+Interrupted after process restart:
+
+```json
+{
+  "status": "interrupted",
+  "kind": "shop",
+  "events": [],
+  "error": "job interrupted by server restart",
+  "retry_hint": "Retry the same Scout/Shop request; completed work will be reused from cache."
+}
 ```
 
 ## Ask and Evidence
