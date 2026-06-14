@@ -100,13 +100,13 @@ provider/scraper diagnostics remain a production-ops PRD item.
 | `scout "query"` | text | Long-running; emits human timeline text today. PRD target: `--format json|ndjson`. |
 | `shop "name-or-url"` | text | Single-place scout. PRD target: `--format json|ndjson`. |
 | `plan "text"` | JSON body | Existing debug output is already JSON. |
-| `history` | text | PRD target: `--format json`. |
+| `history` | text, JSON | `history --format json` returns recent searches. |
 | `ask "question"` | text | PRD target: JSON answer plus evidence metadata. |
-| `report <place_id>` | markdown text | PRD target: JSON metadata/body option. |
-| `list` | text | PRD target: JSON cached places. |
-| `profiles` | text | PRD target: JSON profile names/dimensions. |
+| `report <place_id>` | markdown text, JSON | `report --format json` returns the latest cached report without regenerating. |
+| `list` | text, JSON | `list --format json` returns cached places. |
+| `profiles` | text, JSON | `profiles --format json` returns profile names and dimensions. |
 | `model [name] --list` | text | Live provider call when listing or switching. |
-| `export <place_id>` | JSON body | Existing place + reviews export. |
+| `export <place_id>` | JSON body, JSON envelope | Default remains the legacy raw JSON body; `--format json` uses the agent envelope. |
 | `doctor` | text, JSON | Implemented in this milestone. |
 
 ## Agent Recipes
@@ -126,7 +126,31 @@ Check strict provider routing before a costly run:
 Export one cached dossier:
 
 ```bash
-.venv/bin/placeintel export "<place_id>"
+.venv/bin/placeintel export "<place_id>" --format json
+```
+
+List cached places:
+
+```bash
+.venv/bin/placeintel list --format json
+```
+
+Read recent searches:
+
+```bash
+.venv/bin/placeintel history --format json
+```
+
+Read available profiles:
+
+```bash
+.venv/bin/placeintel profiles --format json
+```
+
+Read the latest cached report for a place without model calls:
+
+```bash
+.venv/bin/placeintel report "<place_id>" --format json
 ```
 
 Ask from existing cache:

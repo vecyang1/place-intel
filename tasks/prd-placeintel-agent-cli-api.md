@@ -60,12 +60,17 @@ Acceptance Criteria:
 As another agent, I want read commands to output JSON so I can compose workflows.
 
 Acceptance Criteria:
-- [ ] `placeintel list --format json` returns cached places.
-- [ ] `placeintel history --format json` returns searches with verdicts and places.
-- [ ] `placeintel report <place_id> --format json` returns report metadata/body without markdown-only output.
-- [ ] `placeintel export <place_id> --format json` remains JSON and follows documented schema.
-- [ ] `placeintel profiles --format json` returns profile names and dimensions.
-- [ ] Typecheck/lint passes.
+- [x] `placeintel list --format json` returns cached places.
+- [x] `placeintel history --format json` returns searches with verdicts and places.
+- [x] `placeintel report <place_id> --format json` returns report metadata/body without markdown-only output.
+- [x] `placeintel export <place_id> --format json` remains JSON and follows documented schema.
+- [x] `placeintel profiles --format json` returns profile names and dimensions.
+- [x] Typecheck/lint passes.
+
+Implementation note 2026-06-14: Completed with JSON envelopes in
+`placeintel/cli.py` and coverage in `tests/test_cli_json_contract.py`. Text-mode
+defaults remain for backwards compatibility; `export --format json` uses the new
+agent envelope while legacy `export` remains raw JSON.
 
 ### US-CLI-004: Ask as an Agent Tool
 

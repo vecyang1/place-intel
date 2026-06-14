@@ -49,6 +49,23 @@ def _print_result(result, top_n: int | None = None) -> None:
             print(f"  - {err}", file=sys.stderr)
 
 
+def _json_payload(command: str, data: dict, ok: bool = True, error: dict | None = None) -> dict:
+    payload = {"ok": ok, "version": __version__, "command": command, "data": data}
+    if error:
+        payload["error"] = error
+    return payload
+
+
+def _print_json(payload: dict) -> None:
+    print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+
+
+def _add_format_arg(parser: argparse.ArgumentParser, *, ndjson: bool = False) -> None:
+    choices = ["text", "json"] + (["ndjson"] if ndjson else [])
+    parser.add_argument("--format", choices=choices, default="text",
+                        help="output format (default: text)")
+
+
 def _cmd_scout(args: argparse.Namespace) -> int:
     from . import pipeline
     result = pipeline.scout(
@@ -84,9 +101,40 @@ def _cmd_plan(args: argparse.Namespace) -> int:
 def _cmd_history(args: argparse.Namespace) -> int:
     conn = cache.connect()
     rows = conn.execute(
-        "SELECT query, location, source, created_at, place_ids_json FROM searches "
+        "SELECT query, location, source, created_at, place_ids_json, verdicts_json FROM searches "
         "ORDER BY created_at DESC LIMIT 30"
     ).fetchall()
+    names = {
+        r["place_id"]: r["name"]
+        for r in conn.execute("SELECT place_id, name FROM places").fetchall()
+    }
+    conn.close()
+    if args.format == "json":
+        searches = []
+        for r in rows:
+            place_ids = json.loads(r["place_ids_json"] or "[]")
+            verdicts = json.loads(r["verdicts_json"]) if r["verdicts_json"] else []
+            verdict_by_id = {v["place_id"]: v for v in verdicts if isinstance(v, dict)}
+            searches.append({
+                "query": r["query"],
+                "location": r["location"],
+                "source": r["source"],
+                "created_at": r["created_at"],
+                "place_ids": place_ids,
+                "place_count": len(place_ids),
+                "verdicts": verdicts,
+                "places": [
+                    {
+                        "place_id": pid,
+                        "name": names.get(pid),
+                        "relevant": verdict_by_id.get(pid, {}).get("relevant"),
+                        "reason": verdict_by_id.get(pid, {}).get("reason"),
+                    }
+                    for pid in place_ids
+                ],
+            })
+        _print_json(_json_payload("history", {"searches": searches}))
+        return 0
     if not rows:
         print("No searches yet.")
         return 0
@@ -110,13 +158,45 @@ def _cmd_ask(args: argparse.Namespace) -> int:
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
-    from . import analyze
     conn = cache.connect()
+    if args.format == "json":
+        row = cache.latest_report(conn, args.place_id, args.profile)
+        if not row:
+            conn.close()
+            _print_json(_json_payload(
+                "report",
+                {"report": None},
+                ok=False,
+                error={
+                    "code": "not_found",
+                    "message": f"no cached report for {args.place_id}",
+                    "recoverable": True,
+                    "next_action": "Run placeintel report in text mode or scout/shop first.",
+                },
+            ))
+            return 5
+        report = {
+            "id": row["id"],
+            "place_id": row["place_id"],
+            "profile": row["profile"],
+            "model": row["model"],
+            "json": json.loads(row["report_json"]),
+            "md": row["report_md"],
+            "review_count": row["review_count"],
+            "created_at": row["created_at"],
+        }
+        conn.close()
+        _print_json(_json_payload("report", {
+            "report": report
+        }))
+        return 0
+    from . import analyze
     profile = profiles.load_profile(args.profile or "generic")
     _, md = analyze.analyze_place(
         conn, args.place_id, profile, args.report_lang,
         evidence_lang=args.evidence_lang,
         on_progress=lambda m: print(f"  [report ] {m}", file=sys.stderr))
+    conn.close()
     print(md)
     return 0
 
@@ -129,6 +209,10 @@ def _cmd_list(args: argparse.Namespace) -> int:
            FROM places p LEFT JOIN reviews r ON r.place_id = p.place_id
            GROUP BY p.place_id ORDER BY p.last_refreshed DESC"""
     ).fetchall()
+    conn.close()
+    if args.format == "json":
+        _print_json(_json_payload("list", {"places": [dict(r) for r in rows]}))
+        return 0
     if not rows:
         print("Cache empty — run: placeintel scout \"<query>\" --near \"<city>\"")
         return 0
@@ -140,6 +224,13 @@ def _cmd_list(args: argparse.Namespace) -> int:
 
 
 def _cmd_profiles(args: argparse.Namespace) -> int:
+    if args.format == "json":
+        items = []
+        for name in profiles.list_profiles():
+            prof = profiles.load_profile(name)
+            items.append({"name": name, "dimensions": list(prof["dimensions"].keys())})
+        _print_json(_json_payload("profiles", {"profiles": items}))
+        return 0
     for name in profiles.list_profiles():
         prof = profiles.load_profile(name)
         dims = ", ".join(prof["dimensions"].keys())
@@ -148,12 +239,7 @@ def _cmd_profiles(args: argparse.Namespace) -> int:
 
 
 def _doctor_payload(report: dict) -> dict:
-    payload = {
-        "ok": bool(report.get("ok")),
-        "version": __version__,
-        "command": "doctor",
-        "data": report,
-    }
+    payload = _json_payload("doctor", report, ok=bool(report.get("ok")))
     if not report.get("ok"):
         payload["error"] = {
             "code": "health_failed",
@@ -168,7 +254,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     require = [item.strip() for item in (args.require or "").split(",") if item.strip()]
     report = doctor.cheap_health(live=args.live, require=require)
     if args.json:
-        print(json.dumps(_doctor_payload(report), ensure_ascii=False, indent=2))
+        _print_json(_doctor_payload(report))
     else:
         status = "OK" if report["ok"] else "FAILED"
         print(f"placeintel doctor: {status} · {report['version']} · {report['mode']}")
@@ -209,11 +295,16 @@ def _cmd_export(args: argparse.Namespace) -> int:
     conn = cache.connect()
     place = cache.get_place(conn, args.place_id)
     if not place:
+        conn.close()
         print(f"unknown place_id {args.place_id}", file=sys.stderr)
         return 1
     rows = cache.get_reviews(conn, args.place_id)
-    print(json.dumps({"place": dict(place), "reviews": [dict(r) for r in rows]},
-                     ensure_ascii=False, indent=2, default=str))
+    data = {"place": dict(place), "reviews": [dict(r) for r in rows]}
+    conn.close()
+    if args.format == "json":
+        _print_json(_json_payload("export", data))
+    else:
+        print(json.dumps(data, ensure_ascii=False, indent=2, default=str))
     return 0
 
 
@@ -253,7 +344,9 @@ def main(argv: list[str] | None = None) -> int:
     pl.add_argument("--near")
     pl.set_defaults(func=_cmd_plan)
 
-    sub.add_parser("history", help="past searches").set_defaults(func=_cmd_history)
+    h = sub.add_parser("history", help="past searches")
+    _add_format_arg(h)
+    h.set_defaults(func=_cmd_history)
 
     a = sub.add_parser("ask", help="RAG question over everything cached")
     a.add_argument("question")
@@ -271,10 +364,15 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--evidence-lang", choices=["report", "original"], default=None,
                    help="quoted evidence: translated into report language (default) "
                         "or kept verbatim; global default via PLACEINTEL_EVIDENCE_LANG")
+    _add_format_arg(r)
     r.set_defaults(func=_cmd_report)
 
-    sub.add_parser("list", help="show cached places").set_defaults(func=_cmd_list)
-    sub.add_parser("profiles", help="show report profiles").set_defaults(func=_cmd_profiles)
+    l = sub.add_parser("list", help="show cached places")
+    _add_format_arg(l)
+    l.set_defaults(func=_cmd_list)
+    pf = sub.add_parser("profiles", help="show report profiles")
+    _add_format_arg(pf)
+    pf.set_defaults(func=_cmd_profiles)
 
     d = sub.add_parser("doctor", help="cheap local readiness checks for humans and agents")
     d.add_argument("--json", action="store_true", help="print one machine-readable JSON document")
@@ -291,6 +389,7 @@ def main(argv: list[str] | None = None) -> int:
 
     e = sub.add_parser("export", help="dump a place + reviews as JSON")
     e.add_argument("place_id")
+    _add_format_arg(e)
     e.set_defaults(func=_cmd_export)
 
     args = parser.parse_args(argv)
