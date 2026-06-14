@@ -310,12 +310,6 @@ function renderDetail(data) {
     ${facts.length ? `<dl class="facts">${facts.join('')}</dl>` : ''}
   </header>
   <section class="detail-section">
-    ${rep
-    ? `<div class="report-meta-line">最新报告${rep.profile ? ` · ${esc(rep.profile)}` : ''}${rep.model ? ` · <span class="model-tag">${esc(rep.model)}</span>` : ''} · ${esc(relTime(rep.created_at))}</div>
-       <article class="report"><div class="report-body">${mdToHtml(rep.md)}</div></article>`
-    : '<div class="empty small">这家店还没有报告 — 去「单店」跑一份深挖。</div>'}
-  </section>
-  <section class="detail-section">
     <form class="ask-shop-form" data-place-id="${esc(p.place_id)}">
       <label>只问这家店 <span class="label-en">ask this shop</span></label>
       <div class="ask-inline">
@@ -325,6 +319,12 @@ function renderDetail(data) {
     </form>
     <div class="qa-history" data-qa-scope="${esc(p.place_id)}"></div>
     <div class="ask-shop-answer"></div>
+  </section>
+  <section class="detail-section">
+    ${rep
+    ? `<div class="report-meta-line">最新报告${rep.profile ? ` · ${esc(rep.profile)}` : ''}${rep.model ? ` · <span class="model-tag">${esc(rep.model)}</span>` : ''} · ${esc(relTime(rep.created_at))}</div>
+       <article class="report"><div class="report-body">${mdToHtml(rep.md)}</div></article>`
+    : '<div class="empty small">这家店还没有报告 — 去「单店」跑一份深挖。</div>'}
   </section>
   <details class="detail-reviews">
     <summary>评价原文 reviews · ${reviews.length} 条</summary>

@@ -1,5 +1,18 @@
 # Changelog — place-intel
 
+## v0.4.12 — 2026-06-14 — dossier ask placement polish
+- Moved the shop-scoped **只问这家店 / Ask this shop** form above the long dossier
+  report body, so users can ask follow-up questions immediately after opening a
+  shop instead of scrolling past the analysis.
+- Preserved the existing per-shop `place_id` ask scope, scoped QA history chips,
+  modal focus behavior, and report/review ordering.
+- The web shell now sends `Cache-Control: no-store` for `/` and `/static/*`, so
+  existing browser tabs do not keep running a stale no-build `app.js` after a
+  local patch/restart.
+- Added a Playwright regression proving the scoped ask form renders before the
+  report body while keeping its `data-place-id`, plus a server contract for
+  no-cache web assets.
+
 ## v0.4.11 — 2026-06-14 — all-scope Ask history display
 - The top-level **提问 Ask** history now shows previously asked single-shop
   questions as well as global questions, with the shop name appended to each

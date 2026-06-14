@@ -14,7 +14,7 @@ import threading
 import uuid
 from dataclasses import asdict
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -30,6 +30,14 @@ _jobs_lock = threading.Lock()
 WEB_DIR = config.PROJECT_DIR / "web"
 DEFAULT_PORT = int(os.getenv("PLACEINTEL_PORT", "9618"))
 MAX_REVIEWS_IN_DETAIL = 500
+
+
+@app.middleware("http")
+async def no_cache_web_assets(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 class ScoutRequest(BaseModel):

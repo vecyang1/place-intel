@@ -61,6 +61,45 @@ test('activity risk renders as a cautious visible tag', async ({ page }) => {
   expect(html).toContain('出发前应核实仍在营业');
 });
 
+test('shop dossier keeps the scoped ask form above the report body', async ({ page }) => {
+  await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  const order = await page.evaluate(() => {
+    const place = {
+      place_id: 'layout-test',
+      name: 'Layout Test Guitar',
+      category: 'Musical instrument store',
+      rating: 4.9,
+      review_count: 16,
+      cached_reviews: 16,
+      last_refreshed: Date.now() / 1000,
+    };
+    const host = document.createElement('div');
+    host.innerHTML = window.__pi.render.detail({
+      place,
+      reviews: [],
+      report: {
+        profile: 'lessons',
+        model: 'test-model',
+        created_at: Date.now() / 1000,
+        md: '# 店铺报告\n\n很长的报告正文。',
+      },
+    });
+    const ask = host.querySelector('.ask-shop-form');
+    const report = host.querySelector('.report');
+    return {
+      askBeforeReport: Boolean(ask.compareDocumentPosition(report) & Node.DOCUMENT_POSITION_FOLLOWING),
+      firstSectionHasAsk: Boolean(host.querySelector('.detail-shop + .detail-section .ask-shop-form')),
+      scopedPlace: ask.dataset.placeId,
+    };
+  });
+
+  expect(order).toEqual({
+    askBeforeReport: true,
+    firstSectionHasAsk: true,
+    scopedPlace: 'layout-test',
+  });
+});
+
 test('tabs are deep-linkable and keyboard navigable', async ({ page }) => {
   await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
   await expect(page.locator('#panel-library')).toBeVisible();

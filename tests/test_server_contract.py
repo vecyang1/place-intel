@@ -17,6 +17,16 @@ class ServerContractTest(unittest.TestCase):
     def test_fastapi_version_matches_package_version(self) -> None:
         self.assertEqual(server.app.version, placeintel.__version__)
 
+    def test_web_shell_disables_browser_cache_for_no_build_assets(self) -> None:
+        client = TestClient(server.app)
+
+        for path in ("/", "/static/app.js"):
+            with self.subTest(path=path):
+                response = client.get(path)
+
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.headers.get("cache-control"), "no-store")
+
     def test_qa_history_endpoint_returns_recent_questions_by_exact_scope(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "placeintel.db"
