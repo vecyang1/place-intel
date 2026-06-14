@@ -416,19 +416,91 @@ test('shop dossier keeps the scoped ask form above the report body', async ({ pa
       },
     });
     const ask = host.querySelector('.ask-shop-form');
+    const brief = host.querySelector('.dossier-brief');
     const report = host.querySelector('.report');
     return {
       askBeforeReport: Boolean(ask.compareDocumentPosition(report) & Node.DOCUMENT_POSITION_FOLLOWING),
-      firstSectionHasAsk: Boolean(host.querySelector('.detail-shop + .detail-section .ask-shop-form')),
+      briefBeforeAsk: Boolean(brief.compareDocumentPosition(ask) & Node.DOCUMENT_POSITION_FOLLOWING),
       scopedPlace: ask.dataset.placeId,
     };
   });
 
   expect(order).toEqual({
     askBeforeReport: true,
-    firstSectionHasAsk: true,
+    briefBeforeAsk: true,
     scopedPlace: 'layout-test',
   });
+});
+
+test('shop dossier opens with a decision brief before long evidence', async ({ page }) => {
+  await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  const state = await page.evaluate(() => {
+    const place = {
+      place_id: 'brief-test',
+      name: 'Brief Test Guitar',
+      category: 'Musical instrument store',
+      rating: 4.8,
+      review_count: 149,
+      cached_reviews: 3,
+      address: '49/9 Nguyen Tat Thanh',
+      phone: '+84 123',
+      last_refreshed: Date.now() / 1000 - 3600,
+      activity_risk: { severity: 'medium', label: '近期偏静', reason: '最近缓存评价偏旧，出发前确认营业。' },
+    };
+    const reviews = [
+      { review_id: 'raw-1', rating: 5, author: 'Grace', review_date: Date.now() / 1000, text: 'Helpful owner and transparent rental prices.' },
+      { review_id: 'raw-2', rating: 2, author: 'Minh', review_date: Date.now() / 1000, text: 'Parking was difficult and the entrance was hard to find.' },
+    ];
+    const report = {
+      profile: 'rental',
+      model: 'test-model',
+      created_at: Date.now() / 1000 - 7200,
+      json: {
+        verdict: 'go-with-caution: fair rental, verify opening before walking in.',
+        walk_in_brief: ['Ask the daily rental price first.', 'Confirm deposit before leaving ID.', 'Check the guitar condition in-store.'],
+        dimensions: {
+          hard_facts: { title: 'Hard facts', findings: [
+            { finding: 'Address is near Nguyen Tat Thanh.' },
+            { finding: 'Phone is available for pre-visit confirmation.' },
+          ] },
+        },
+      },
+      md: '# Long Report\n\nThis full report remains readable below the brief.',
+    };
+    const host = document.createElement('div');
+    host.innerHTML = window.__pi.render.detail({ place, reviews, report });
+    const brief = host.querySelector('.dossier-brief');
+    const ask = host.querySelector('.ask-shop-form');
+    const reportEl = host.querySelector('.report');
+    const lens = host.querySelector('.language-lens');
+    const facts = host.querySelector('.detail-facts');
+    const firstReview = host.querySelector('.review-text');
+    return {
+      briefText: brief?.textContent || '',
+      askBeforeReport: Boolean(ask?.compareDocumentPosition(reportEl) & Node.DOCUMENT_POSITION_FOLLOWING),
+      briefBeforeReport: Boolean(brief?.compareDocumentPosition(reportEl) & Node.DOCUMENT_POSITION_FOLLOWING),
+      briefBeforeFullFacts: Boolean(brief?.compareDocumentPosition(facts) & Node.DOCUMENT_POSITION_FOLLOWING),
+      askBeforeFullFacts: Boolean(ask?.compareDocumentPosition(facts) & Node.DOCUMENT_POSITION_FOLLOWING),
+      lensAfterReport: Boolean(reportEl?.compareDocumentPosition(lens) & Node.DOCUMENT_POSITION_FOLLOWING),
+      rawReview: firstReview?.textContent || '',
+      translated: Boolean(host.querySelector('.review-translation')),
+    };
+  });
+
+  expect(state.briefText).toContain('go-with-caution');
+  expect(state.briefText).toContain('近期偏静');
+  expect(state.briefText).toContain('更新于');
+  expect(state.briefText).toContain('Address is near Nguyen Tat Thanh');
+  expect(state.briefText).toContain('Ask the daily rental price first.');
+  expect(state.briefText).toContain('Confirm deposit before leaving ID.');
+  expect(state.briefText).toContain('Check the guitar condition in-store.');
+  expect(state.askBeforeReport).toBe(true);
+  expect(state.briefBeforeReport).toBe(true);
+  expect(state.briefBeforeFullFacts).toBe(true);
+  expect(state.askBeforeFullFacts).toBe(true);
+  expect(state.lensAfterReport).toBe(true);
+  expect(state.rawReview).toBe('Helpful owner and transparent rental prices.');
+  expect(state.translated).toBe(false);
 });
 
 test('shop dossier segments reviews by language and filters raw comments', async ({ page }) => {

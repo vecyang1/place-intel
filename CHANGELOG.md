@@ -1,5 +1,13 @@
 # Changelog — place-intel
 
+## v0.4.30 — 2026-06-15 — dossier decision brief
+- Dossiers now open with a compact decision brief before the long report:
+  verdict, risk/freshness, top hard facts, and up to three walk-in bullets.
+- The scoped Ask form still appears before the full report, and the full report
+  remains readable below the brief.
+- The review lens, original raw review text, opt-in translation UI, and modal
+  focus trap remain covered by focused Playwright regressions.
+
 ## v0.4.29 — 2026-06-14 — Library workspace filters
 - Added Library filters for category, cache freshness, activity risk, language
   cohort, cached-review threshold, and newest report profile.

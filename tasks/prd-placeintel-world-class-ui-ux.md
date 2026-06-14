@@ -1,7 +1,7 @@
 # PRD: placeintel World-Class UI/UX
 
-Status: 🔨 In Progress — US-UI-001 through US-UI-003 complete; US-UI-004 next
-Last Updated: 2026-06-14
+Status: 🔨 In Progress — US-UI-001 through US-UI-004 complete; US-UI-005 next
+Last Updated: 2026-06-15
 Parent PRD: `tasks/prd-placeintel-production-grade-master.md`
 Scope: Web UI, interaction design, mobile/desktop responsiveness, accessibility, and product workflows.
 
@@ -85,13 +85,20 @@ side-by-side evidence board remains `US-UI-006`.
 As a user near a shop, I want the dossier to show the most actionable information first.
 
 Acceptance Criteria:
-- [ ] First viewport includes: verdict, risk level, top hard facts, top 3 walk-in bullets, freshness, and Ask-this-shop.
-- [ ] Report body remains available below the brief.
-- [ ] Review lens remains available below the report or in an evidence tab.
-- [ ] Original review text remains original; translation UI is opt-in/remembered.
-- [ ] Dossier focus trap and restoration regressions still pass.
-- [ ] Typecheck/lint passes.
-- [ ] Visual verification via dev-browser or preview skill.
+- [x] First viewport includes: verdict, risk level, top hard facts, top 3 walk-in bullets, freshness, and Ask-this-shop.
+- [x] Report body remains available below the brief.
+- [x] Review lens remains available below the report or in an evidence tab.
+- [x] Original review text remains original; translation UI is opt-in/remembered.
+- [x] Dossier focus trap and restoration regressions still pass.
+- [x] Typecheck/lint passes.
+- [x] Visual verification via dev-browser or preview skill.
+
+Implementation note 2026-06-15: Completed in v0.4.30. Dossiers now render a
+decision brief immediately after the shop header and before scoped Ask/report:
+verdict, cautious risk/freshness line, top hard facts, and up to three
+walk-in bullets from the saved report JSON. The full report, review lens, raw
+original reviews, translation-on-demand, and modal focus trap remain covered by
+Playwright regressions.
 
 ### US-UI-005: Evidence-Centered Ask
 

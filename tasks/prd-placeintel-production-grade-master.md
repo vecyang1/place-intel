@@ -1,8 +1,8 @@
 # PRD: placeintel Production-Grade Master Plan
 
-Status: 🔨 In Progress — US-001 complete; Scout-result UI complete; dossier/compare stories and CLI global-option hardening remain
-Last Updated: 2026-06-14
-Product Version Observed: 0.4.28 in working tree
+Status: 🔨 In Progress — US-001 and US-002 complete; Ask/Compare stories and CLI global-option hardening remain
+Last Updated: 2026-06-15
+Product Version Observed: 0.4.30 in working tree
 Deployment Profile: hybrid (local-first product with private protected web deployment)
 Primary Owner: next `/goal` implementation agent
 Related PRDs:
@@ -79,12 +79,18 @@ focused command-center Playwright tests plus the full UI smoke matrix.
 As a user standing near a business, I want the dossier to lead with facts, risk, confidence, and a 30-second walk-in brief so that I can act before reading the full report.
 
 Acceptance Criteria:
-- [ ] Dossier first viewport contains: place name, rating/review count, cache freshness, activity risk, top 3 walk-in bullets, and Ask-this-shop.
-- [ ] Generated report remains available and complete; no report sampling or coverage regression.
-- [ ] Raw reviews remain original text; translations remain display-layer only.
-- [ ] Dossier modal keeps focus trap, Escape close, opener restoration, `role="dialog"`, `aria-modal`.
-- [ ] Typecheck/lint passes.
-- [ ] Visual verification via dev-browser or preview skill.
+- [x] Dossier first viewport contains: place name, rating/review count, cache freshness, activity risk, top 3 walk-in bullets, and Ask-this-shop.
+- [x] Generated report remains available and complete; no report sampling or coverage regression.
+- [x] Raw reviews remain original text; translations remain display-layer only.
+- [x] Dossier modal keeps focus trap, Escape close, opener restoration, `role="dialog"`, `aria-modal`.
+- [x] Typecheck/lint passes.
+- [x] Visual verification via dev-browser or preview skill.
+
+Implementation note 2026-06-15: Completed in v0.4.30 via the UI PRD
+`US-UI-004` milestone. The dossier now opens with a compact decision brief
+derived from saved report JSON and listing facts, while the complete report,
+review lens, original reviews, opt-in translation, and focus-trap behavior stay
+intact.
 
 ### US-003: Ask With Evidence, Not Vibes
 

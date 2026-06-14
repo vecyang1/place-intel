@@ -253,6 +253,12 @@ function renderReviewCard(r) {
     ${r.owner_response ? `<div class="owner-reply"><span class="owner-label">店家回复</span><p>${esc(r.owner_response)}</p></div>` : ''}
   </article>`;
 }
+function repJson(rep) { try { return typeof rep?.json === 'string' ? JSON.parse(rep.json) : (rep?.json || {}); } catch { return {}; } }
+function renderDossierBrief(p, reviews, rep) {
+  const j = repJson(rep), hard = (((j.dimensions || {}).hard_facts || {}).findings || []).map((f) => f.finding), facts = hard.concat([p.address && `地址 ${p.address}`, p.phone && `电话 ${p.phone}`, p.website && `网站 ${p.website}`]).filter(Boolean).slice(0, 3), bullets = (j.walk_in_brief || []).slice(0, 3);
+  const risk = p.activity_risk ? `${p.activity_risk.label || '需核实'} · ${p.activity_risk.reason || ''}` : '未发现低活跃风险';
+  return `<section class="detail-section dossier-brief" aria-label="decision brief"><p class="detail-kicker">决策简报 decision brief</p><p><strong>${esc(j.verdict || '先看事实，再决定是否进店。')}</strong></p><p class="activity-risk">${esc(risk)}</p><p class="report-meta-line">更新于 ${esc(relTime(p.last_refreshed))}${rep?.created_at ? ` · 报告 ${esc(relTime(rep.created_at))}` : ''} · 已缓存 ${reviews.length} 条</p>${facts.length ? `<dl class="facts">${facts.map((f) => `<div class="fact"><dt>事实</dt><dd>${esc(f)}</dd></div>`).join('')}</dl>` : ''}${bullets.length ? `<ol>${bullets.map((b) => `<li>${esc(b)}</li>`).join('')}</ol>` : '<div class="empty small">还没有报告建议 — 可先看事实和原文评价。</div>'}</section>`;
+}
 function renderDetail(data) {
   const p = (data && data.place) || {};
   const reviews = (data && data.reviews) || [];
@@ -273,8 +279,8 @@ function renderDetail(data) {
     <p class="detail-fresh">已缓存 ${reviews.length} 条评价 · 更新于 ${esc(relTime(p.last_refreshed))}
       <button type="button" class="btn-ghost btn-danger" data-delete-place="${esc(p.place_id)}" data-place-name="${esc(p.name || '')}">从缓存移除 ✕</button>
     </p>
-    ${facts.length ? `<dl class="facts">${facts.join('')}</dl>` : ''}
   </header>
+  ${renderDossierBrief(p, reviews, rep)}
   <section class="detail-section">
     <form class="ask-shop-form" data-place-id="${esc(p.place_id)}">
       <label>只问这家店 <span class="label-en">ask this shop</span></label>
@@ -286,6 +292,7 @@ function renderDetail(data) {
     <div class="qa-history" data-qa-scope="${esc(p.place_id)}"></div>
     <div class="ask-shop-answer"></div>
   </section>
+  ${facts.length ? `<section class="detail-section"><dl class="facts detail-facts">${facts.join('')}</dl></section>` : ''}
   <section class="detail-section">
     ${rep
     ? `<div class="report-meta-line">最新报告${rep.profile ? ` · ${esc(rep.profile)}` : ''}${rep.model ? ` · <span class="model-tag">${esc(rep.model)}</span>` : ''} · ${esc(relTime(rep.created_at))}</div>
