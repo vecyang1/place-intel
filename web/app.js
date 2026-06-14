@@ -73,20 +73,11 @@ async function apiDelete(path) {
   if (!res.ok) throw new Error(`HTTP ${res.status} — DELETE ${path}`);
   return res.json();
 }
-const POLL_MS = 2000;
-const MAX_POLL_FAILS = 5;
+const POLL_MS = 2000, MAX_POLL_FAILS = 5;
 const TX_TARGET_KEY = 'placeintel.translationTarget';
 const txTarget = () => (['zh', 'en'].includes(localStorage.getItem(TX_TARGET_KEY)) ? localStorage.getItem(TX_TARGET_KEY) : 'zh');
 const txLabel = (target) => (target === 'en' ? 'EN' : '中文');
-const STAGES = {
-  plan: { zh: 'AI规划', en: 'plan' },
-  search: { zh: '搜索', en: 'search' },
-  filter: { zh: 'AI筛选', en: 'filter' },
-  reviews: { zh: '抓评价', en: 'reviews' },
-  embed: { zh: '向量化', en: 'embed' },
-  report: { zh: '推理报告', en: 'report' },
-  done: { zh: '完成', en: 'done' },
-};
+const STAGES = { plan: { zh: 'AI规划', en: 'plan' }, search: { zh: '搜索', en: 'search' }, filter: { zh: 'AI筛选', en: 'filter' }, reviews: { zh: '抓评价', en: 'reviews' }, embed: { zh: '向量化', en: 'embed' }, report: { zh: '推理报告', en: 'report' }, done: { zh: '完成', en: 'done' } };
 const TAB_NAMES = ['scout', 'shop', 'library', 'ask'];
 const tabFromHash = () => (TAB_NAMES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'scout');
 const state = { tab: 'scout', profiles: [], places: [], searches: [], libraryLoaded: false, jobs: { scout: null, shop: null }, detail: null, detailReturnFocus: null, meta: null, translationTarget: txTarget() }; // {version, reason/translate/embed}
@@ -402,7 +393,14 @@ async function pollJob(kind) {
     return;
   }
   els.results.innerHTML = renderResult(data.result);
+  if (kind === 'scout') loadScoutPast();
   if (state.libraryLoaded) loadLibrary(); // keep library tab fresh in background
+}
+async function loadScoutPast() {
+  const list = $('#scout-past-list'), status = $('#scout-past-status'); if (!list || !status) return;
+  if (!list.innerHTML) status.innerHTML = loadingHtml('读取过去侦察');
+  try { state.searches = await apiGet('/api/searches') || []; list.innerHTML = state.searches.slice(0, 8).map(renderSearchRow).join(''); status.innerHTML = state.searches.length ? '' : emptyHtml('还没有过去侦察。'); }
+  catch (err) { list.innerHTML = ''; status.innerHTML = errorHtml(`读取过去侦察失败：${err.message}`); }
 }
 async function loadLibrary() {
   const grid = $('#library-grid');
@@ -477,6 +475,7 @@ function switchTab(name, syncHash = true) {
   });
   $$('.panel').forEach((p) => { const on = p.id === `panel-${name}`; p.hidden = !on; p.tabIndex = on ? 0 : -1; });
   if (syncHash && location.hash !== `#${name}`) history.replaceState(null, '', `#${name}`);
+  if (name === 'scout') loadScoutPast();
   if (name === 'library') {
     state.libraryLoaded = true;
     loadLibrary();
@@ -637,6 +636,7 @@ function bindGlobal() {
     const open = e.target.closest('[data-open-place]');
     if (open) return openDetail(open.dataset.openPlace);
     if (e.target.closest('[data-close]') || e.target.closest('#detail-close')) return closeDetail();
+    if (e.target.closest('#scout-past-reload')) return loadScoutPast();
     if (e.target.closest('#library-reload')) return loadLibrary();
     if (e.target.closest('#model-switch')) return toggleModelPicker();
     if (e.target.closest('#model-save')) return saveModel();
@@ -776,4 +776,4 @@ async function saveModel() {
 }
 function init() { bindForms(); bindGlobal(); switchTab(tabFromHash(), false); window.addEventListener('hashchange', () => switchTab(tabFromHash(), false)); loadProfiles(); loadMeta(); }
 init();
-window.__pi = { state, esc, mdToHtml, relTime, stars, fmtClock, safeUrl, detectReviewLang, render: { event: renderEvent, planCard: renderPlanCard, verdicts: renderVerdicts, result: renderResult, report: renderReportArticle, libraryGrid: renderLibraryGrid, shopCard: renderShopCard, searchRow: renderSearchRow, detail: renderDetail, review: renderReviewCard, hours: renderHours, languageLens: renderLanguageLens }, openDetail, closeDetail, switchTab, loadLibrary, startJob };
+window.__pi = { state, esc, mdToHtml, relTime, stars, fmtClock, safeUrl, detectReviewLang, render: { event: renderEvent, planCard: renderPlanCard, verdicts: renderVerdicts, result: renderResult, report: renderReportArticle, libraryGrid: renderLibraryGrid, shopCard: renderShopCard, searchRow: renderSearchRow, detail: renderDetail, review: renderReviewCard, hours: renderHours, languageLens: renderLanguageLens }, openDetail, closeDetail, switchTab, loadLibrary, loadScoutPast, startJob };

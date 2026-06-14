@@ -1,5 +1,14 @@
 # Changelog — place-intel
 
+## v0.4.18 — 2026-06-14 — Scout past scouts
+- Added a visible **已侦察 / past scouts** section directly under the Scout form,
+  showing recent cached search runs before users start a new scout.
+- Reused `/api/searches` and the existing history row renderer, so past query,
+  location, source/cache age, AI-excluded chips, and clickable shop dossiers stay
+  consistent with the Library tab.
+- Scout history refreshes on tab load, manual refresh, and after a Scout job
+  completes, reducing accidental duplicate scraping/reasoning work.
+
 ## v0.4.17 — 2026-06-14 — review rating filters
 - Added a rating filter row to the dossier raw-review lens: all, 5-star, 4-star,
   and `≤3★` issue reviews.

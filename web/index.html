@@ -66,6 +66,14 @@
         <button type="submit" class="btn-primary" id="scout-submit">开始侦察 Scout →</button>
         <p class="form-hint">第一次跑新地点需要几分钟：AI规划 → 搜索 → AI筛选 → 抓评价 → 向量化 → 推理报告。全程进度都看得见。</p>
       </form>
+      <section class="scout-past" id="scout-past" aria-labelledby="scout-past-title">
+        <div class="section-head">
+          <h2 id="scout-past-title">已侦察 <span class="label-en">past scouts</span></h2>
+          <button type="button" class="btn-ghost" id="scout-past-reload">刷新 ↻</button>
+        </div>
+        <div id="scout-past-status" role="status" aria-live="polite"></div>
+        <ol class="history" id="scout-past-list"></ol>
+      </section>
       <div class="job" id="scout-job" hidden>
         <div class="job-head"><span class="job-label">实时进度 <span class="label-en">live</span></span><span class="job-id" id="scout-jobid"></span></div>
         <ol class="timeline" id="scout-timeline"></ol>

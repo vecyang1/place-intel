@@ -32,6 +32,32 @@ test('home has no console errors, no horizontal overflow, and visible first acti
   expect(metrics.placeholderColor).not.toBe('rgba(0, 0, 0, 0)');
 });
 
+test('scout tab shows past scouts below the form to avoid duplicate work', async ({ page }) => {
+  await page.route('**/api/searches', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify([{
+      id: 7,
+      query: 'Hoi An guitar rental',
+      location: 'Hoi An',
+      source: 'cache',
+      created_at: Date.now() / 1000 - 3600,
+      places: [
+        { place_id: 'dclass', name: "D'Class Guitar Hội An", relevant: true },
+        { place_id: 'taxi', name: 'HoiAnGO E-Taxi', relevant: false, reason: 'not a guitar shop' },
+      ],
+    }]),
+  }));
+
+  await page.goto('http://127.0.0.1:9618/#scout', { waitUntil: 'networkidle' });
+
+  await expect(page.locator('#scout-past')).toBeVisible();
+  await expect(page.locator('#scout-past-title')).toContainText('已侦察');
+  await expect(page.locator('#scout-past-list .search-row')).toHaveCount(1);
+  await expect(page.locator('#scout-past-list')).toContainText('Hoi An guitar rental');
+  await expect(page.locator('#scout-past-list [data-open-place="dclass"]')).toContainText("D'Class Guitar");
+  await expect(page.locator('#scout-past-list [data-open-place="taxi"]')).toHaveClass(/chip-cut/);
+});
+
 test('activity risk renders as a cautious visible tag', async ({ page }) => {
   await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
   const html = await page.evaluate(() => {
