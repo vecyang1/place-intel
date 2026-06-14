@@ -42,6 +42,12 @@
           <label for="scout-near">在哪里 <span class="label-en">near · 可选</span></label>
           <input id="scout-near" name="near" type="text" autocomplete="off" placeholder="例：Hoi An, Vietnam…">
         </div>
+        <div class="command-mode" id="command-mode" role="group" aria-label="推荐工作模式">
+          <button type="button" class="chip" data-command-mode="scout" aria-pressed="true">侦察 Scout</button>
+          <button type="button" class="chip" data-command-mode="shop" aria-pressed="false">单店 Shop</button>
+          <button type="button" class="chip" data-command-mode="ask" aria-pressed="false">提问 Ask</button>
+        </div>
+        <p class="mode-reason" id="command-reason" aria-live="polite">输入需求、店名或 Maps 链接，会自动推荐路径。</p>
         <details class="advanced" id="scout-advanced">
           <summary>高级 <span class="label-en">advanced</span></summary>
           <div class="advanced-grid">

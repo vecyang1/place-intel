@@ -32,6 +32,73 @@ test('home has no console errors, no horizontal overflow, and visible first acti
   expect(metrics.placeholderColor).not.toBe('rgba(0, 0, 0, 0)');
 });
 
+test('command center recommends shop for Maps links and starts Shop from the first input', async ({ page }) => {
+  let shopBody = null;
+  await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/shop', (route) => {
+    shopBody = route.request().postDataJSON();
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ job_id: 'job-shop' }) });
+  });
+  await page.route('**/api/jobs/job-shop/events*', (route) => route.fulfill({ status: 204, body: '' }));
+  await page.route('**/api/jobs/job-shop', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ status: 'done', events: [], result: { query: 'DClass', mode: 'single', places: [], reports: [], errors: [] } }),
+  }));
+
+  await page.goto('http://127.0.0.1:9618/#scout', { waitUntil: 'networkidle' });
+  await page.locator('#scout-query').fill('https://www.google.com/maps/place/DClass+Guitar');
+
+  await expect(page.locator('[data-command-mode="shop"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#command-reason')).toContainText('Maps');
+  await page.locator('#scout-submit').click();
+
+  expect(shopBody).toMatchObject({ target: 'https://www.google.com/maps/place/DClass+Guitar' });
+  await expect(page.locator('#tab-shop')).toHaveAttribute('aria-selected', 'true');
+});
+
+test('command center manual Ask override answers from the first input', async ({ page }) => {
+  const askBodies = [];
+  await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/ask', (route) => {
+    askBodies.push(route.request().postDataJSON());
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ answer: '缓存证据显示押金需要现场确认。', cached: false, model: 'test-model', provider: 'test' }),
+    });
+  });
+
+  await page.goto('http://127.0.0.1:9618/#scout', { waitUntil: 'networkidle' });
+  await page.locator('#scout-query').fill('押金怎么收？');
+  await page.locator('[data-command-mode="ask"]').click();
+  await page.locator('#scout-submit').click();
+
+  expect(askBodies.at(-1)).toMatchObject({ question: '押金怎么收？' });
+  await expect(page.locator('#tab-ask')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#ask-answer')).toContainText('押金需要现场确认');
+});
+
+test('command center reuses matching fresh scout history instead of submitting a duplicate scrape', async ({ page }) => {
+  let scoutRequests = 0;
+  await page.route('**/api/searches', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify([{
+      id: 8, query: 'Hoi An guitar rental', location: 'Hoi An', source: 'scout',
+      created_at: Date.now() / 1000 - 1800,
+      places: [{ place_id: 'dclass', name: "D'Class Guitar", relevant: true }],
+    }]),
+  }));
+  await page.route('**/api/scout', (route) => { scoutRequests += 1; return route.fulfill({ status: 500, body: 'duplicate' }); });
+
+  await page.goto('http://127.0.0.1:9618/#scout', { waitUntil: 'networkidle' });
+  await page.locator('#scout-query').fill('Hoi An guitar rental');
+  await page.locator('#scout-near').fill('Hoi An');
+  await page.locator('#scout-submit').click();
+
+  expect(scoutRequests).toBe(0);
+  await expect(page.locator('#scout-past-status')).toContainText('缓存');
+  await expect(page.locator('#scout-past-list')).toContainText("D'Class Guitar");
+});
+
 test('scout tab shows past scouts below the form to avoid duplicate work', async ({ page }) => {
   await page.route('**/api/searches', (route) => route.fulfill({
     contentType: 'application/json',

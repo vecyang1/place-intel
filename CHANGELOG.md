@@ -1,5 +1,16 @@
 # Changelog — place-intel
 
+## v0.4.27 — 2026-06-14 — command center
+- Turned the first Scout input into a command center: it accepts broad needs,
+  shop names, Maps URLs, and cached-evidence questions without forcing the user
+  to choose the right tab first.
+- Added local mode recommendation for Scout, Shop, and Ask with a visible reason
+  and manual override chips.
+- Maps links and shop-name style input can now start Shop from the first field;
+  question-style input can route directly into Ask.
+- Exact fresh Scout history matches are reused from the visible past-scout list
+  unless the user chooses force refresh, avoiding duplicate scrape jobs.
+
 ## v0.4.26 — 2026-06-14 — favorite refresh
 - Added SQLite-backed favorite metadata for cached places. Refresh remains
   opt-in and disabled by default for every newly favorited place.

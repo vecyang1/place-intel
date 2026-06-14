@@ -148,6 +148,9 @@ textarea { resize: vertical; min-height: 3.2em; }
 textarea.query-input { min-height: 6em; }
 .query-input { font-size: 1.12rem; padding: 0.85rem 1rem; line-height: 1.55; }
 .is-invalid { border-color: var(--accent) !important; animation: shake 0.3s var(--ease); }
+.command-mode { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: -0.2rem 0 0.65rem; }
+.command-mode .chip[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.mode-reason { margin: -0.25rem 0 0.75rem; font-size: 0.78rem; color: var(--ink-55); }
 
 .advanced { margin: 0.4rem 0 1.1rem; border-top: 1.5px dashed var(--line-soft); }
 .advanced summary {

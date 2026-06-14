@@ -73,10 +73,15 @@ const STAGES = { plan: { zh: 'AI规划', en: 'plan' }, search: { zh: '搜索', e
 const TAB_NAMES = ['scout', 'shop', 'library', 'ask'];
 const tabFromHash = () => (TAB_NAMES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'scout');
 const SEARCH_ROW_CHIP_LIMIT = 8, LIBRARY_PAGE_SIZE = 12;
-const state = { tab: 'scout', profiles: [], places: [], searches: [], libraryLoaded: false, libraryLimit: LIBRARY_PAGE_SIZE, jobs: { scout: null, shop: null }, detail: null, detailReturnFocus: null, meta: null, translationTarget: txTarget() }; // {version, reason/translate/embed}
+const state = { tab: 'scout', profiles: [], places: [], libraryLoaded: false, libraryLimit: LIBRARY_PAGE_SIZE, jobs: { scout: null, shop: null }, detail: null, detailReturnFocus: null, meta: null, translationTarget: txTarget(), searches: [], commandMode: 'scout', commandManual: false }; // meta={version, reason/translate/embed}
 function loadingHtml(msg) { return `<p class="loading">${esc(msg)} <span class="dots">●●●</span></p>`; }
 function errorHtml(msg) { return `<div class="error-box"><span class="error-label">出错 error</span>${esc(msg)}</div>`; }
 function emptyHtml(msg, gotoTab, gotoLabel) { const btn = gotoTab ? `<button type="button" class="btn-ghost" data-goto="${esc(gotoTab)}">${esc(gotoLabel || '去侦察 →')}</button>` : ''; return `<div class="empty">${esc(msg)}${btn}</div>`; }
+const COMMAND_LABELS = { scout: '开始侦察 Scout →', shop: '深挖单店 Shop →', ask: '直接提问 Ask →' };
+function commandGuess(text) { const q = text.trim(); if (!q) return { mode: 'scout', reason: '输入需求、店名或 Maps 链接，会自动推荐路径。' }; if (/google\.[^\s]*\/maps|\/maps\/place|maps\.app\.goo\.gl|goo\.gl\/maps/i.test(q)) return { mode: 'shop', reason: '检测到 Maps 链接，推荐单店深挖 Shop。' }; if ((/[?？]/.test(q) || /^(哪|谁|是否|有没有|can|does|do|which|what|where|how)\b/i.test(q)) && state.searches.length) return { mode: 'ask', reason: '像是在问已缓存证据，推荐 Ask。' }; if (q.length <= 60 && !/(找|租|学|推荐|附近|哪家|best|find|near|nearby|rental|lesson|lessons|restaurant|coffee|cafe)/i.test(q)) return { mode: 'shop', reason: '像具体店名，推荐单店深挖 Shop。' }; return { mode: 'scout', reason: '像开放需求，推荐侦察 Scout。' }; }
+function setCommandMode(mode, manual = false, reason = '') { state.commandMode = COMMAND_LABELS[mode] ? mode : 'scout'; if (manual) state.commandManual = true; $$('[data-command-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.commandMode === state.commandMode))); const submit = $('#scout-submit'), why = $('#command-reason'); if (submit) submit.textContent = COMMAND_LABELS[state.commandMode]; if (why) why.textContent = reason || `手动选择 ${state.commandMode.toUpperCase()}。`; }
+function refreshCommandMode() { const q = $('#scout-query')?.value || ''; if (!q.trim()) state.commandManual = false; if (!state.commandManual) { const g = commandGuess(q); setCommandMode(g.mode, false, g.reason); } }
+function matchingScout(query, near) { const q = query.trim().toLowerCase(), n = near.trim().toLowerCase(), fresh = Date.now() / 1000 - 14 * 86400; return state.searches.find((s) => String(s.query || '').trim().toLowerCase() === q && (!n || String(s.location || '').trim().toLowerCase() === n) && Number(s.created_at || 0) >= fresh); }
 function renderPlanCard(plan) {
   if (!plan) return '';
   const queries = (plan.queries || []).map((q) => `<span class="chip">${esc(q)}</span>`).join('');
@@ -403,7 +408,7 @@ async function pollJob(kind) {
 async function loadScoutPast() {
   const list = $('#scout-past-list'), status = $('#scout-past-status'); if (!list || !status) return;
   if (!list.innerHTML) status.innerHTML = loadingHtml('读取过去侦察');
-  try { state.searches = await apiGet('/api/searches') || []; list.innerHTML = state.searches.slice(0, 8).map(renderSearchRow).join(''); status.innerHTML = state.searches.length ? '' : emptyHtml('还没有过去侦察。'); }
+  try { state.searches = await apiGet('/api/searches') || []; list.innerHTML = state.searches.slice(0, 8).map(renderSearchRow).join(''); status.innerHTML = state.searches.length ? '' : emptyHtml('还没有过去侦察。'); refreshCommandMode(); }
   catch (err) { list.innerHTML = ''; status.innerHTML = errorHtml(`读取过去侦察失败：${err.message}`); }
 }
 async function loadLibrary() {
@@ -491,19 +496,23 @@ function bindForms() {
     e.preventDefault();
     const query = $('#scout-query').value.trim();
     if (!query) return flashInvalid($('#scout-query'));
-    const body = {
-      query,
-      top: clampInt($('#scout-top').value, 1, 8, 3),
-      max_reviews: clampInt($('#scout-maxr').value, 20, 5000, 300),
-    };
+    const body = { query, top: clampInt($('#scout-top').value, 1, 8, 3), max_reviews: clampInt($('#scout-maxr').value, 20, 5000, 300) };
     const near = $('#scout-near').value.trim();
+    if (state.commandMode === 'ask') { switchTab('ask'); $('#ask-question').value = query; return runAsk(query, null, $('#ask-answer'), false); }
+    if (state.commandMode === 'shop') {
+      const shopBody = { target: query, max_reviews: body.max_reviews };
+      if (near) { shopBody.near = near; $('#shop-near').value = near; } if ($('#scout-profile').value) shopBody.profile = $('#scout-profile').value; if ($('#scout-refresh').checked) shopBody.refresh = true;
+      $('#shop-target').value = query; switchTab('shop'); return startJob('shop', '/api/shop', shopBody);
+    }
+    const cached = matchingScout(query, near);
+    if (cached && !$('#scout-refresh').checked) { $('#scout-past-status').textContent = '命中缓存：下面已有同一侦察；强制刷新才会重新抓取。'; return $('#scout-past').scrollIntoView({ block: 'start', behavior: 'smooth' }); }
     if (near) body.near = near;
     if ($('#scout-profile').value) body.profile = $('#scout-profile').value;
     if ($('#scout-refresh').checked) body.refresh = true;
     if ($('#scout-noai').checked) body.no_ai = true;
     startJob('scout', '/api/scout', body);
   });
-  submitOnEnter($('#scout-query'), scoutForm);
+  $('#scout-query').addEventListener('input', refreshCommandMode); $$('[data-command-mode]').forEach((btn) => btn.addEventListener('click', () => setCommandMode(btn.dataset.commandMode, true))); refreshCommandMode(); submitOnEnter($('#scout-query'), scoutForm);
   $('#shop-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const target = $('#shop-target').value.trim();

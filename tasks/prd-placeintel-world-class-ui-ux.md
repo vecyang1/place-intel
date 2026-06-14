@@ -1,6 +1,6 @@
 # PRD: placeintel World-Class UI/UX
 
-Status: 📋 Draft
+Status: 🔨 In Progress — US-UI-001 complete; US-UI-002 next
 Last Updated: 2026-06-14
 Parent PRD: `tasks/prd-placeintel-production-grade-master.md`
 Scope: Web UI, interaction design, mobile/desktop responsiveness, accessibility, and product workflows.
@@ -28,13 +28,18 @@ The target experience: the user opens placeintel, types what they need, sees wha
 As a user, I want one primary input that can handle a need, shop name, or Maps URL so I do not need to choose the perfect tab first.
 
 Acceptance Criteria:
-- [ ] First visible field accepts any-language need, shop name, or Maps URL.
-- [ ] Input analysis recommends Scout, Shop, or Ask before submit.
-- [ ] User can override recommendation manually.
-- [ ] Past scouts remain visible below the form.
-- [ ] No duplicate scrape starts when the same query has fresh cache; UI explains cache reuse.
-- [ ] Typecheck/lint passes.
-- [ ] Visual verification via dev-browser or preview skill.
+- [x] First visible field accepts any-language need, shop name, or Maps URL.
+- [x] Input analysis recommends Scout, Shop, or Ask before submit.
+- [x] User can override recommendation manually.
+- [x] Past scouts remain visible below the form.
+- [x] No duplicate scrape starts when the same query has fresh cache; UI explains cache reuse.
+- [x] Typecheck/lint passes.
+- [x] Visual verification via dev-browser or preview skill.
+
+Implementation note 2026-06-14: Completed in v0.4.27 with a compact
+mode-recommendation row on the first Scout form. Maps links route to Shop,
+questions can route to Ask, manual override is available, and fresh matching
+past scouts stop duplicate Scout submission unless force-refresh is checked.
 
 ### US-UI-002: Better Scout Results
 

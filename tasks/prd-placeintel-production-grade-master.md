@@ -1,8 +1,8 @@
 # PRD: placeintel Production-Grade Master Plan
 
-Status: 🔨 In Progress — ops PRD complete; UI/product stories and CLI global-option hardening remain
+Status: 🔨 In Progress — US-001 complete; UI dossier/compare stories and CLI global-option hardening remain
 Last Updated: 2026-06-14
-Product Version Observed: 0.4.26 in working tree
+Product Version Observed: 0.4.27 in working tree
 Deployment Profile: hybrid (local-first product with private protected web deployment)
 Primary Owner: next `/goal` implementation agent
 Related PRDs:
@@ -62,12 +62,17 @@ The next product step is not "more features." It is to turn the app into a coher
 As a traveler or operator, I want one obvious input that accepts a need, a shop name, or a Maps URL so that I do not need to understand the app's internal modes first.
 
 Acceptance Criteria:
-- [ ] User can paste a Maps URL, type a shop name, or type a broad need from the first visible input.
-- [ ] UI recommends the detected mode: Scout, Shop, or Ask, with a one-sentence reason.
-- [ ] User can accept the recommendation and start the job in <=2 clicks.
-- [ ] Existing `#scout/#shop/#library/#ask` deep links still work.
-- [ ] Typecheck/lint passes.
-- [ ] Visual verification via dev-browser or preview skill.
+- [x] User can paste a Maps URL, type a shop name, or type a broad need from the first visible input.
+- [x] UI recommends the detected mode: Scout, Shop, or Ask, with a one-sentence reason.
+- [x] User can accept the recommendation and start the job in <=2 clicks.
+- [x] Existing `#scout/#shop/#library/#ask` deep links still work.
+- [x] Typecheck/lint passes.
+- [x] Visual verification via dev-browser or preview skill.
+
+Implementation note 2026-06-14: Completed in v0.4.27 by adding Scout-page
+command-mode chips, local mode recommendation, first-input routing into Shop and
+Ask, and exact fresh-history reuse before duplicate Scout submission. Coverage:
+focused command-center Playwright tests plus the full UI smoke matrix.
 
 ### US-002: Read a Dossier Like a Decision Brief
 
