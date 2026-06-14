@@ -1,5 +1,18 @@
 # Changelog — place-intel
 
+## v0.4.19 — 2026-06-14 — cleaner lists + Library controls
+- Past scout rows now hide AI-excluded place chips instead of showing a long
+  struck-through wall of rejected candidates.
+- The row meta still keeps the useful summary, such as `AI 排除 15 家`, while
+  the chip list focuses only on places the user may actually open.
+- Long kept-candidate lists are capped with a `+N 家` chip so past scouts stay
+  readable even when a cached search returned many places.
+- The Library tab now has a cached-shop search box, sort control, and a 12-card
+  initial cap with `显示更多`, so large caches are easier to scan.
+- Default Library ordering is now a smart score instead of raw cached-review
+  count only: reports, cached evidence, total review volume, rating, freshness,
+  and activity-risk signals all contribute.
+
 ## v0.4.18 — 2026-06-14 — Scout past scouts
 - Added a visible **已侦察 / past scouts** section directly under the Scout form,
   showing recent cached search runs before users start a new scout.

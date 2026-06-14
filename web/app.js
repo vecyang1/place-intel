@@ -80,7 +80,8 @@ const txLabel = (target) => (target === 'en' ? 'EN' : '中文');
 const STAGES = { plan: { zh: 'AI规划', en: 'plan' }, search: { zh: '搜索', en: 'search' }, filter: { zh: 'AI筛选', en: 'filter' }, reviews: { zh: '抓评价', en: 'reviews' }, embed: { zh: '向量化', en: 'embed' }, report: { zh: '推理报告', en: 'report' }, done: { zh: '完成', en: 'done' } };
 const TAB_NAMES = ['scout', 'shop', 'library', 'ask'];
 const tabFromHash = () => (TAB_NAMES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'scout');
-const state = { tab: 'scout', profiles: [], places: [], searches: [], libraryLoaded: false, jobs: { scout: null, shop: null }, detail: null, detailReturnFocus: null, meta: null, translationTarget: txTarget() }; // {version, reason/translate/embed}
+const SEARCH_ROW_CHIP_LIMIT = 8, LIBRARY_PAGE_SIZE = 12;
+const state = { tab: 'scout', profiles: [], places: [], searches: [], libraryLoaded: false, libraryLimit: LIBRARY_PAGE_SIZE, jobs: { scout: null, shop: null }, detail: null, detailReturnFocus: null, meta: null, translationTarget: txTarget() }; // {version, reason/translate/embed}
 function loadingHtml(msg) { return `<p class="loading">${esc(msg)} <span class="dots">●●●</span></p>`; }
 function errorHtml(msg) { return `<div class="error-box"><span class="error-label">出错 error</span>${esc(msg)}</div>`; }
 function emptyHtml(msg, gotoTab, gotoLabel) { const btn = gotoTab ? `<button type="button" class="btn-ghost" data-goto="${esc(gotoTab)}">${esc(gotoLabel || '去侦察 →')}</button>` : ''; return `<div class="empty">${esc(msg)}${btn}</div>`; }
@@ -178,23 +179,24 @@ function renderShopCard(p, featured) {
     <p class="shop-fresh">更新于 ${esc(relTime(p.last_refreshed))}</p>
   </button>`;
 }
-function renderLibraryGrid(places) {
-  if (!places || !places.length) return '';
-  const sorted = [...places].sort((a, b) => (b.cached_reviews || 0) - (a.cached_reviews || 0));
-  const featuredCount = sorted.length >= 5 ? 2 : sorted.length >= 3 ? 1 : 0;
-  return sorted.map((p, i) => renderShopCard(p, i < featuredCount)).join('');
+function placeScore(p) { const age = Math.max(0, Date.now() / 1000 - (p.last_refreshed || 0)); return (p.report_count || 0) * 650 + (p.cached_reviews || 0) * 2 + (p.review_count || 0) * 0.02 + (Number(p.rating) || 0) * 25 + Math.max(0, 80 - age / 3600) - (p.activity_risk ? 80 : 0); }
+function libraryMatches() { const q = ($('#library-search')?.value || '').trim().toLowerCase(), sort = $('#library-sort')?.value || 'smart'; return state.places.filter((p) => !q || [p.name, p.category, p.address].join(' ').toLowerCase().includes(q)).sort((a, b) => sort === 'fresh' ? (b.last_refreshed || 0) - (a.last_refreshed || 0) : sort === 'cached' ? (b.cached_reviews || 0) - (a.cached_reviews || 0) : sort === 'rating' ? (Number(b.rating) || 0) - (Number(a.rating) || 0) : placeScore(b) - placeScore(a)); }
+function renderLibraryGrid(places) { places = places || []; const featuredCount = places.length >= 5 ? 2 : places.length >= 3 ? 1 : 0; return places.map((p, i) => renderShopCard(p, i < featuredCount)).join(''); }
+function renderLibrary() {
+  const grid = $('#library-grid'), status = $('#library-status'); if (!grid || !status) return;
+  if (!state.places.length) { grid.innerHTML = ''; status.innerHTML = emptyHtml('资料库是空的 — 去「侦察」跑第一票。', 'scout'); return; }
+  const xs = libraryMatches(), limit = state.libraryLimit || LIBRARY_PAGE_SIZE, shown = xs.slice(0, limit), q = ($('#library-search')?.value || '').trim();
+  grid.innerHTML = renderLibraryGrid(shown) + (xs.length > limit ? `<button type="button" class="btn-ghost library-more" data-library-more="1">显示更多 ${xs.length - limit} 家</button>` : '');
+  status.innerHTML = xs.length ? `<p class="library-count">显示 ${shown.length} / ${state.places.length}${q ? ` · 搜索 ${esc(q)}` : ''}</p>` : emptyHtml('没有匹配的店 — 换个关键词。');
 }
 function renderSearchRow(s) {
-  // AI-excluded places render struck-through with the verdict reason as tooltip
-  const chips = (s.places || [])
-    .map((p) => {
-      const cut = p.relevant === false;
-      const title = cut && p.reason ? ` title="AI 排除：${esc(p.reason)}"` : '';
-      return `<button type="button" class="chip chip-link${cut ? ' chip-cut' : ''}"${title}
-        data-open-place="${esc(p.place_id)}">${cut ? '✕ ' : ''}${esc(p.name)}</button>`;
-    })
-    .join('');
-  const cutCount = (s.places || []).filter((p) => p.relevant === false).length;
+  const places = s.places || [];
+  const cutCount = places.filter((p) => p.relevant === false).length;
+  const kept = places.filter((p) => p.relevant !== false);
+  const more = kept.length > SEARCH_ROW_CHIP_LIMIT ? `<span class="chip chip-more">+${kept.length - SEARCH_ROW_CHIP_LIMIT} 家</span>` : '';
+  const chips = kept.slice(0, SEARCH_ROW_CHIP_LIMIT)
+    .map((p) => `<button type="button" class="chip chip-link" data-open-place="${esc(p.place_id)}">${esc(p.name)}</button>`)
+    .join('') + more;
   return `<li class="search-row">
     <div class="search-main">
       <span class="search-query">${esc(s.query)}</span>
@@ -403,19 +405,12 @@ async function loadScoutPast() {
   catch (err) { list.innerHTML = ''; status.innerHTML = errorHtml(`读取过去侦察失败：${err.message}`); }
 }
 async function loadLibrary() {
-  const grid = $('#library-grid');
-  const status = $('#library-status');
-  const hList = $('#history-list');
-  const hStatus = $('#history-status');
+  const grid = $('#library-grid'), status = $('#library-status'), hList = $('#history-list'), hStatus = $('#history-status');
   if (!grid.innerHTML) status.innerHTML = loadingHtml('读取资料库');
-  const [placesR, searchesR] = await Promise.allSettled([
-    apiGet('/api/places'),
-    apiGet('/api/searches'),
-  ]);
+  const [placesR, searchesR] = await Promise.allSettled([apiGet('/api/places'), apiGet('/api/searches')]);
   if (placesR.status === 'fulfilled') {
     state.places = placesR.value || [];
-    grid.innerHTML = renderLibraryGrid(state.places);
-    status.innerHTML = state.places.length ? '' : emptyHtml('资料库是空的 — 去「侦察」跑第一票。', 'scout');
+    renderLibrary();
   } else {
     grid.innerHTML = '';
     status.innerHTML = errorHtml(`读取资料库失败：${placesR.reason.message}`);
@@ -637,11 +632,13 @@ function bindGlobal() {
     if (open) return openDetail(open.dataset.openPlace);
     if (e.target.closest('[data-close]') || e.target.closest('#detail-close')) return closeDetail();
     if (e.target.closest('#scout-past-reload')) return loadScoutPast();
+    if (e.target.closest('[data-library-more]')) { state.libraryLimit += LIBRARY_PAGE_SIZE; return renderLibrary(); }
     if (e.target.closest('#library-reload')) return loadLibrary();
     if (e.target.closest('#model-switch')) return toggleModelPicker();
     if (e.target.closest('#model-save')) return saveModel();
   });
-  document.addEventListener('change', (e) => { const sel = e.target.closest('.translation-target'); if (sel) setTranslationTarget(sel); });
+  document.addEventListener('input', (e) => { if (e.target.closest('#library-search')) { state.libraryLimit = LIBRARY_PAGE_SIZE; renderLibrary(); } });
+  document.addEventListener('change', (e) => { const sel = e.target.closest('.translation-target'); if (sel) setTranslationTarget(sel); if (e.target.closest('#library-sort')) { state.libraryLimit = LIBRARY_PAGE_SIZE; renderLibrary(); } });
   $('#model-select').addEventListener('change', () => {
     $('#model-custom').hidden = $('#model-select').value !== CUSTOM_MODEL;
   });

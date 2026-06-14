@@ -125,6 +125,15 @@
         <h2>已缓存的店 <span class="label-en">cached shops</span></h2>
         <button type="button" class="btn-ghost" id="library-reload">刷新 ↻</button>
       </div>
+      <div class="library-tools">
+        <input id="library-search" name="library_search" type="search" autocomplete="off" placeholder="例：guitar / hiking / Hoi An…">
+        <select id="library-sort" name="library_sort" aria-label="资料库排序">
+          <option value="smart">智能排序 smart</option>
+          <option value="fresh">最近更新 fresh</option>
+          <option value="cached">缓存评价多 cached</option>
+          <option value="rating">评分高 rating</option>
+        </select>
+      </div>
       <div id="library-status"></div>
       <div class="shop-grid" id="library-grid"></div>
 

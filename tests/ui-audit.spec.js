@@ -43,6 +43,7 @@ test('scout tab shows past scouts below the form to avoid duplicate work', async
       created_at: Date.now() / 1000 - 3600,
       places: [
         { place_id: 'dclass', name: "D'Class Guitar Hội An", relevant: true },
+        ...Array.from({ length: 9 }, (_, i) => ({ place_id: `kept-${i}`, name: `Candidate ${i + 1}`, relevant: true })),
         { place_id: 'taxi', name: 'HoiAnGO E-Taxi', relevant: false, reason: 'not a guitar shop' },
       ],
     }]),
@@ -54,8 +55,50 @@ test('scout tab shows past scouts below the form to avoid duplicate work', async
   await expect(page.locator('#scout-past-title')).toContainText('已侦察');
   await expect(page.locator('#scout-past-list .search-row')).toHaveCount(1);
   await expect(page.locator('#scout-past-list')).toContainText('Hoi An guitar rental');
+  await expect(page.locator('#scout-past-list .search-meta')).toContainText('AI 排除 1 家');
   await expect(page.locator('#scout-past-list [data-open-place="dclass"]')).toContainText("D'Class Guitar");
-  await expect(page.locator('#scout-past-list [data-open-place="taxi"]')).toHaveClass(/chip-cut/);
+  await expect(page.locator('#scout-past-list .search-places .chip')).toHaveCount(9);
+  await expect(page.locator('#scout-past-list .chip-more')).toContainText('+2 家');
+  await expect(page.locator('#scout-past-list [data-open-place="taxi"]')).toHaveCount(0);
+  await expect(page.locator('#scout-past-list .chip-cut')).toHaveCount(0);
+});
+
+test('library search filters cached shops and caps the initial list', async ({ page }) => {
+  const now = Date.now() / 1000;
+  const places = Array.from({ length: 14 }, (_, i) => ({
+    place_id: `place-${i}`, name: `Scenic Place ${i}`, category: 'Scenic spot',
+    rating: 4 + (i % 5) / 10, review_count: 100 + i, cached_reviews: 10 + i,
+    address: `Road ${i}, Da Nang`, last_refreshed: now - i * 3600,
+    report_count: i === 4 ? 1 : 0,
+  }));
+  Object.assign(places[0], { name: 'Fresh Scenic Pier', last_refreshed: now + 60 });
+  Object.assign(places[1], { name: 'Cached Giant View', rating: 4.1, cached_reviews: 500, last_refreshed: now - 86400 });
+  Object.assign(places[2], { name: 'Five Star Peak', rating: 5, cached_reviews: 12, last_refreshed: now - 7200 });
+  places.push({ place_id: 'guitar-shop', name: "D'Class Guitar Hội An", category: 'Musical instrument store', rating: 4.9, review_count: 149, cached_reviews: 149, address: 'Hoi An', last_refreshed: now - 7200, report_count: 3 });
+  await page.route('**/api/places', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(places) }));
+  await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+
+  await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
+
+  await expect(page.locator('#library-search')).toBeVisible();
+  await expect(page.locator('#library-sort')).toHaveValue('smart');
+  await expect(page.locator('#library-grid .shop-card')).toHaveCount(12);
+  await expect(page.locator('#library-grid .shop-card').first()).toContainText("D'Class Guitar");
+  await expect(page.locator('[data-library-more]')).toContainText('显示更多');
+  await page.locator('[data-library-more]').click();
+  await expect(page.locator('#library-grid .shop-card')).toHaveCount(15);
+  await expect(page.locator('[data-library-more]')).toHaveCount(0);
+  await page.locator('#library-sort').selectOption('fresh');
+  await expect(page.locator('#library-grid .shop-card')).toHaveCount(12);
+  await expect(page.locator('#library-grid .shop-card').first()).toContainText('Fresh Scenic Pier');
+  await page.locator('#library-sort').selectOption('cached');
+  await expect(page.locator('#library-grid .shop-card').first()).toContainText('Cached Giant View');
+  await page.locator('#library-sort').selectOption('rating');
+  await expect(page.locator('#library-grid .shop-card').first()).toContainText('Five Star Peak');
+  await page.locator('#library-search').fill('guitar');
+  await expect(page.locator('#library-grid .shop-card')).toHaveCount(1);
+  await expect(page.locator('#library-grid')).toContainText("D'Class Guitar");
+  await expect(page.locator('#library-status')).toContainText('显示 1 / 15');
 });
 
 test('activity risk renders as a cautious visible tag', async ({ page }) => {
