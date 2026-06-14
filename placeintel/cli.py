@@ -17,7 +17,7 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
-from . import __version__, backup as backup_mod, cache, config, doctor, profiles
+from . import __version__, backup as backup_mod, cache, config, deploy_smoke, doctor, profiles
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -171,6 +171,23 @@ CORE_SCHEMAS = {
                 "items": {
                     "type": "object",
                     "required": ["path", "kind", "size", "sha256"],
+                },
+            },
+        },
+    },
+    "deploy_smoke": {
+        "type": "object",
+        "required": ["base_url", "checks", "ok"],
+        "properties": {
+            "base_url": {"type": "string"},
+            "public_url": {"type": ["string", "null"]},
+            "expected_version": {"type": ["string", "null"]},
+            "ok": {"type": "boolean"},
+            "checks": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["name", "ok", "latency_ms", "data"],
                 },
             },
         },
@@ -527,6 +544,34 @@ def _cmd_restore(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_deploy_smoke(args: argparse.Namespace) -> int:
+    report = deploy_smoke.run(
+        args.base_url,
+        expected_version=args.expected_version,
+        public_url=args.public_url,
+        timeout=args.timeout,
+    )
+    if args.format == "json":
+        error = None
+        if not report["ok"]:
+            failures = [c.get("error") or c["name"] for c in report["checks"] if not c["ok"]]
+            error = {
+                "code": "deploy_smoke_failed",
+                "message": "; ".join(failures) or "deployment smoke failed",
+                "recoverable": True,
+                "next_action": "Check the deployed commit, service logs, proxy/auth config, and rerun deploy-smoke.",
+            }
+        _print_json(_json_payload("deploy-smoke", report, ok=report["ok"], error=error))
+    else:
+        status = "OK" if report["ok"] else "FAILED"
+        print(f"deploy-smoke: {status} · {args.base_url}")
+        for check in report["checks"]:
+            mark = "✓" if check["ok"] else "✗"
+            detail = check.get("error") or check.get("data", {})
+            print(f"  {mark} {check['name']}: {detail}")
+    return 0 if report["ok"] else 3
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="placeintel", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -631,6 +676,15 @@ def main(argv: list[str] | None = None) -> int:
                     help="allow restore from outside the configured data/backups directory")
     _add_format_arg(rs)
     rs.set_defaults(func=_cmd_restore)
+
+    ds = sub.add_parser("deploy-smoke", help="read-only smoke check for a running deployment")
+    ds.add_argument("--base-url", default="http://127.0.0.1:9618",
+                    help="authenticated or loopback service URL")
+    ds.add_argument("--public-url", help="optional public URL that should reject unauthenticated access")
+    ds.add_argument("--expected-version", help="require /api/meta and static asset version to match")
+    ds.add_argument("--timeout", type=float, default=5.0)
+    _add_format_arg(ds)
+    ds.set_defaults(func=_cmd_deploy_smoke)
 
     args = parser.parse_args(argv)
     _setup_logging(args.verbose)

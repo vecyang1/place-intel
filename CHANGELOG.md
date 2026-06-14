@@ -1,5 +1,22 @@
 # Changelog — place-intel
 
+## v0.4.25 — 2026-06-14 — deployment smoke
+- Added `placeintel deploy-smoke --format json`, a read-only runtime verifier
+  for `/api/meta`, `/api/health`, versioned static assets, Library reads, and
+  one cached dossier read.
+- Added optional `--public-url` auth-protection smoke: the unauthenticated public
+  URL must return 401/403 while the operator verifies the authenticated or
+  loopback `--base-url`.
+- Deploy-smoke failures now use the agent JSON error envelope with
+  `deploy_smoke_failed` and exit code 3.
+- Documented deployment smoke and rollback commands in the operations and agent
+  CLI runbooks.
+- Sanitized README deployment guidance to use placeholders instead of a real
+  protected domain or private proxy topology.
+- Updated the private deployment workflow to run the same smoke check after
+  restart and to accept `PLACEINTEL_*` deployment secrets while remaining
+  compatible with the legacy secret names.
+
 ## v0.4.24 — 2026-06-14 — backup and restore
 - Added `placeintel backup --format json`, creating an allow-listed local backup
   package under `data/backups` with `manifest.json`, file sizes, and SHA-256
@@ -160,7 +177,7 @@
   per-shop exact-scope.
 - Added server and Playwright regressions for all-scope history display and
   scoped re-ask behavior.
-- Gated the VPS deploy workflow to the private `vecyang1/gmr` repo so the public
+- Gated the VPS deploy workflow to the private deployment repo so the public
   code-only mirror no longer creates false-red deploy runs when private secrets
   are intentionally absent.
 
@@ -197,12 +214,11 @@
   no-build SPA fixes while staying inside the 3-file app constraint.
 
 ## Deployment — 2026-06-12 — protected public domain
-- Added the production domain `gmr.worldinspirelab.com` through Cloudflare and
-  the existing EU VPS Traefik stack.
+- Added a protected public-domain deployment path through a private proxy stack.
 - Kept the app process loopback-only on `127.0.0.1:9618`; public traffic enters
-  through a dedicated `/docker/gmr-proxy` bridge and Traefik Basic Auth.
-- Stored the public-domain login in local `.env.gmr-domain` (gitignored by
-  `.env.*`); the VPS stores only the Basic Auth hash.
+  only through an authenticated proxy.
+- Stored public-domain login values in local gitignored env files or deployment
+  secrets; the remote host stores only the Basic Auth hash.
 
 ## v0.4.7 — 2026-06-12 — dossier modal focus trap
 - The shop dossier now traps Tab and Shift+Tab inside the modal while it is open,
@@ -267,7 +283,7 @@
 
 ## v0.4.1 — 2026-06-12 — private VPS deployment lane
 - Added a private GitHub Actions deployment workflow for a native systemd service
-  on a Contabo/Ubuntu VPS. The service stays bound to `127.0.0.1:9618` by default
+  on a protected VPS. The service stays bound to `127.0.0.1:9618` by default
   so the AI-key-backed web UI is not exposed publicly without an explicit proxy.
 - Added `deploy/remote-bootstrap.sh`: idempotent remote setup for Python venv,
   Google Chrome, vendored review scraper, service restart, and local health check.

@@ -1,4 +1,4 @@
-name: Deploy to Contabo EU VPS
+name: Deploy private VPS
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: placeintel-contabo-deploy
+  group: placeintel-private-deploy
   cancel-in-progress: true
 
 jobs:
@@ -21,15 +21,15 @@ jobs:
 
       - name: Validate required secrets
         env:
-          GMR_DEPLOY_HOST: ${{ secrets.GMR_DEPLOY_HOST }}
-          GMR_DEPLOY_USER: ${{ secrets.GMR_DEPLOY_USER }}
-          GMR_DEPLOY_SSH_KEY: ${{ secrets.GMR_DEPLOY_SSH_KEY }}
-          GMR_DEPLOY_DIR: ${{ secrets.GMR_DEPLOY_DIR }}
+          PLACEINTEL_DEPLOY_HOST: ${{ secrets.PLACEINTEL_DEPLOY_HOST || secrets.GMR_DEPLOY_HOST }}
+          PLACEINTEL_DEPLOY_USER: ${{ secrets.PLACEINTEL_DEPLOY_USER || secrets.GMR_DEPLOY_USER }}
+          PLACEINTEL_DEPLOY_SSH_KEY: ${{ secrets.PLACEINTEL_DEPLOY_SSH_KEY || secrets.GMR_DEPLOY_SSH_KEY }}
+          PLACEINTEL_DEPLOY_DIR: ${{ secrets.PLACEINTEL_DEPLOY_DIR || secrets.GMR_DEPLOY_DIR }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
         run: |
           set -euo pipefail
-          for name in GMR_DEPLOY_HOST GMR_DEPLOY_USER GMR_DEPLOY_SSH_KEY GMR_DEPLOY_DIR GOOGLE_API_KEY VECTORENGINE_API_KEY; do
+          for name in PLACEINTEL_DEPLOY_HOST PLACEINTEL_DEPLOY_USER PLACEINTEL_DEPLOY_SSH_KEY PLACEINTEL_DEPLOY_DIR GOOGLE_API_KEY VECTORENGINE_API_KEY; do
             if [ -z "${!name:-}" ]; then
               echo "Missing required secret: $name" >&2
               exit 1
@@ -65,24 +65,28 @@ jobs:
             sleep 1
           done
           curl -fsS http://127.0.0.1:9618/api/meta
+          placeintel deploy-smoke \
+            --base-url "http://127.0.0.1:9618" \
+            --expected-version "$(python -c 'import placeintel; print(placeintel.__version__)')" \
+            --format json
           npm run test:web
 
       - name: Configure SSH
         env:
-          GMR_DEPLOY_HOST: ${{ secrets.GMR_DEPLOY_HOST }}
-          GMR_DEPLOY_PORT: ${{ secrets.GMR_DEPLOY_PORT }}
-          GMR_DEPLOY_SSH_KEY: ${{ secrets.GMR_DEPLOY_SSH_KEY }}
+          PLACEINTEL_DEPLOY_HOST: ${{ secrets.PLACEINTEL_DEPLOY_HOST || secrets.GMR_DEPLOY_HOST }}
+          PLACEINTEL_DEPLOY_PORT: ${{ secrets.PLACEINTEL_DEPLOY_PORT || secrets.GMR_DEPLOY_PORT }}
+          PLACEINTEL_DEPLOY_SSH_KEY: ${{ secrets.PLACEINTEL_DEPLOY_SSH_KEY || secrets.GMR_DEPLOY_SSH_KEY }}
         run: |
           set -euo pipefail
-          port="${GMR_DEPLOY_PORT:-22}"
+          port="${PLACEINTEL_DEPLOY_PORT:-22}"
           install -d -m 700 ~/.ssh
-          printf '%s\n' "$GMR_DEPLOY_SSH_KEY" > ~/.ssh/gmr_deploy_key
-          chmod 600 ~/.ssh/gmr_deploy_key
-          ssh-keyscan -p "$port" -t rsa,ecdsa,ed25519 "$GMR_DEPLOY_HOST" >> ~/.ssh/known_hosts
+          printf '%s\n' "$PLACEINTEL_DEPLOY_SSH_KEY" > ~/.ssh/placeintel_deploy_key
+          chmod 600 ~/.ssh/placeintel_deploy_key
+          ssh-keyscan -p "$port" -t rsa,ecdsa,ed25519 "$PLACEINTEL_DEPLOY_HOST" >> ~/.ssh/known_hosts
 
       - name: Write deployment env file
         env:
-          GMR_DEPLOY_DIR: ${{ secrets.GMR_DEPLOY_DIR }}
+          PLACEINTEL_DEPLOY_DIR: ${{ secrets.PLACEINTEL_DEPLOY_DIR || secrets.GMR_DEPLOY_DIR }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
           SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
@@ -95,24 +99,24 @@ jobs:
             printf 'VECTORENGINE_API_KEY=%s\n' "$VECTORENGINE_API_KEY"
             printf 'SERPAPI_API_KEY=%s\n' "${SERPAPI_API_KEY:-}"
             printf 'PLACEINTEL_REASON_MODEL=%s\n' "$reason_model"
-            printf 'PLACEINTEL_DATA_DIR=%s/app/data\n' "$GMR_DEPLOY_DIR"
+            printf 'PLACEINTEL_DATA_DIR=%s/app/data\n' "$PLACEINTEL_DEPLOY_DIR"
           } > .deploy.env
           chmod 600 .deploy.env
 
       - name: Sync app to VPS
         env:
-          GMR_DEPLOY_HOST: ${{ secrets.GMR_DEPLOY_HOST }}
-          GMR_DEPLOY_USER: ${{ secrets.GMR_DEPLOY_USER }}
-          GMR_DEPLOY_PORT: ${{ secrets.GMR_DEPLOY_PORT }}
-          GMR_DEPLOY_DIR: ${{ secrets.GMR_DEPLOY_DIR }}
+          PLACEINTEL_DEPLOY_HOST: ${{ secrets.PLACEINTEL_DEPLOY_HOST || secrets.GMR_DEPLOY_HOST }}
+          PLACEINTEL_DEPLOY_USER: ${{ secrets.PLACEINTEL_DEPLOY_USER || secrets.GMR_DEPLOY_USER }}
+          PLACEINTEL_DEPLOY_PORT: ${{ secrets.PLACEINTEL_DEPLOY_PORT || secrets.GMR_DEPLOY_PORT }}
+          PLACEINTEL_DEPLOY_DIR: ${{ secrets.PLACEINTEL_DEPLOY_DIR || secrets.GMR_DEPLOY_DIR }}
         run: |
           set -euo pipefail
-          port="${GMR_DEPLOY_PORT:-22}"
-          remote="$GMR_DEPLOY_USER@$GMR_DEPLOY_HOST"
-          keyfile="$HOME/.ssh/gmr_deploy_key"
+          port="${PLACEINTEL_DEPLOY_PORT:-22}"
+          remote="$PLACEINTEL_DEPLOY_USER@$PLACEINTEL_DEPLOY_HOST"
+          keyfile="$HOME/.ssh/placeintel_deploy_key"
           ssh_opts=(-i "$keyfile" -p "$port" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20)
           scp_opts=(-i "$keyfile" -P "$port" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20)
-          ssh "${ssh_opts[@]}" "$remote" "mkdir -p '$GMR_DEPLOY_DIR/app'"
+          ssh "${ssh_opts[@]}" "$remote" "mkdir -p '$PLACEINTEL_DEPLOY_DIR/app'"
           rsync -az --delete \
             --exclude='.git/' \
             --exclude='.github/' \
@@ -122,30 +126,37 @@ jobs:
             --exclude='.env' \
             --exclude='.env.*' \
             -e "ssh -i '$keyfile' -p $port -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20" \
-            ./ "$remote:$GMR_DEPLOY_DIR/app/"
-          scp "${scp_opts[@]}" .deploy.env "$remote:$GMR_DEPLOY_DIR/app/.env"
+            ./ "$remote:$PLACEINTEL_DEPLOY_DIR/app/"
+          scp "${scp_opts[@]}" .deploy.env "$remote:$PLACEINTEL_DEPLOY_DIR/app/.env"
 
       - name: Bootstrap and restart service
         env:
-          GMR_DEPLOY_HOST: ${{ secrets.GMR_DEPLOY_HOST }}
-          GMR_DEPLOY_USER: ${{ secrets.GMR_DEPLOY_USER }}
-          GMR_DEPLOY_PORT: ${{ secrets.GMR_DEPLOY_PORT }}
-          GMR_DEPLOY_DIR: ${{ secrets.GMR_DEPLOY_DIR }}
+          PLACEINTEL_DEPLOY_HOST: ${{ secrets.PLACEINTEL_DEPLOY_HOST || secrets.GMR_DEPLOY_HOST }}
+          PLACEINTEL_DEPLOY_USER: ${{ secrets.PLACEINTEL_DEPLOY_USER || secrets.GMR_DEPLOY_USER }}
+          PLACEINTEL_DEPLOY_PORT: ${{ secrets.PLACEINTEL_DEPLOY_PORT || secrets.GMR_DEPLOY_PORT }}
+          PLACEINTEL_DEPLOY_DIR: ${{ secrets.PLACEINTEL_DEPLOY_DIR || secrets.GMR_DEPLOY_DIR }}
         run: |
           set -euo pipefail
-          port="${GMR_DEPLOY_PORT:-22}"
-          remote="$GMR_DEPLOY_USER@$GMR_DEPLOY_HOST"
-          ssh -i "$HOME/.ssh/gmr_deploy_key" -p "$port" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 "$remote" \
-            "GMR_DEPLOY_DIR='$GMR_DEPLOY_DIR' bash '$GMR_DEPLOY_DIR/app/deploy/remote-bootstrap.sh'"
+          port="${PLACEINTEL_DEPLOY_PORT:-22}"
+          remote="$PLACEINTEL_DEPLOY_USER@$PLACEINTEL_DEPLOY_HOST"
+          ssh -i "$HOME/.ssh/placeintel_deploy_key" -p "$port" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 "$remote" \
+            "PLACEINTEL_DEPLOY_DIR='$PLACEINTEL_DEPLOY_DIR' bash '$PLACEINTEL_DEPLOY_DIR/app/deploy/remote-bootstrap.sh'"
 
-      - name: Verify service health through SSH
+      - name: Verify deployment smoke through SSH
         env:
-          GMR_DEPLOY_HOST: ${{ secrets.GMR_DEPLOY_HOST }}
-          GMR_DEPLOY_USER: ${{ secrets.GMR_DEPLOY_USER }}
-          GMR_DEPLOY_PORT: ${{ secrets.GMR_DEPLOY_PORT }}
+          PLACEINTEL_DEPLOY_HOST: ${{ secrets.PLACEINTEL_DEPLOY_HOST || secrets.GMR_DEPLOY_HOST }}
+          PLACEINTEL_DEPLOY_USER: ${{ secrets.PLACEINTEL_DEPLOY_USER || secrets.GMR_DEPLOY_USER }}
+          PLACEINTEL_DEPLOY_PORT: ${{ secrets.PLACEINTEL_DEPLOY_PORT || secrets.GMR_DEPLOY_PORT }}
+          PLACEINTEL_DEPLOY_DIR: ${{ secrets.PLACEINTEL_DEPLOY_DIR || secrets.GMR_DEPLOY_DIR }}
+          PLACEINTEL_PUBLIC_URL: ${{ secrets.PLACEINTEL_PUBLIC_URL || secrets.GMR_PUBLIC_URL }}
         run: |
           set -euo pipefail
-          port="${GMR_DEPLOY_PORT:-22}"
-          remote="$GMR_DEPLOY_USER@$GMR_DEPLOY_HOST"
-          ssh -i "$HOME/.ssh/gmr_deploy_key" -p "$port" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 "$remote" \
-            "curl -fsS http://127.0.0.1:9618/api/meta"
+          port="${PLACEINTEL_DEPLOY_PORT:-22}"
+          remote="$PLACEINTEL_DEPLOY_USER@$PLACEINTEL_DEPLOY_HOST"
+          expected_version="$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          public_arg=""
+          if [ -n "${PLACEINTEL_PUBLIC_URL:-}" ]; then
+            public_arg=" --public-url '$PLACEINTEL_PUBLIC_URL'"
+          fi
+          ssh -i "$HOME/.ssh/placeintel_deploy_key" -p "$port" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 "$remote" \
+            "cd '$PLACEINTEL_DEPLOY_DIR/app' && .venv/bin/placeintel deploy-smoke --base-url http://127.0.0.1:9618 --expected-version '$expected_version' --format json$public_arg"

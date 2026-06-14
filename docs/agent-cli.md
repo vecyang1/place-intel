@@ -23,12 +23,12 @@ Current implemented codes:
 | 0 | Success |
 | 1 | Existing command user/runtime failure |
 | 2 | Doctor found failed required or critical local health checks |
+| 3 | Deployment smoke or external runtime target unavailable/unhealthy |
 
 PRD target codes still to implement across all commands:
 
 | Code | Meaning |
 | --- | --- |
-| 3 | External provider/scraper unavailable |
 | 4 | Partial completion with warnings |
 | 5 | Cache empty/no matching data |
 | 6 | Timeout/cancelled |
@@ -144,6 +144,7 @@ warnings unless required.
 | `schema` | text, JSON | `schema --format json` lists core CLI/API schemas, including `pipeline_result`, `backup_manifest`, and docs paths. |
 | `backup` | text, JSON | `backup --format json` creates a non-secret backup package with manifest hashes. |
 | `restore <manifest-or-dir>` | text, JSON | Requires `--yes`; verifies hashes and DB schema before replacing local runtime data. |
+| `deploy-smoke` | text, JSON | Read-only deployment proof for `/api/meta`, `/api/health`, versioned static asset, Library, dossier, and optional unauthenticated public rejection. |
 
 ## Agent Recipes
 
@@ -211,6 +212,30 @@ Restore refuses paths outside `data/backups/` unless `--force` is supplied for a
 trusted path. The JSON result includes `restored_files`; failure envelopes use
 codes such as `confirmation_required`, `outside_backup_root`,
 `bad_manifest`, and `hash_mismatch`.
+
+Verify a local or SSH-tunneled deployment after release:
+
+```bash
+EXPECTED_VERSION=$(.venv/bin/python -c "import placeintel; print(placeintel.__version__)")
+.venv/bin/placeintel deploy-smoke \
+  --base-url "http://127.0.0.1:9618" \
+  --expected-version "$EXPECTED_VERSION" \
+  --format json
+```
+
+When a protected public URL exists, verify that unauthenticated traffic is
+rejected without putting credentials in the command:
+
+```bash
+EXPECTED_VERSION=$(.venv/bin/python -c "import placeintel; print(placeintel.__version__)")
+.venv/bin/placeintel deploy-smoke \
+  --base-url "http://127.0.0.1:9618" \
+  --public-url "https://PLACEHOLDER_PROTECTED_DOMAIN" \
+  --expected-version "$EXPECTED_VERSION" \
+  --format json
+```
+
+Failure exits with code `3` and a `deploy_smoke_failed` error envelope.
 
 Run a scout from another agent and stream events:
 

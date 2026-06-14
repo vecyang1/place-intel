@@ -119,17 +119,59 @@ take minutes and adds scraping load.
 
 ## Deployment Smoke
 
-Protected deployment should prove the running service matches the intended build:
+Protected deployment should prove the running service matches the intended build.
+Use the CLI smoke against the authenticated service URL or an SSH tunnel:
+
+```bash
+EXPECTED_VERSION=$(.venv/bin/python -c "import placeintel; print(placeintel.__version__)")
+.venv/bin/placeintel deploy-smoke \
+  --base-url "http://127.0.0.1:9618" \
+  --expected-version "$EXPECTED_VERSION" \
+  --format json
+```
+
+The smoke is read-only and verifies:
+
+- `GET /api/meta` returns the expected app version.
+- `GET /api/health` reports `ok:true`.
+- `/` includes the versioned `app.js` asset for the expected build.
+- `GET /api/places` loads the Library data shape.
+- `GET /api/places/{place_id}` opens one cached dossier when the Library is not
+  empty.
+
+When a protected public domain exists, pass the public URL without credentials to
+prove unauthenticated access is rejected by the proxy:
+
+```bash
+EXPECTED_VERSION=$(.venv/bin/python -c "import placeintel; print(placeintel.__version__)")
+.venv/bin/placeintel deploy-smoke \
+  --base-url "http://127.0.0.1:9618" \
+  --public-url "https://PLACEHOLDER_PROTECTED_DOMAIN" \
+  --expected-version "$EXPECTED_VERSION" \
+  --format json
+```
+
+`public_auth` passes only for HTTP `401` or `403`. A failure exits with code `3`
+and prints a standard JSON error envelope with `deploy_smoke_failed`.
+
+Post-deploy human checklist:
 
 1. Confirm the service is loopback-only behind the protected proxy.
-2. Verify unauthenticated public access is rejected by the proxy.
-3. Verify authenticated `GET /api/meta`.
-4. Verify authenticated `GET /api/health`.
-5. Verify one read-only UI flow: Library load or one cached dossier open.
-6. Check service logs for new error spikes.
+2. Run `placeintel deploy-smoke` against the authenticated or tunneled service.
+3. If a public domain exists, include `--public-url` to prove Basic Auth/proxy
+   rejection for unauthenticated traffic.
+4. Check service logs for new error spikes after the smoke.
+5. Keep real URLs, hosts, paths, Basic Auth users/passwords, and credentials in
+   deployment secrets or local gitignored files.
 
-Keep real URLs, hosts, paths, and credentials in deployment secrets or local
-gitignored files, not in public docs.
+Public-safe deployment surfaces:
+
+| Surface | Purpose | Secret handling |
+| --- | --- | --- |
+| local | development and verification on `127.0.0.1:9618` | `.env` / shell env |
+| private VPS | native systemd service on loopback | GitHub Secrets + remote `.env` |
+| protected domain | authenticated browser access | proxy auth outside repo |
+| public mirror | code-only repository | no deploy/runtime secrets |
 
 ## Backup and Restore Status
 
@@ -184,8 +226,17 @@ Generic rollback path:
 
 1. Restore the previous deployed commit or directory snapshot.
 2. Restart the service.
-3. Run `/api/health`.
-4. Run `/api/meta` and confirm the version.
-5. Open one read-only UI flow.
+3. Run the deployment smoke against the restored loopback service:
+
+   ```bash
+   .venv/bin/placeintel deploy-smoke \
+     --base-url "http://127.0.0.1:9618" \
+     --expected-version "PREVIOUS_VERSION" \
+     --format json
+   ```
+
+4. If a protected public URL exists, rerun the smoke with `--public-url` to
+   confirm unauthenticated traffic is still rejected.
+5. Check service logs before sending real users back to the restored process.
 
 Do not roll back by editing `data/` or `vendor/` by hand.

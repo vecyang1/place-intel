@@ -124,11 +124,14 @@ class CliJsonContractTest(unittest.TestCase):
         self.assertIn("health", schemas)
         self.assertIn("pipeline_result", schemas)
         self.assertIn("job_event", schemas)
+        self.assertIn("backup_manifest", schemas)
+        self.assertIn("deploy_smoke", schemas)
         self.assertIn("deep", schemas["health"]["properties"]["mode"]["enum"])
         health_item_required = schemas["health"]["properties"]["checks"]["items"]["required"]
         self.assertIn("next_action", health_item_required)
         self.assertIn("reports", schemas["pipeline_result"]["required"])
         self.assertEqual(schemas["job_event"]["required"], ["t", "stage", "msg"])
+        self.assertIn("checks", schemas["deploy_smoke"]["required"])
 
     def test_ask_format_json_wraps_answer_and_preserves_scope_flags(self) -> None:
         answer = {

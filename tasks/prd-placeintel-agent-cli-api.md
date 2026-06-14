@@ -112,9 +112,9 @@ Acceptance Criteria:
 - [x] Typecheck/lint passes.
 
 Implementation note 2026-06-14: Completed with `placeintel schema --format json`,
-core schema entries for `cli_envelope`, `health`, `pipeline_result`, and
-`job_event`, and docs links from README. Verified by
-`tests/test_cli_json_contract.py` plus full local verification.
+core schema entries for `cli_envelope`, `health`, `pipeline_result`,
+`job_event`, `backup_manifest`, and `deploy_smoke`, and docs links from README.
+Verified by `tests/test_cli_json_contract.py` plus full local verification.
 
 ## 4. Functional Requirements
 
@@ -181,6 +181,7 @@ New or expanded commands:
 | `config` | get/set/test non-secret settings | text, json |
 | `backup` | create/verify local DB backup | text, json |
 | `restore` | restore with confirmation | text, json |
+| `deploy-smoke` | read-only deployment verification | text, json |
 
 ### 4.5 NDJSON Event Types
 

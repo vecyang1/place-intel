@@ -1,6 +1,6 @@
 # PRD: placeintel Production Operations Readiness
 
-Status: 🔨 In Progress — US-OPS-005 complete; deploy/refresh remain
+Status: 🔨 In Progress — US-OPS-006 complete; favorite refresh remains
 Last Updated: 2026-06-14
 Parent PRD: `tasks/prd-placeintel-production-grade-master.md`
 Scope: Reliability, deployment, health checks, job durability, backups, observability, and operational safety.
@@ -121,11 +121,19 @@ before restore. Restore requires `--yes` and refuses external paths unless
 As an operator, I want deployment verification that proves the actual protected service is serving the new build.
 
 Acceptance Criteria:
-- [ ] `docs/operations.md` documents local, private VPS, protected domain, and public code-only mirror.
-- [ ] Post-deploy smoke verifies `/api/meta`, `/api/health`, static asset version, Library read, Dossier read, and auth protection if domain is public.
-- [ ] Rollback plan is executable in under 60 seconds.
-- [ ] Deployment docs do not expose private paths, hostnames, credentials, or secrets in public-safe docs.
-- [ ] Typecheck/lint passes.
+- [x] `docs/operations.md` documents local, private VPS, protected domain, and public code-only mirror.
+- [x] Post-deploy smoke verifies `/api/meta`, `/api/health`, static asset version, Library read, Dossier read, and auth protection if domain is public.
+- [x] Rollback plan is executable in under 60 seconds.
+- [x] Deployment docs do not expose private paths, hostnames, credentials, or secrets in public-safe docs.
+- [x] Typecheck/lint passes.
+
+Implementation note 2026-06-14: Completed with `placeintel/deploy_smoke.py`
+and `placeintel deploy-smoke --format json`. The smoke is read-only, verifies
+`/api/meta`, `/api/health`, versioned `/static/app.js`, Library load, one
+dossier read when cache is non-empty, and optional unauthenticated public-domain
+rejection. `docs/operations.md` now documents local/private/protected/public
+deployment surfaces with placeholders only, and README points to the runbook
+without exposing the real protected domain.
 
 ### US-OPS-007: Favorite Refresh
 
@@ -393,7 +401,7 @@ No external log shipping by default.
 - [x] `docs/operations.md`
 - [x] `docs/API.md` health/job sections
 - [x] `docs/agent-cli.md` doctor/backup/job examples
-- [ ] `README.md` local verify and operations links
+- [x] `README.md` local verify and operations links
 - [x] `AGENTS.md` new invariants if durable jobs or backup rules are added
 - [x] `CHANGELOG.md`
 - [x] `progress.md`

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEPLOY_DIR="${GMR_DEPLOY_DIR:-/opt/gmr}"
+DEPLOY_DIR="${PLACEINTEL_DEPLOY_DIR:-${GMR_DEPLOY_DIR:-/opt/placeintel}}"
 APP_DIR="$DEPLOY_DIR/app"
 ENV_FILE="$APP_DIR/.env"
 SERVICE_NAME="placeintel"

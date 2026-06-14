@@ -55,64 +55,51 @@ Agent and ops contracts:
 - Agent CLI: [`docs/agent-cli.md`](docs/agent-cli.md)
 - Operations runbook: [`docs/operations.md`](docs/operations.md)
 
-## Private VPS deploy
+## Private deploy
 
-The private deployment path is GitHub Actions → SSH → native systemd service. It
-keeps the FastAPI web app on VPS loopback (`127.0.0.1:9618`) by default.
+The private deployment path is GitHub Actions → SSH → native systemd service. The
+FastAPI app should stay on loopback (`127.0.0.1:9618`) unless it is behind an
+explicit protected proxy.
 
-Required private-repo secrets:
+Required private-repo secrets use placeholder names in this public README:
 
 ```text
-GMR_DEPLOY_HOST
-GMR_DEPLOY_USER
-GMR_DEPLOY_PORT
-GMR_DEPLOY_SSH_KEY
-GMR_DEPLOY_DIR
+PLACEINTEL_DEPLOY_HOST
+PLACEINTEL_DEPLOY_USER
+PLACEINTEL_DEPLOY_PORT
+PLACEINTEL_DEPLOY_SSH_KEY
+PLACEINTEL_DEPLOY_DIR
 GOOGLE_API_KEY
 VECTORENGINE_API_KEY
 SERPAPI_API_KEY
 PLACEINTEL_REASON_MODEL
 ```
 
-After deploy, tunnel the frontend from your Mac:
+After deploy, verify through an SSH tunnel or authenticated internal URL:
 
 ```bash
-ssh -N -L 9619:127.0.0.1:9618 <vps-ssh-alias>
-open http://127.0.0.1:9619
+ssh -fN -L 9619:127.0.0.1:9618 <vps-ssh-alias>
+EXPECTED_VERSION=$(.venv/bin/python -c "import placeintel; print(placeintel.__version__)")
+.venv/bin/placeintel deploy-smoke \
+  --base-url "http://127.0.0.1:9619" \
+  --expected-version "$EXPECTED_VERSION" \
+  --format json
 ```
 
-### Protected public domain
-
-Production URL: <https://gmr.worldinspirelab.com>
-
-The public domain is intentionally protected with Traefik Basic Auth because the
-web app can spend API credits and mutate the local cache. The login is stored in
-the gitignored local env file:
+For a protected public domain, keep the real URL and Basic Auth values in local
+gitignored files or deployment secrets. The public-safe auth check is:
 
 ```bash
-source .env.gmr-domain
-open "$GMR_PUBLIC_URL"
+EXPECTED_VERSION=$(.venv/bin/python -c "import placeintel; print(placeintel.__version__)")
+.venv/bin/placeintel deploy-smoke \
+  --base-url "http://127.0.0.1:9619" \
+  --public-url "https://PLACEHOLDER_PROTECTED_DOMAIN" \
+  --expected-version "$EXPECTED_VERSION" \
+  --format json
 ```
 
-On the VPS, the app remains loopback-only under `placeintel.service`. Traefik
-exposes it through a small bridge compose unit at `/docker/gmr-proxy`:
-
-- `gmr-host-bridge`: host-network `socat`, listens only on the Docker bridge
-  gateway `172.18.0.1:9619`, forwards to `127.0.0.1:9618`.
-- `gmr-proxy`: attached to `n8n_default`, forwards container port `9618` to the
-  host bridge, and carries the Traefik router/middleware labels.
-- UFW allows only `172.18.0.0/16 -> 172.18.0.1:9619` on the n8n Docker bridge.
-- Cloudflare DNS record: `gmr.worldinspirelab.com` A record, proxied, targeting
-  the EU VPS origin.
-
-Verify:
-
-```bash
-source .env.gmr-domain
-curl -fsS -u "$GMR_PUBLIC_BASIC_USER:$GMR_PUBLIC_BASIC_PASSWORD" \
-  "$GMR_PUBLIC_URL/api/meta"
-curl -sSI "$GMR_PUBLIC_URL/api/meta" | head
-```
+See [`docs/operations.md`](docs/operations.md) for the full deploy smoke,
+backup, restore, and rollback runbook.
 
 ## How it works
 

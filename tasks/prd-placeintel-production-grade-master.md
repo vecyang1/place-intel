@@ -1,8 +1,8 @@
 # PRD: placeintel Production-Grade Master Plan
 
-Status: 📋 Draft (PRD-only, no implementation in this turn)
+Status: 🔨 In Progress — ops/agent foundation complete; UI/product stories remain
 Last Updated: 2026-06-14
-Product Version Observed: 0.4.18 in working tree
+Product Version Observed: 0.4.25 in working tree
 Deployment Profile: hybrid (local-first product with private protected web deployment)
 Primary Owner: next `/goal` implementation agent
 Related PRDs:
@@ -122,11 +122,11 @@ Acceptance Criteria:
 As the product owner, I want health, provider status, backups, and deploy smoke results to be visible so that I can trust the product outside a coding session.
 
 Acceptance Criteria:
-- [ ] `/api/health` returns fast local health without model calls.
-- [ ] `/api/health/deep` or CLI `doctor --live` verifies provider/model/scraper availability safely.
+- [x] `/api/health` returns fast local health without model calls.
+- [x] `/api/health/deep` or CLI `doctor --live` verifies provider/model/scraper availability safely.
 - [x] SQLite backup and restore commands are documented and tested on a temp DB.
-- [ ] Deploy runbook verifies protected domain, Basic Auth, `/api/meta`, `/api/health`, one read-only UI flow, and logs.
-- [ ] Typecheck/lint passes.
+- [x] Deploy runbook verifies protected domain, Basic Auth, `/api/meta`, `/api/health`, one read-only UI flow, and logs.
+- [x] Typecheck/lint passes.
 
 ## 4. Functional Requirements
 
@@ -235,7 +235,7 @@ Acceptance Criteria:
 | API consumers in web shell | `placeintel/server.py`, `web/app.js` | LOW per route, one dense consumer file | `route_map`, API contract tests, Playwright smoke | Partial |
 | Web line-budget rule | `web/app.js`, `web/app.css` | Project hard rule | `wc -l` or existing static contract | Yes |
 | Provider/model settings | `placeintel/config.py`, `server.py`, `web/app.js` | Medium product risk | Fake model rejection, live model list graceful failure, `/api/meta` | Yes |
-| Protected deployment lane | `.github/workflows/deploy-contabo.yml`, `deploy/remote-bootstrap.sh` | Operational risk | CI local gate, SSH health check, protected domain smoke | Partial |
+| Protected deployment lane | `.github/workflows/deploy-contabo.yml`, `deploy/remote-bootstrap.sh` | Operational risk | CI local gate, SSH deploy smoke, protected-domain auth rejection smoke | Partial |
 
 ### 7.2 Security Hardening
 
@@ -415,7 +415,7 @@ Environment matrix:
 | --- | --- | --- | --- | --- |
 | local | development and personal use | `http://127.0.0.1:9618` | `./data` | `.env`, local skill fallback |
 | private VPS | protected remote use | loopback service + SSH tunnel or protected domain | VPS app data dir | GitHub Secrets + remote `.env` |
-| protected domain | browser access | `gmr.worldinspirelab.com` observed in docs | same VPS service | Basic Auth and service env |
+| protected domain | browser access | `https://PLACEHOLDER_PROTECTED_DOMAIN` | same VPS service | Basic Auth and service env |
 | public mirror | code only | GitHub public repo | none | no deploy secrets |
 
 Must-haves before production-ready claim:
