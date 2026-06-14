@@ -77,12 +77,18 @@ agent envelope while legacy `export` remains raw JSON.
 As another agent, I want Ask to return answer plus evidence metadata so I can cite or inspect the answer.
 
 Acceptance Criteria:
-- [ ] `placeintel ask "question" --format json` returns `answer`, `cached`, `created_at`, `model`, `provider`, `matched?`, `place_id?`.
-- [ ] If evidence cards are implemented in backend, JSON includes `evidence[]` with type `listing|review`.
-- [ ] `--place` preserves exact scope.
-- [ ] `--fresh` bypasses cache.
-- [ ] Empty cache exits with documented code and JSON message, not a stack trace.
-- [ ] Typecheck/lint passes.
+- [x] `placeintel ask "question" --format json` returns `answer`, `cached`, `created_at`, `model`, `provider`, `matched?`, `place_id?`.
+- [x] If evidence cards are implemented in backend, JSON includes `evidence[]` with type `listing|review`.
+- [x] `--place` preserves exact scope.
+- [x] `--fresh` bypasses cache.
+- [x] Empty cache exits with documented code and JSON message, not a stack trace.
+- [x] Typecheck/lint passes.
+
+Implementation note 2026-06-14: Completed with `ask --format json` in
+`placeintel/cli.py`; scoped JSON echoes `place_id`, `--fresh` maps to
+`no_cache=True`, and empty cache returns exit code 5 with `cache_empty`. The
+`evidence[]` criterion is satisfied as not-applicable until the backend exposes
+evidence cards; once backend evidence exists, the CLI must pass it through.
 
 ### US-CLI-005: Schemas and Examples
 

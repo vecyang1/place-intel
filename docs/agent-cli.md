@@ -101,7 +101,7 @@ provider/scraper diagnostics remain a production-ops PRD item.
 | `shop "name-or-url"` | text | Single-place scout. PRD target: `--format json|ndjson`. |
 | `plan "text"` | JSON body | Existing debug output is already JSON. |
 | `history` | text, JSON | `history --format json` returns recent searches. |
-| `ask "question"` | text | PRD target: JSON answer plus evidence metadata. |
+| `ask "question"` | text, JSON | `ask --format json` returns answer/cache/model/provider metadata and echoes `place_id` when scoped. |
 | `report <place_id>` | markdown text, JSON | `report --format json` returns the latest cached report without regenerating. |
 | `list` | text, JSON | `list --format json` returns cached places. |
 | `profiles` | text, JSON | `profiles --format json` returns profile names and dimensions. |
@@ -164,6 +164,13 @@ Ask from existing cache:
 
 ```bash
 .venv/bin/placeintel ask "Which shop looks safest for a beginner?"
+```
+
+Ask with machine-readable output:
+
+```bash
+.venv/bin/placeintel ask "Which shop looks safest for a beginner?" --format json
+.venv/bin/placeintel ask "Is this shop beginner friendly?" --place "<place_id>" --fresh --format json
 ```
 
 ## Safety Rules for Agents

@@ -192,6 +192,24 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     from . import pipeline
     result = pipeline.ask(args.question, place_id=args.place, top_k=args.top_k,
                           report_lang=args.report_lang, no_cache=args.fresh)
+    if args.place and "place_id" not in result:
+        result = {**result, "place_id": args.place}
+    if args.format == "json":
+        if str(result.get("answer", "")).startswith("Cache is empty"):
+            _print_json(_json_payload(
+                "ask",
+                result,
+                ok=False,
+                error={
+                    "code": "cache_empty",
+                    "message": result.get("answer", "cache is empty"),
+                    "recoverable": True,
+                    "next_action": "Run placeintel scout or shop first, then retry ask.",
+                },
+            ))
+            return 5
+        _print_json(_json_payload("ask", result))
+        return 0
     if result.get("cached"):
         when = time.strftime("%m-%d %H:%M", time.localtime(result["created_at"]))
         print(f"(缓存答案 · 来自 {when} 的相同问题 · --fresh 可强制重新推理)\n")
@@ -416,6 +434,7 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--report-lang", default="zh")
     a.add_argument("--fresh", action="store_true",
                    help="skip the QA answer cache, always re-reason")
+    _add_format_arg(a)
     a.set_defaults(func=_cmd_ask)
 
     r = sub.add_parser("report", help="(re)generate a report from cached reviews")

@@ -125,6 +125,49 @@ class CliJsonContractTest(unittest.TestCase):
         self.assertIn("job_event", schemas)
         self.assertEqual(schemas["job_event"]["required"], ["t", "stage", "msg"])
 
+    def test_ask_format_json_wraps_answer_and_preserves_scope_flags(self) -> None:
+        answer = {
+            "answer": "D'Class has the strongest beginner evidence.",
+            "cached": True,
+            "created_at": 100.0,
+            "matched": "Which guitar shop is beginner friendly?",
+            "model": "test-model",
+            "provider": "VectorEngine",
+        }
+        with mock.patch("placeintel.pipeline.ask", return_value=answer) as ask:
+            code, stdout, stderr = self._run_cli([
+                "ask", "Which shop?", "--place", "place-1", "--fresh", "--format", "json",
+            ])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        ask.assert_called_once_with(
+            "Which shop?", place_id="place-1", top_k=20, report_lang="zh", no_cache=True,
+        )
+        payload = json.loads(stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["command"], "ask")
+        self.assertEqual(payload["data"], {**answer, "place_id": "place-1"})
+        self.assertEqual(payload["data"]["place_id"], "place-1")
+
+    def test_ask_format_json_empty_cache_exits_with_machine_error(self) -> None:
+        answer = {
+            "answer": "Cache is empty (or nothing relevant) — run a scout first.",
+            "cached": False,
+            "created_at": 100.0,
+            "model": "test-model",
+            "provider": "VectorEngine",
+        }
+        with mock.patch("placeintel.pipeline.ask", return_value=answer):
+            code, stdout, stderr = self._run_cli(["ask", "Which shop?", "--format", "json"])
+
+        self.assertEqual(code, 5)
+        self.assertEqual(stderr, "")
+        payload = json.loads(stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "cache_empty")
+        self.assertEqual(payload["data"], answer)
+
 
 if __name__ == "__main__":
     unittest.main()
