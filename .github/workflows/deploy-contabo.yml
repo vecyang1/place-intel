@@ -11,6 +11,9 @@ concurrency:
 
 jobs:
   deploy:
+    # The public place-intel mirror is code-only and intentionally has no VPS/API
+    # secrets. Real deploys run from the private gmr repo.
+    if: github.repository == 'vecyang1/gmr'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository

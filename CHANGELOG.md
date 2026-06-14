@@ -12,6 +12,9 @@
   per-shop exact-scope.
 - Added server and Playwright regressions for all-scope history display and
   scoped re-ask behavior.
+- Gated the VPS deploy workflow to the private `vecyang1/gmr` repo so the public
+  code-only mirror no longer creates false-red deploy runs when private secrets
+  are intentionally absent.
 
 ## v0.4.10 — 2026-06-13 — report reasoning retry
 - Report generation now retries transient reasoning-model failures before giving
