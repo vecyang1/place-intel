@@ -1,8 +1,8 @@
 # PRD: placeintel Production-Grade Master Plan
 
-Status: 🔨 In Progress — US-001 through US-003 complete; Compare story and CLI global-option hardening remain
+Status: 🔨 In Progress — US-001 through US-004 complete; CLI global-option hardening and Settings/System remain
 Last Updated: 2026-06-15
-Product Version Observed: 0.4.31 in working tree
+Product Version Observed: 0.4.32 in working tree
 Deployment Profile: hybrid (local-first product with private protected web deployment)
 Primary Owner: next `/goal` implementation agent
 Related PRDs:
@@ -116,12 +116,18 @@ the existing `重新推理` bypass path.
 As a user choosing among multiple candidates, I want a comparison board so that price, risk, evidence volume, freshness, and fit can be scanned side by side.
 
 Acceptance Criteria:
-- [ ] User can select 2-5 cached places from Scout results or Library.
-- [ ] Comparison shows listing facts, review count, cached count, latest scrape, report verdict, activity risk, low-rating themes, and top evidence tags.
-- [ ] No new report is generated if current reports are fresh under existing cache rules.
-- [ ] A compare board links back to each shop dossier.
-- [ ] Typecheck/lint passes.
-- [ ] Visual verification via dev-browser or preview skill.
+- [x] User can select 2-5 cached places from Scout results or Library.
+- [x] Comparison shows listing facts, review count, cached count, latest scrape, report verdict, activity risk, low-rating themes, and top evidence tags.
+- [x] No new report is generated if current reports are fresh under existing cache rules.
+- [x] A compare board links back to each shop dossier.
+- [x] Typecheck/lint passes.
+- [x] Visual verification via dev-browser or preview skill.
+
+Implementation note 2026-06-15: Completed in v0.4.32 via UI PRD
+`US-UI-006`. Scout result picks and Library picks now render a cached-evidence
+Compare Board for 2-5 places. The board reads selected dossiers through
+existing `GET /api/places/{place_id}` only, so it does not start Scout, Shop, or
+report generation.
 
 ### US-005: Agent-Native CLI/API
 

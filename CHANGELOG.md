@@ -1,5 +1,14 @@
 # Changelog — place-intel
 
+## v0.4.32 — 2026-06-15 — cached evidence Compare Board
+- Scout result picks and Library picks now open a cached-evidence Compare Board
+  once 2-5 places are selected.
+- Compare cards show listing facts, review volume, cached coverage, latest
+  scrape/report age, report verdict, activity risk, language mix, low-rating
+  themes, and walk-in advice.
+- The board reads existing dossiers only and does not start Scout, Shop, or
+  report generation; each card links back to its dossier.
+
 ## v0.4.31 — 2026-06-15 — evidence-centered Ask
 - Ask answers can now include separate listing-fact and review-evidence cards,
   keeping the compact answer first while exposing the source material nearby.

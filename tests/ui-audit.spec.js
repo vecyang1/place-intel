@@ -215,6 +215,13 @@ test('scout results explain plan, verdicts, deep dives, timeline groups, and com
       },
     }),
   }));
+  await page.route('**/api/places/*', (route) => {
+    const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop());
+    const detail = id === 'dclass'
+      ? { place: { place_id: 'dclass', name: "D'Class Guitar", category: 'Music shop', rating: 4.9, review_count: 149, address: 'Hoi An old town', last_refreshed: Date.now() / 1000 - 3600 }, reviews: [{ review_id: 'd1', rating: 2, text: 'Deposit price was unclear.' }], report: { profile: 'rental', created_at: Date.now() / 1000 - 1800, md: '# Report', json: { verdict: 'Best rental lead.', walk_in_brief: ['Ask deposit before renting.'] } } }
+      : { place: { place_id: 'hero', name: 'Hero Guitar', category: 'Music shop', rating: 4.7, review_count: 20, address: 'Cam Chau', last_refreshed: Date.now() / 1000 - 3600 }, reviews: [{ review_id: 'h1', rating: 3, text: 'Small selection but helpful service.' }], report: null };
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(detail) });
+  });
 
   await page.goto('http://127.0.0.1:9618/#scout', { waitUntil: 'networkidle' });
   await page.locator('#scout-query').fill('Hoi An guitar rental');
@@ -237,6 +244,9 @@ test('scout results explain plan, verdicts, deep dives, timeline groups, and com
   await compare.click();
   await expect(compare).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#scout-results #compare-tray')).toContainText("D'Class");
+  await page.locator('#scout-results [data-compare-place="hero"]').click();
+  await expect(page.locator('#scout-results .compare-board')).toContainText('Compare Board');
+  await expect(page.locator('#scout-results .compare-board')).toContainText('Best rental lead.');
   await expect(page.locator('#detail-overlay')).toBeHidden();
 });
 
@@ -338,6 +348,82 @@ test('library workspace filters decision signals and opens compare', async ({ pa
   await expect(page.locator('#library-compare')).toContainText('Quiet Lantern Tour');
   await page.locator('[data-library-compare-clear]').click();
   await expect(page.locator('#library-compare')).toContainText('选择 2-5 家');
+});
+
+test('library compare board reads cached dossiers without generating reports', async ({ page }) => {
+  const now = Date.now() / 1000;
+  const summaries = [
+    {
+      place_id: 'guitar-shop', name: "D'Class Guitar Hội An", category: 'Musical instrument store',
+      rating: 4.9, review_count: 149, cached_reviews: 149, address: 'Hoi An',
+      last_refreshed: now - 7200, report_count: 3, latest_report_at: now - 600,
+      latest_report_profile: 'rental',
+    },
+    {
+      place_id: 'quiet-tour', name: 'Quiet Lantern Tour', category: 'Tour operator',
+      rating: 4.2, review_count: 220, cached_reviews: 40, address: 'Cam Nam',
+      last_refreshed: now - 30 * 86400, report_count: 1, latest_report_at: now - 86400,
+      latest_report_profile: 'generic',
+      activity_risk: { severity: 'high', label: 'possible low activity', reason: 'latest known reviews are stale' },
+    },
+  ];
+  const details = {
+    'guitar-shop': {
+      place: { ...summaries[0], phone: '+84 90 000 0000', website: 'https://example.com/guitar' },
+      reviews: [
+        { review_id: 'g1', author: 'Ana', rating: 2, review_date: '2026-06-01', text: 'The rental deposit was unclear and parking was difficult.' },
+        { review_id: 'g2', author: 'Min', rating: 5, review_date: '2026-06-03', text: 'Friendly owner and good guitar setup.' },
+      ],
+      report: { profile: 'rental', created_at: now - 600, md: '# Rental report', json: { verdict: 'Go, but confirm deposit first.', walk_in_brief: ['Ask rental price before touching gear.', 'Confirm deposit and return time.'] } },
+    },
+    'quiet-tour': {
+      place: { ...summaries[1], phone: '+84 91 000 0000' },
+      reviews: [
+        { review_id: 'q1', author: 'Lan', rating: 3, review_date: '2025-12-01', text: 'Beautiful lantern tour but crowded access and confusing meeting point.' },
+        { review_id: 'q2', author: 'Kim', rating: 1, review_date: '2025-11-15', text: 'No answer at the phone and service was delayed.' },
+      ],
+      report: { profile: 'generic', created_at: now - 86400, md: '# Tour report', json: { verdict: 'Verify current operation before going.', walk_in_brief: ['Call before visiting.', 'Ask where the meeting point is.'] } },
+    },
+  };
+  let generated = 0;
+  await page.route('**/api/places', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(summaries) }));
+  await page.route('**/api/places/*', (route) => {
+    const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop());
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(details[id]) });
+  });
+  await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/scout', (route) => { generated += 1; return route.fulfill({ status: 500, body: 'should not scout' }); });
+  await page.route('**/api/shop', (route) => { generated += 1; return route.fulfill({ status: 500, body: 'should not shop' }); });
+
+  await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
+  await page.locator('[data-library-compare="guitar-shop"]').click();
+  await page.locator('[data-library-compare="quiet-tour"]').click();
+
+  const board = page.locator('#library-compare .compare-board');
+  await expect(board).toBeVisible();
+  await expect(board).toContainText('Compare Board');
+  await expect(board).toContainText("D'Class Guitar");
+  await expect(board).toContainText('Quiet Lantern Tour');
+  await expect(board).toContainText('149 条在列');
+  await expect(board).toContainText('149 cached');
+  await expect(board).toContainText('rental');
+  await expect(board).toContainText('Go, but confirm deposit first.');
+  await expect(board).toContainText('possible low activity');
+  await expect(board).toContainText('English');
+  await expect(board).toContainText('price');
+  await expect(board).toContainText('Ask rental price before touching gear.');
+  await expect(board.locator('[data-open-place="guitar-shop"]')).toHaveCount(1);
+  expect(generated).toBe(0);
+
+  await page.setViewportSize({ width: 390, height: 900 });
+  const mobile = await page.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    cards: document.querySelectorAll('.compare-board .shop-card').length,
+    labels: Array.from(document.querySelectorAll('.compare-board .compare-label')).map((el) => getComputedStyle(el).position),
+  }));
+  expect(mobile.overflow).toBeLessThanOrEqual(0);
+  expect(mobile.cards).toBe(2);
+  expect(mobile.labels.every((pos) => pos === 'sticky')).toBe(true);
 });
 
 test('library favorite toggle posts state and rerenders without opening dossier', async ({ page }) => {

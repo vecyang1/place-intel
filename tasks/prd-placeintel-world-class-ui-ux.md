@@ -1,6 +1,6 @@
 # PRD: placeintel World-Class UI/UX
 
-Status: 🔨 In Progress — US-UI-001 through US-UI-005 complete; US-UI-006 next
+Status: 🔨 In Progress — US-UI-001 through US-UI-006 complete; US-UI-007 next
 Last Updated: 2026-06-15
 Parent PRD: `tasks/prd-placeintel-production-grade-master.md`
 Scope: Web UI, interaction design, mobile/desktop responsiveness, accessibility, and product workflows.
@@ -124,13 +124,22 @@ freshness while preserving `重新推理` as a non-destructive cache bypass.
 As a user deciding between shops, I want side-by-side comparison with evidence and risk.
 
 Acceptance Criteria:
-- [ ] Compare supports 2-5 places.
-- [ ] Columns include facts, review volume, cached coverage, latest scrape/report age, risk, language mix, low-rating themes, and walk-in advice.
-- [ ] User can jump from a comparison cell to the underlying dossier/evidence.
-- [ ] Compare does not generate new reports unless explicitly requested.
-- [ ] Mobile compare becomes stacked cards with sticky section labels.
-- [ ] Typecheck/lint passes.
-- [ ] Visual verification via dev-browser or preview skill.
+- [x] Compare supports 2-5 places.
+- [x] Columns include facts, review volume, cached coverage, latest scrape/report age, risk, language mix, low-rating themes, and walk-in advice.
+- [x] User can jump from a comparison cell to the underlying dossier/evidence.
+- [x] Compare does not generate new reports unless explicitly requested.
+- [x] Mobile compare becomes stacked cards with sticky section labels.
+- [x] Typecheck/lint passes.
+- [x] Visual verification via dev-browser or preview skill.
+
+Implementation note 2026-06-15: Completed in v0.4.32. The existing Scout
+result and Library compare trays now expand into a Compare Board once 2-5
+cached places are selected. Each card reuses cached dossier data for facts,
+coverage, report verdict/profile age, cautious activity risk, review-language
+mix, low-rating themes, and walk-in bullets, with a direct dossier jump. The
+board uses only `/api/places/{place_id}` reads and has Playwright coverage for
+desktop, mobile no-overflow, sticky section labels, and no Scout/Shop generation
+calls.
 
 ### US-UI-007: Settings and System Status
 
