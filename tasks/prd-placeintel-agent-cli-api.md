@@ -89,11 +89,16 @@ Acceptance Criteria:
 As an implementation agent, I want schemas and examples checked into the repo so I can call the tool correctly in future sessions.
 
 Acceptance Criteria:
-- [ ] `docs/API.md` documents HTTP endpoints and response shapes.
-- [ ] `docs/agent-cli.md` documents CLI commands, formats, exit codes, and examples.
-- [ ] `placeintel schema --format json` prints schemas for core payloads or points to versioned schema files.
-- [ ] README links to both docs.
-- [ ] Typecheck/lint passes.
+- [x] `docs/API.md` documents HTTP endpoints and response shapes.
+- [x] `docs/agent-cli.md` documents CLI commands, formats, exit codes, and examples.
+- [x] `placeintel schema --format json` prints schemas for core payloads or points to versioned schema files.
+- [x] README links to both docs.
+- [x] Typecheck/lint passes.
+
+Implementation note 2026-06-14: Completed with `placeintel schema --format json`,
+core schema entries for `cli_envelope`, `health`, and `job_event`, and docs links
+from README. Verified by `tests/test_cli_json_contract.py` plus full local
+verification.
 
 ## 4. Functional Requirements
 

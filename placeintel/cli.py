@@ -66,6 +66,48 @@ def _add_format_arg(parser: argparse.ArgumentParser, *, ndjson: bool = False) ->
                         help="output format (default: text)")
 
 
+CORE_SCHEMAS = {
+    "cli_envelope": {
+        "type": "object",
+        "required": ["ok", "version", "command", "data"],
+        "properties": {
+            "ok": {"type": "boolean"},
+            "version": {"type": "string"},
+            "command": {"type": "string"},
+            "data": {"type": "object"},
+            "error": {
+                "type": "object",
+                "required": ["code", "message", "recoverable", "next_action"],
+            },
+        },
+    },
+    "health": {
+        "type": "object",
+        "required": ["ok", "version", "mode", "checks", "warnings", "errors", "providers"],
+        "properties": {
+            "mode": {"enum": ["cheap"]},
+            "checks": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["name", "ok", "severity", "latency_ms", "message", "data"],
+                },
+            },
+        },
+    },
+    "job_event": {
+        "type": "object",
+        "required": ["t", "stage", "msg"],
+        "properties": {
+            "t": {"type": "number"},
+            "stage": {"enum": ["plan", "search", "filter", "reviews", "embed", "report", "done"]},
+            "msg": {"type": "string"},
+            "data": {"type": "object"},
+        },
+    },
+}
+
+
 def _cmd_scout(args: argparse.Namespace) -> int:
     from . import pipeline
     result = pipeline.scout(
@@ -268,6 +310,25 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if report["ok"] else 2
 
 
+def _cmd_schema(args: argparse.Namespace) -> int:
+    data = {
+        "schemas": CORE_SCHEMAS,
+        "docs": {
+            "api": "docs/API.md",
+            "agent_cli": "docs/agent-cli.md",
+            "operations": "docs/operations.md",
+        },
+    }
+    if args.format == "json":
+        _print_json(_json_payload("schema", data))
+    else:
+        print("Core schemas:")
+        for name in CORE_SCHEMAS:
+            print(f"  - {name}")
+        print("Docs: docs/API.md, docs/agent-cli.md, docs/operations.md")
+    return 0
+
+
 def _cmd_model(args: argparse.Namespace) -> int:
     if args.name:
         try:
@@ -381,6 +442,10 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--require", default="",
                    help="comma-separated required checks, e.g. db,data_dir,google,vectorengine")
     d.set_defaults(func=_cmd_doctor)
+
+    sc = sub.add_parser("schema", help="print core CLI/API schema references")
+    _add_format_arg(sc)
+    sc.set_defaults(func=_cmd_schema)
 
     m = sub.add_parser("model", help="show / switch the reasoning model (persisted, shared with web)")
     m.add_argument("name", nargs="?", help="model to switch to (smoke-tested before saving)")

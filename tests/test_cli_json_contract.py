@@ -111,6 +111,20 @@ class CliJsonContractTest(unittest.TestCase):
         self.assertEqual(payload["data"]["place"]["place_id"], "place-1")
         self.assertEqual(payload["data"]["reviews"], [])
 
+    def test_schema_format_json_lists_core_agent_contracts(self) -> None:
+        code, stdout, stderr = self._run_cli(["schema", "--format", "json"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        payload = json.loads(stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["command"], "schema")
+        schemas = payload["data"]["schemas"]
+        self.assertIn("cli_envelope", schemas)
+        self.assertIn("health", schemas)
+        self.assertIn("job_event", schemas)
+        self.assertEqual(schemas["job_event"]["required"], ["t", "stage", "msg"])
+
 
 if __name__ == "__main__":
     unittest.main()

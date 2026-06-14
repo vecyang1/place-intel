@@ -108,6 +108,7 @@ provider/scraper diagnostics remain a production-ops PRD item.
 | `model [name] --list` | text | Live provider call when listing or switching. |
 | `export <place_id>` | JSON body, JSON envelope | Default remains the legacy raw JSON body; `--format json` uses the agent envelope. |
 | `doctor` | text, JSON | Implemented in this milestone. |
+| `schema` | text, JSON | `schema --format json` lists core CLI/API schemas and docs paths. |
 
 ## Agent Recipes
 
@@ -151,6 +152,12 @@ Read the latest cached report for a place without model calls:
 
 ```bash
 .venv/bin/placeintel report "<place_id>" --format json
+```
+
+Inspect core schemas:
+
+```bash
+.venv/bin/placeintel schema --format json
 ```
 
 Ask from existing cache:
