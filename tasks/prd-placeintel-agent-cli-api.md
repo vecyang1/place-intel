@@ -37,11 +37,15 @@ They should not need a browser, DOM parsing, local code knowledge, or private ch
 As another agent, I want `placeintel doctor --json` so I can tell what is configured before running costly work.
 
 Acceptance Criteria:
-- [ ] `placeintel doctor --json` exits 0 when local DB/data dirs and import paths are healthy.
-- [ ] `placeintel doctor --live --json` performs safe live checks: model list or tiny reasoning ping, optional embedding ping, Chrome/Docker/scraper availability.
-- [ ] Output includes `ok`, `checks[]`, `warnings[]`, `errors[]`, `version`, and provider roles without keys.
-- [ ] `--require google,vectorengine,chrome,docker` exits non-zero if required checks fail.
-- [ ] Typecheck/lint passes.
+- [x] `placeintel doctor --json` exits 0 when local DB/data dirs and import paths are healthy.
+- [x] `placeintel doctor --live --json` performs safe live checks: model list or tiny reasoning ping, optional embedding ping, Chrome/Docker/scraper availability.
+- [x] Output includes `ok`, `checks[]`, `warnings[]`, `errors[]`, `version`, and provider roles without keys.
+- [x] `--require google,vectorengine,chrome,docker` exits non-zero if required checks fail.
+- [x] Typecheck/lint passes.
+
+Implementation note 2026-06-14: Completed by `placeintel/doctor.py`; cheap
+doctor remains local-only, while `--live` runs model/provider pings and local
+external-wheel checks. Required checks are enforced by name.
 
 ### US-CLI-002: Machine-Readable Scout and Shop
 

@@ -90,7 +90,10 @@ CORE_SCHEMAS = {
                 "type": "array",
                 "items": {
                     "type": "object",
-                    "required": ["name", "ok", "severity", "latency_ms", "message", "data"],
+                    "required": [
+                        "name", "ok", "severity", "latency_ms",
+                        "message", "next_action", "data",
+                    ],
                 },
             },
         },
@@ -312,7 +315,7 @@ def _doctor_payload(report: dict) -> dict:
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
     require = [item.strip() for item in (args.require or "").split(",") if item.strip()]
-    report = doctor.cheap_health(live=args.live, require=require)
+    report = doctor.deep_health(require=require) if args.live else doctor.cheap_health(require=require)
     if args.json:
         _print_json(_doctor_payload(report))
     else:

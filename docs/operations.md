@@ -41,10 +41,24 @@ Cheap health checks:
 
 Cheap health does not call models, Chrome, Docker, scrapers, or SerpAPI.
 
-## Deep Diagnostics Status
+## Deep Diagnostics
 
-Not implemented yet. The production-ops PRD requires a future live diagnostic
-mode for:
+Deep diagnostics are opt-in because they may spend provider credits or touch
+external tools.
+
+CLI:
+
+```bash
+.venv/bin/placeintel doctor --live --json
+```
+
+HTTP:
+
+```bash
+curl -fsS http://127.0.0.1:9618/api/health/deep
+```
+
+Deep diagnostics check:
 
 - reasoning provider/model ping.
 - embedding provider ping.
@@ -54,8 +68,11 @@ mode for:
 - review scraper vendor path.
 - optional SerpAPI fallback.
 
-Live diagnostics must be opt-in because they may spend provider credits or touch
-external tools.
+Use `--require` in CLI when a missing external wheel should fail the command:
+
+```bash
+.venv/bin/placeintel doctor --live --json --require google,vectorengine,chrome,docker
+```
 
 ## Local Verification
 

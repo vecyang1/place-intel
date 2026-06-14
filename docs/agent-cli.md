@@ -88,10 +88,13 @@ Useful variants:
 .venv/bin/placeintel doctor
 .venv/bin/placeintel doctor --json --require db,data_dir,static_web
 .venv/bin/placeintel doctor --json --require google,vectorengine
+.venv/bin/placeintel doctor --live --json --require chrome,docker
 ```
 
-`--live` is accepted but currently runs cheap checks with a warning. Full live
-provider/scraper diagnostics remain a production-ops PRD item.
+`--live` runs opt-in deep diagnostics: reasoning model list/ping, translation
+model ping, embedding ping, Chrome/Docker/gosom image checks, review-scraper
+vendor presence, and optional SerpAPI configuration. Failed deep checks are
+warnings unless required.
 
 ## Existing Commands
 

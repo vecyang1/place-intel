@@ -306,6 +306,12 @@ def health() -> dict:
     return doctor.cheap_health()
 
 
+@app.get("/api/health/deep")
+def health_deep() -> dict:
+    """Opt-in diagnostics that may touch providers and local external tools."""
+    return doctor.deep_health()
+
+
 @app.get("/api/models")
 def models() -> dict:
     """LIVE model list from the reasoning provider — never a baked-in list."""

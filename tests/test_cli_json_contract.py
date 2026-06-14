@@ -123,6 +123,8 @@ class CliJsonContractTest(unittest.TestCase):
         self.assertIn("cli_envelope", schemas)
         self.assertIn("health", schemas)
         self.assertIn("job_event", schemas)
+        health_item_required = schemas["health"]["properties"]["checks"]["items"]["required"]
+        self.assertIn("next_action", health_item_required)
         self.assertEqual(schemas["job_event"]["required"], ["t", "stage", "msg"])
 
     def test_ask_format_json_wraps_answer_and_preserves_scope_flags(self) -> None:

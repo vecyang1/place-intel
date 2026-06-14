@@ -7,6 +7,8 @@ Chrome launches. Deep live diagnostics belong behind an explicit future flag.
 from __future__ import annotations
 
 import time
+import shutil
+import subprocess
 from pathlib import Path
 
 from . import __version__, cache, config
@@ -28,6 +30,7 @@ def _check(name: str, severity: str, fn) -> Check:
             "severity": severity,
             "latency_ms": _now_ms(start),
             "message": message,
+            "next_action": "none",
             "data": data or {},
         }
     except Exception as exc:  # health output must be actionable, not a stack trace
@@ -37,6 +40,7 @@ def _check(name: str, severity: str, fn) -> Check:
             "severity": severity,
             "latency_ms": _now_ms(start),
             "message": str(exc),
+            "next_action": "Fix this check, or rerun with --require only for checks that must pass.",
             "data": {},
         }
 
@@ -72,6 +76,81 @@ def _static_web_check() -> tuple[str, dict]:
         if lines >= 800:
             raise RuntimeError(f"{name} has {lines} lines; AGENTS.md limit is <800")
     return "static shell present and under line budget", {"files": files}
+
+
+def _reason_models_check() -> tuple[str, dict]:
+    models = config.list_reason_models()
+    return f"{len(models)} reasoning models listed", {
+        "count": len(models),
+        "current": config.reason_model(),
+    }
+
+
+def _reason_ping_check() -> tuple[str, dict]:
+    model = config.reason_model()
+    config.verify_reason_model(model)
+    return "reasoning model generateContent ping ok", {"model": model}
+
+
+def _translation_ping_check() -> tuple[str, dict]:
+    model = config.translation_model()
+    config.verify_reason_model(model)
+    return "translation model generateContent ping ok", {"model": model}
+
+
+def _embed_ping_check() -> tuple[str, dict]:
+    from . import embed
+
+    vec = embed.embed_query("placeintel health ping")
+    return "embedding ping ok", {"dims": len(vec)}
+
+
+def _chrome_check() -> tuple[str, dict]:
+    candidates = [
+        shutil.which("google-chrome"),
+        shutil.which("chromium"),
+        shutil.which("chrome"),
+    ]
+    mac_chrome = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+    if mac_chrome.exists():
+        candidates.append(str(mac_chrome))
+    found = next((item for item in candidates if item), None)
+    if not found:
+        raise RuntimeError("Chrome binary not found")
+    return "Chrome binary found", {"path_detected": True}
+
+
+def _run_command(cmd: list[str]) -> None:
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+    if proc.returncode != 0:
+        raise RuntimeError((proc.stderr or "").strip() or f"{cmd[0]} exited {proc.returncode}")
+
+
+def _docker_check() -> tuple[str, dict]:
+    if not shutil.which("docker"):
+        raise RuntimeError("docker command not found")
+    _run_command(["docker", "info"])
+    return "Docker daemon responds", {}
+
+
+def _gosom_image_check() -> tuple[str, dict]:
+    if not shutil.which("docker"):
+        raise RuntimeError("docker command not found")
+    _run_command(["docker", "image", "inspect", config.GOSOM_IMAGE])
+    return "gosom image available", {"image": config.GOSOM_IMAGE}
+
+
+def _review_scraper_check() -> tuple[str, dict]:
+    path = config.VENDOR_DIR / "google-reviews-scraper-pro"
+    if not path.exists():
+        raise RuntimeError("vendor/google-reviews-scraper-pro missing")
+    return "review scraper vendor present", {}
+
+
+def _serpapi_check() -> tuple[str, dict]:
+    if not config.serpapi_api_key():
+        raise RuntimeError("SERPAPI_API_KEY not configured")
+    return "SerpAPI fallback key configured", {"configured": True}
 
 
 def _provider_warnings(providers: dict) -> list[str]:
@@ -136,3 +215,36 @@ def cheap_health(*, live: bool = False, require: list[str] | None = None) -> dic
         "errors": errors,
         "providers": providers,
     }
+
+
+def deep_health(*, require: list[str] | None = None) -> dict:
+    """Opt-in diagnostics that may touch providers or local external tools."""
+    report = cheap_health(require=None)
+    report["mode"] = "deep"
+    report["checks"].extend([
+        _check("reason_models", "warning", _reason_models_check),
+        _check("reason_ping", "warning", _reason_ping_check),
+        _check("translation_ping", "warning", _translation_ping_check),
+        _check("embed_ping", "warning", _embed_ping_check),
+        _check("chrome", "warning", _chrome_check),
+        _check("docker", "warning", _docker_check),
+        _check("gosom_image", "warning", _gosom_image_check),
+        _check("review_scraper", "warning", _review_scraper_check),
+        _check("serpapi", "warning", _serpapi_check),
+    ])
+    warnings = _provider_warnings(report["providers"])
+    warnings.extend(
+        f"{check['name']}: {check['message']}"
+        for check in report["checks"]
+        if not check["ok"] and check["severity"] == "warning"
+    )
+    errors = [
+        f"{check['name']}: {check['message']}"
+        for check in report["checks"]
+        if not check["ok"] and check["severity"] == "critical"
+    ]
+    errors.extend(_required_failures(report["checks"], report["providers"], require or []))
+    report["warnings"] = warnings
+    report["errors"] = errors
+    report["ok"] = not errors
+    return report

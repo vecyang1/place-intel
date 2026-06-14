@@ -42,9 +42,9 @@ Example response:
   "version": "0.4.x",
   "mode": "cheap",
   "checks": [
-    {"name": "db", "ok": true, "severity": "critical", "latency_ms": 3, "message": "connected", "data": {}},
-    {"name": "data_dir", "ok": true, "severity": "critical", "latency_ms": 1, "message": "writable", "data": {}},
-    {"name": "static_web", "ok": true, "severity": "critical", "latency_ms": 1, "message": "static shell present and under line budget", "data": {"files": {"index.html": {"present": true, "lines": 189, "under_800": true}}}}
+    {"name": "db", "ok": true, "severity": "critical", "latency_ms": 3, "message": "connected", "next_action": "none", "data": {}},
+    {"name": "data_dir", "ok": true, "severity": "critical", "latency_ms": 1, "message": "writable", "next_action": "none", "data": {}},
+    {"name": "static_web", "ok": true, "severity": "critical", "latency_ms": 1, "message": "static shell present and under line budget", "next_action": "none", "data": {"files": {"index.html": {"present": true, "lines": 189, "under_800": true}}}}
   ],
   "warnings": [],
   "errors": [],
@@ -59,8 +59,26 @@ Example response:
 `ok` is false when a critical local check fails. Missing provider credentials are
 warnings for cheap health unless a caller requires a provider through the CLI.
 
-Deep health is not implemented yet. The PRD target is `/api/health/deep` or
-equivalent live doctor checks for provider/model/scraper diagnostics.
+### `GET /api/health/deep`
+
+Opt-in live diagnostics. This endpoint may call provider/model endpoints, run
+an embedding ping, inspect Docker, and check local tool availability. Do not call
+it on every page load.
+
+Additional deep check names:
+
+- `reason_models`
+- `reason_ping`
+- `translation_ping`
+- `embed_ping`
+- `chrome`
+- `docker`
+- `gosom_image`
+- `review_scraper`
+- `serpapi`
+
+Failed deep checks are warnings unless a caller explicitly requires them through
+the CLI.
 
 ## Jobs
 

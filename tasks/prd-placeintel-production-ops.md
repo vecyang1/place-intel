@@ -50,11 +50,15 @@ compileall, JS syntax check, line budget, and `git diff --check`.
 As an operator or agent, I want a live diagnostic mode so I can know which external wheel is broken.
 
 Acceptance Criteria:
-- [ ] `/api/health/deep` or `placeintel doctor --live --json` can check reasoning model, embedding model, translation model, Chrome, Docker, gosom image, review scraper vendor, and optional SerpAPI.
-- [ ] Each check reports `ok`, `latency_ms`, `severity`, and `next_action`.
-- [ ] Live checks are opt-in and clearly marked cost-bearing when they may call providers.
-- [ ] Failed checks do not crash unrelated read-only UI.
-- [ ] Typecheck/lint passes.
+- [x] `/api/health/deep` or `placeintel doctor --live --json` can check reasoning model, embedding model, translation model, Chrome, Docker, gosom image, review scraper vendor, and optional SerpAPI.
+- [x] Each check reports `ok`, `latency_ms`, `severity`, and `next_action`.
+- [x] Live checks are opt-in and clearly marked cost-bearing when they may call providers.
+- [x] Failed checks do not crash unrelated read-only UI.
+- [x] Typecheck/lint passes.
+
+Implementation note 2026-06-14: Completed with `doctor.deep_health()`,
+`placeintel doctor --live --json`, and `GET /api/health/deep`. Deep checks are
+warnings by default and become failures only when required by the CLI.
 
 ### US-OPS-003: Durable Jobs
 

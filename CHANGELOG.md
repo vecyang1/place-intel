@@ -1,5 +1,14 @@
 # Changelog — place-intel
 
+## v0.4.20 — 2026-06-14 — deep doctor + agent CLI contracts
+- Added opt-in deep health diagnostics through `placeintel doctor --live --json`
+  and `GET /api/health/deep`.
+- Deep diagnostics check reasoning model listing/ping, translation ping,
+  embedding ping, Chrome, Docker, gosom image, review-scraper vendor path, and
+  SerpAPI fallback configuration without exposing secrets.
+- Agent-facing CLI contracts now include schema output and machine-readable Ask
+  JSON, preserving exact place scope when a question is scoped to one shop.
+
 ## v0.4.19 — 2026-06-14 — cleaner lists + Library controls
 - Past scout rows now hide AI-excluded place chips instead of showing a long
   struck-through wall of rejected candidates.
