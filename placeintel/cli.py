@@ -10,8 +10,11 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
+import os
+import signal
 import sys
 import time
 from dataclasses import asdict
@@ -20,12 +23,27 @@ from pathlib import Path
 from . import __version__, backup as backup_mod, cache, config, deploy_smoke, doctor, profiles
 
 
-def _setup_logging(verbose: bool) -> None:
+class CommandTimeout(Exception):
+    pass
+
+
+class CliUsageError(Exception):
+    pass
+
+
+class AgentArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        raise CliUsageError(message)
+
+
+def _setup_logging(verbose: bool, quiet: bool = False) -> None:
+    level = logging.CRITICAL + 1 if quiet else (logging.DEBUG if verbose else logging.INFO)
     logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
+        level=level,
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
         datefmt="%H:%M:%S",
     )
+    logging.getLogger().setLevel(level)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 
@@ -68,8 +86,86 @@ def _print_ndjson(payload: dict) -> None:
 
 def _add_format_arg(parser: argparse.ArgumentParser, *, ndjson: bool = False) -> None:
     choices = ["text", "json"] + (["ndjson"] if ndjson else [])
-    parser.add_argument("--format", choices=choices, default="text",
+    parser.add_argument("--format", choices=choices, default=argparse.SUPPRESS,
                         help="output format (default: text)")
+
+
+def _normalize_agent_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    global_format = getattr(args, "global_format", None)
+    if not hasattr(args, "format"):
+        args.format = global_format or "text"
+    elif global_format and args.format == "text":
+        args.format = global_format
+    if getattr(args, "command", None) == "doctor" and global_format:
+        if global_format == "json":
+            args.json = True
+        elif global_format == "ndjson":
+            parser.error("--format ndjson is not supported by doctor")
+    if args.no_color:
+        os.environ["NO_COLOR"] = "1"
+
+
+def _timeout_handler(signum, frame) -> None:
+    raise CommandTimeout
+
+
+@contextlib.contextmanager
+def _command_deadline(seconds: float | None):
+    if seconds is None or seconds <= 0 or not hasattr(signal, "SIGALRM"):
+        yield
+        return
+    old_handler = signal.getsignal(signal.SIGALRM)
+    old_timer = signal.setitimer(signal.ITIMER_REAL, seconds)
+    signal.signal(signal.SIGALRM, _timeout_handler)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, *old_timer)
+        signal.signal(signal.SIGALRM, old_handler)
+
+
+def _timeout_exit(args: argparse.Namespace) -> int:
+    command = getattr(args, "command", "unknown")
+    payload = _json_payload(
+        command,
+        {},
+        ok=False,
+        error={
+            "code": "timeout",
+            "message": f"command timed out after {args.timeout} seconds",
+            "recoverable": True,
+            "next_action": "Retry with a larger --timeout or a narrower command.",
+        },
+    )
+    if getattr(args, "format", "text") == "ndjson":
+        _print_ndjson({"type": "error", **payload})
+    elif getattr(args, "format", "text") == "json" or getattr(args, "json", False):
+        _print_json(payload)
+    else:
+        print(payload["error"]["message"], file=sys.stderr)
+    return 6
+
+
+def _internal_error_exit(args: argparse.Namespace, exc: Exception) -> int:
+    command = getattr(args, "command", "unknown")
+    payload = _json_payload(
+        command,
+        {},
+        ok=False,
+        error={
+            "code": "internal_error",
+            "message": str(exc),
+            "recoverable": False,
+            "next_action": "Inspect logs or rerun with -v; preserve the input and cached data for debugging.",
+        },
+    )
+    if getattr(args, "format", "text") == "ndjson":
+        _print_ndjson({"type": "error", **payload})
+    elif getattr(args, "format", "text") == "json" or getattr(args, "json", False):
+        _print_json(payload)
+    else:
+        print(f"internal error: {exc}", file=sys.stderr)
+    return 10
 
 
 def _ndjson_event_writer(command: str):
@@ -715,10 +811,16 @@ def _cmd_refresh_favorites(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="placeintel", description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = AgentArgumentParser(prog="placeintel", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-v", "--verbose", action="store_true")
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument("--format", dest="global_format", choices=["text", "json", "ndjson"],
+                        default=None, help="global output format before the subcommand")
+    parser.add_argument("--quiet", action="store_true", help="suppress non-essential stderr logging")
+    parser.add_argument("--no-color", action="store_true", help="disable ANSI color output")
+    parser.add_argument("--timeout", type=float, default=None,
+                        help="overall command timeout in seconds; timeout exits 6")
+    sub = parser.add_subparsers(dest="command", required=True, parser_class=AgentArgumentParser)
 
     s = sub.add_parser("scout", help="AI-planned: discover places, scrape reviews, intel reports")
     s.add_argument("query", help="free text in any language — AI decides what to search")
@@ -853,10 +955,21 @@ def main(argv: list[str] | None = None) -> int:
     _add_format_arg(rf, ndjson=True)
     rf.set_defaults(func=_cmd_refresh_favorites)
 
-    args = parser.parse_args(argv)
-    _setup_logging(args.verbose)
+    try:
+        args = parser.parse_args(argv)
+        _normalize_agent_options(parser, args)
+    except CliUsageError as exc:
+        print(f"usage error: {exc}", file=sys.stderr)
+        return 1
+    _setup_logging(args.verbose, args.quiet)
     config.ensure_dirs()
-    return args.func(args)
+    try:
+        with _command_deadline(args.timeout):
+            return args.func(args)
+    except CommandTimeout:
+        return _timeout_exit(args)
+    except Exception as exc:
+        return _internal_error_exit(args, exc)
 
 
 if __name__ == "__main__":

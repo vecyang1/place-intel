@@ -1,8 +1,8 @@
 # PRD: placeintel Production-Grade Master Plan
 
-Status: 🔨 In Progress — US-001 through US-004 and Settings/System complete; CLI global-option hardening remains
+Status: ✅ Complete
 Last Updated: 2026-06-15
-Product Version Observed: 0.4.33 in working tree
+Product Version Observed: 0.4.34 in working tree
 Deployment Profile: hybrid (local-first product with private protected web deployment)
 Primary Owner: next `/goal` implementation agent
 Related PRDs:
@@ -136,10 +136,15 @@ As another agent, I want stable machine-readable commands and endpoints so that 
 Acceptance Criteria:
 - [x] Every read-only data command supports `--format json`.
 - [x] Long-running operations can emit NDJSON events with the existing `{t, stage, msg, data?}` contract.
-- [ ] CLI has stable exit codes and a documented `placeintel doctor` command.
+- [x] CLI has stable exit codes and a documented `placeintel doctor` command.
 - [x] API schemas and examples are documented in `docs/API.md` and `docs/agent-cli.md`.
 - [x] Agent examples run without requiring a browser.
-- [ ] Typecheck/lint passes.
+- [x] Typecheck/lint passes.
+
+Implementation note 2026-06-15: Completed in v0.4.34. The CLI now accepts root
+agent options (`--format`, `--quiet`, `--no-color`, `--timeout`), maps global
+JSON output to `doctor --json`, preserves command-local `--format`, and returns
+stable usage/timeout/internal-error codes without normal tracebacks.
 
 ### US-006: Production Operations Are Visible
 

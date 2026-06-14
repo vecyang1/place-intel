@@ -16,25 +16,46 @@ NDJSON for long-running Scout/Shop commands.
 
 ## Exit Codes
 
-Current implemented codes:
+Implemented/stable codes:
 
 | Code | Meaning |
 | --- | --- |
 | 0 | Success |
-| 1 | Existing command user/runtime failure |
+| 1 | User/input/usage error |
 | 2 | Doctor found failed required or critical local health checks |
 | 3 | Deployment smoke or external runtime target unavailable/unhealthy |
-
-PRD target codes still to implement across all commands:
-
-| Code | Meaning |
-| --- | --- |
-| 4 | Partial completion with warnings |
 | 5 | Cache empty/no matching data |
 | 6 | Timeout/cancelled |
 | 10 | Internal unexpected error |
 
+Reserved code:
+
+| Code | Meaning |
+| --- | --- |
+| 4 | Partial completion with warnings; reserved for future commands that can distinguish partial success from failure |
+
 ## Machine-Readable Contract
+
+## Global Agent Options
+
+Root-level agent options go before the subcommand:
+
+```bash
+.venv/bin/placeintel --format json --quiet --no-color --timeout 30 list
+.venv/bin/placeintel --format json doctor
+.venv/bin/placeintel --format ndjson scout "guitar lesson" --near "Hoi An"
+```
+
+Rules:
+
+- `--format text|json|ndjson`: global output preference. Command-local
+  `--format` after the subcommand remains supported for backwards compatibility.
+  NDJSON is for long-running stream commands such as Scout/Shop.
+- `--quiet`: suppresses non-essential stderr logging.
+- `--no-color`: sets `NO_COLOR=1`; current output is already color-free, but
+  this keeps future text output unambiguous for agents.
+- `--timeout SECONDS`: wraps the whole command. Timeout exits `6` and emits a
+  JSON/NDJSON machine error when a machine format is active.
 
 ### Long-Running Scout/Shop
 

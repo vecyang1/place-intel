@@ -2,6 +2,7 @@ import contextlib
 import io
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -14,7 +15,10 @@ class CliJsonContractTest(unittest.TestCase):
         stdout = io.StringIO()
         stderr = io.StringIO()
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-            code = cli.main(argv)
+            try:
+                code = cli.main(argv)
+            except SystemExit as exc:
+                code = int(exc.code or 0)
         return code, stdout.getvalue(), stderr.getvalue()
 
     def _with_temp_db(self):
@@ -37,6 +41,98 @@ class CliJsonContractTest(unittest.TestCase):
         self.assertEqual(payload["command"], "profiles")
         self.assertTrue(payload["data"]["profiles"])
         self.assertIn("dimensions", payload["data"]["profiles"][0])
+
+    def test_global_format_before_subcommand_applies_to_read_commands(self) -> None:
+        conn = self._with_temp_db()
+        cache.upsert_place(conn, cache.Place(place_id="place-1", name="D'Class Guitar", rating=4.8))
+        conn.close()
+
+        code, stdout, stderr = self._run_cli(["--format", "json", "list"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        payload = json.loads(stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["command"], "list")
+        self.assertEqual(payload["data"]["places"][0]["place_id"], "place-1")
+
+    def test_global_quiet_no_color_are_accepted_for_agent_runs(self) -> None:
+        code, stdout, stderr = self._run_cli(["--quiet", "--no-color", "profiles", "--format", "json"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        payload = json.loads(stdout)
+        self.assertEqual(payload["command"], "profiles")
+
+    def test_global_format_json_maps_to_doctor_json(self) -> None:
+        report = {"ok": True, "version": "test", "mode": "cheap", "checks": [], "warnings": [], "errors": [], "providers": {}}
+        with mock.patch.object(cli.doctor, "cheap_health", return_value=report):
+            code, stdout, stderr = self._run_cli(["--format", "json", "doctor"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        payload = json.loads(stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["command"], "doctor")
+
+    def test_global_timeout_returns_code_6_with_machine_error(self) -> None:
+        def slow_ask(*args, **kwargs):
+            time.sleep(1)
+            return {"answer": "late", "cached": False, "created_at": 1, "model": "m", "provider": "p"}
+
+        with mock.patch("placeintel.pipeline.ask", side_effect=slow_ask):
+            code, stdout, stderr = self._run_cli([
+                "--format", "json", "--timeout", "0.01", "ask", "slow question",
+            ])
+
+        self.assertEqual(code, 6)
+        self.assertEqual(stderr, "")
+        payload = json.loads(stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "timeout")
+
+    def test_usage_error_returns_code_1_without_traceback(self) -> None:
+        code, stdout, stderr = self._run_cli(["list", "--definitely-not-a-real-flag"])
+
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("usage error", stderr)
+        self.assertNotIn("Traceback", stderr)
+
+    def test_unexpected_error_returns_code_10_with_machine_error(self) -> None:
+        with mock.patch("placeintel.pipeline.ask", side_effect=RuntimeError("provider exploded")):
+            code, stdout, stderr = self._run_cli(["--format", "json", "ask", "boom"])
+
+        self.assertEqual(code, 10)
+        self.assertEqual(stderr, "")
+        payload = json.loads(stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "internal_error")
+        self.assertIn("provider exploded", payload["error"]["message"])
+
+    def test_global_format_ndjson_before_scout_streams_events(self) -> None:
+        result = pipeline.ScoutResult(
+            query="guitar lesson",
+            location="Hoi An",
+            profile="generic",
+            places=[{"place_id": "place-1", "name": "D'Class Guitar"}],
+            reports=[{"place_id": "place-1", "name": "D'Class Guitar", "md": "# Report"}],
+        )
+
+        def fake_scout(**kwargs):
+            kwargs["on_event"]({"t": 123.0, "stage": "plan", "msg": "planned"})
+            return result
+
+        with mock.patch("placeintel.pipeline.scout", side_effect=fake_scout):
+            code, stdout, stderr = self._run_cli([
+                "--format", "ndjson", "scout", "guitar lesson", "--near", "Hoi An",
+            ])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        lines = [json.loads(line) for line in stdout.splitlines()]
+        self.assertEqual(lines[0]["type"], "event")
+        self.assertEqual(lines[-1]["type"], "result")
 
     def test_list_format_json_returns_cached_places(self) -> None:
         conn = self._with_temp_db()

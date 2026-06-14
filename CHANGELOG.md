@@ -1,5 +1,15 @@
 # Changelog — place-intel
 
+## v0.4.34 — 2026-06-15 — agent CLI global hardening
+- Added root-level agent options before subcommands:
+  `--format text|json|ndjson`, `--quiet`, `--no-color`, and `--timeout`.
+- Global `--format json` now maps to `doctor --json`; global NDJSON works for
+  long-running Scout/Shop streams while command-local `--format` remains
+  backwards compatible.
+- CLI user errors now return exit code `1`, timeouts return `6` with machine
+  errors, and unexpected internal failures return `10` without stack traces in
+  normal output.
+
 ## v0.4.33 — 2026-06-15 — Settings/System status
 - Added `GET /api/config`, a non-secret runtime settings endpoint for owner and
   agent status checks.

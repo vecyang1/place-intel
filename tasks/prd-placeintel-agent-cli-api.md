@@ -1,6 +1,6 @@
 # PRD: placeintel Agent-Friendly CLI and API
 
-Status: 🔨 In Progress — US-CLI stories implemented; global-option hardening remains
+Status: ✅ Complete
 Last Updated: 2026-06-15
 Parent PRD: `tasks/prd-placeintel-production-grade-master.md`
 Scope: CLI contracts, HTTP contracts, machine-readable output, agent handoff docs, and command ergonomics.
@@ -117,6 +117,26 @@ core schema entries for `cli_envelope`, `health`, `pipeline_result`,
 `job_event`, `backup_manifest`, and `deploy_smoke`, and docs links from README.
 Verified by `tests/test_cli_json_contract.py` plus full local verification.
 
+### US-CLI-006: Global Agent Options and Stable Exit Codes
+
+As an implementation agent, I want root-level options and stable failures so I
+can wrap `placeintel` safely from another tool.
+
+Acceptance Criteria:
+- [x] Root `--format text|json|ndjson` works before subcommands where applicable.
+- [x] Command-local `--format` remains backwards compatible after subcommands.
+- [x] Root `--quiet`, `--no-color`, and `--timeout` are accepted for agent runs.
+- [x] Timeout returns code `6` and a machine error when a machine format is active.
+- [x] Usage errors return code `1` without traceback.
+- [x] Unexpected internal errors return code `10` without traceback in normal output.
+- [x] `docs/agent-cli.md` documents global options and exit codes.
+- [x] Typecheck/lint passes.
+
+Implementation note 2026-06-15: Completed in v0.4.34. Root-level global options
+are normalized before command execution, `doctor` maps global `--format json` to
+its existing `--json` mode, and command execution is wrapped with timeout and
+internal-error machine envelopes.
+
 ## 4. Functional Requirements
 
 ### 4.1 Global CLI Options
@@ -126,6 +146,11 @@ Verified by `tests/test_cli_json_contract.py` plus full local verification.
 - FR-CLI-003: Add global `--no-color` even if current text output does not use color; this prevents future ambiguity.
 - FR-CLI-004: Add global `--timeout SECONDS` for long-running commands.
 - FR-CLI-005: Add `--yes` for destructive commands; if absent, destructive CLI actions must prompt in TTY and fail non-interactively.
+
+Implementation note 2026-06-15: Root global options are implemented before the
+subcommand (`placeintel --format json --quiet --timeout 30 list`), while
+command-local `--format` remains supported after subcommands. Restore already
+requires `--yes`; backup/restore confirmation remains CLI-first and documented.
 
 ### 4.2 Output Contract
 
@@ -157,6 +182,10 @@ Verified by `tests/test_cli_json_contract.py` plus full local verification.
 | 6 | Timeout/cancelled |
 | 10 | Internal unexpected error |
 
+Implementation note 2026-06-15: Codes `0`, `1`, `2`, `3`, `5`, `6`, and `10`
+are implemented. Code `4` is reserved for future partial-success commands that
+can distinguish warnings from failures without ambiguity.
+
 ### 4.4 Command Set
 
 Existing commands must remain:
@@ -183,6 +212,11 @@ New or expanded commands:
 | `backup` | create/verify local DB backup | text, json |
 | `restore` | restore with confirmation | text, json |
 | `deploy-smoke` | read-only deployment verification | text, json |
+
+Deferred command expansion 2026-06-15: standalone `status`, `job`, and `config`
+CLI commands are deferred because equivalent stable surfaces exist today:
+`doctor --json`, `/api/jobs/{id}` + `/api/jobs/{id}/events`, and `/api/config`.
+No current user story requires duplicating those HTTP surfaces in the CLI.
 
 ### 4.5 NDJSON Event Types
 
