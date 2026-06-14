@@ -14,6 +14,7 @@ import json
 import logging
 import sys
 import time
+from dataclasses import asdict
 
 from . import __version__, cache, config, doctor, profiles
 
@@ -60,10 +61,41 @@ def _print_json(payload: dict) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
 
 
+def _print_ndjson(payload: dict) -> None:
+    print(json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str))
+
+
 def _add_format_arg(parser: argparse.ArgumentParser, *, ndjson: bool = False) -> None:
     choices = ["text", "json"] + (["ndjson"] if ndjson else [])
     parser.add_argument("--format", choices=choices, default="text",
                         help="output format (default: text)")
+
+
+def _ndjson_event_writer(command: str):
+    def write_event(event: dict) -> None:
+        _print_ndjson({"type": "event", "version": __version__, "command": command, **event})
+    return write_event
+
+
+def _result_payload(command: str, result, ok: bool) -> dict:
+    error = None
+    if not ok:
+        message = "; ".join(result.errors) if result.errors else "pipeline finished without reports"
+        error = {
+            "code": "no_reports",
+            "message": message,
+            "recoverable": True,
+            "next_action": "Review data.result.errors, then retry with --refresh or --no-reports.",
+        }
+    return _json_payload(command, {"result": asdict(result)}, ok=ok, error=error)
+
+
+def _print_machine_result(command: str, result, ok: bool, output_format: str) -> None:
+    payload = _result_payload(command, result, ok)
+    if output_format == "ndjson":
+        _print_ndjson({"type": "result", **payload})
+    else:
+        _print_json(payload)
 
 
 CORE_SCHEMAS = {
@@ -85,7 +117,7 @@ CORE_SCHEMAS = {
         "type": "object",
         "required": ["ok", "version", "mode", "checks", "warnings", "errors", "providers"],
         "properties": {
-            "mode": {"enum": ["cheap"]},
+            "mode": {"enum": ["cheap", "deep"]},
             "checks": {
                 "type": "array",
                 "items": {
@@ -96,6 +128,24 @@ CORE_SCHEMAS = {
                     ],
                 },
             },
+        },
+    },
+    "pipeline_result": {
+        "type": "object",
+        "required": [
+            "query", "location", "profile", "mode", "plan",
+            "places", "filtered", "reports", "errors",
+        ],
+        "properties": {
+            "query": {"type": "string"},
+            "location": {"type": ["string", "null"]},
+            "profile": {"type": "string"},
+            "mode": {"enum": ["discover", "single"]},
+            "plan": {"type": ["object", "null"]},
+            "places": {"type": "array"},
+            "filtered": {"type": "array"},
+            "reports": {"type": "array"},
+            "errors": {"type": "array"},
         },
     },
     "job_event": {
@@ -113,27 +163,45 @@ CORE_SCHEMAS = {
 
 def _cmd_scout(args: argparse.Namespace) -> int:
     from . import pipeline
+    on_event = _print_event
+    if args.format == "json":
+        on_event = None
+    elif args.format == "ndjson":
+        on_event = _ndjson_event_writer("scout")
     result = pipeline.scout(
         query=args.query, location=args.near, profile_name=args.profile,
         top_n=args.top, max_reviews=args.max_reviews, lang=args.lang,
         report_lang=args.report_lang, force_serpapi=args.force_serpapi,
         refresh=args.refresh, skip_reports=args.no_reports,
-        use_ai=not args.no_ai, on_event=_print_event,
+        use_ai=not args.no_ai, on_event=on_event,
     )
-    _print_result(result, top_n=args.top)
-    return 0 if (result.reports or args.no_reports) else 1
+    ok = bool(result.reports or args.no_reports)
+    if args.format != "text":
+        _print_machine_result("scout", result, ok, args.format)
+    else:
+        _print_result(result, top_n=args.top)
+    return 0 if ok else 1
 
 
 def _cmd_shop(args: argparse.Namespace) -> int:
     from . import pipeline
+    on_event = _print_event
+    if args.format == "json":
+        on_event = None
+    elif args.format == "ndjson":
+        on_event = _ndjson_event_writer("shop")
     result = pipeline.scout_single(
         target=args.target, near=args.near, profile_name=args.profile,
         max_reviews=args.max_reviews, report_lang=args.report_lang,
         force_serpapi=args.force_serpapi, refresh=args.refresh,
-        on_event=_print_event,
+        on_event=on_event,
     )
-    _print_result(result)
-    return 0 if result.reports else 1
+    ok = bool(result.reports)
+    if args.format != "text":
+        _print_machine_result("shop", result, ok, args.format)
+    else:
+        _print_result(result)
+    return 0 if ok else 1
 
 
 def _cmd_plan(args: argparse.Namespace) -> int:
@@ -409,6 +477,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--refresh", action="store_true", help="ignore caches, re-scrape")
     s.add_argument("--no-reports", action="store_true", help="scrape+cache only")
     s.add_argument("--no-ai", action="store_true", help="skip AI planning/filtering")
+    _add_format_arg(s, ndjson=True)
     s.set_defaults(func=_cmd_scout)
 
     sh = sub.add_parser("shop", help="single-shop mode: name or Google Maps URL → one report")
@@ -419,6 +488,7 @@ def main(argv: list[str] | None = None) -> int:
     sh.add_argument("--report-lang", default=None)
     sh.add_argument("--force-serpapi", action="store_true")
     sh.add_argument("--refresh", action="store_true")
+    _add_format_arg(sh, ndjson=True)
     sh.set_defaults(func=_cmd_shop)
 
     pl = sub.add_parser("plan", help="debug: show the AI's search plan, don't run it")
@@ -460,7 +530,7 @@ def main(argv: list[str] | None = None) -> int:
     d = sub.add_parser("doctor", help="cheap local readiness checks for humans and agents")
     d.add_argument("--json", action="store_true", help="print one machine-readable JSON document")
     d.add_argument("--live", action="store_true",
-                   help="reserved for future deep diagnostics; cheap checks still run today")
+                   help="run opt-in deep diagnostics that may call providers or local tools")
     d.add_argument("--require", default="",
                    help="comma-separated required checks, e.g. db,data_dir,google,vectorengine")
     d.set_defaults(func=_cmd_doctor)

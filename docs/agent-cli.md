@@ -3,9 +3,8 @@
 Last updated: 2026-06-14
 
 This document tells future agents how to call the CLI without scraping the web
-UI. The stable machine-readable surface is being built incrementally; commands
-listed as "text only" keep their existing human output until the CLI PRD stories
-are implemented.
+UI. The stable machine-readable surface is JSON for read commands and JSON or
+NDJSON for long-running Scout/Shop commands.
 
 ## Install and Smoke
 
@@ -36,6 +35,37 @@ PRD target codes still to implement across all commands:
 | 10 | Internal unexpected error |
 
 ## Machine-Readable Contract
+
+### Long-Running Scout/Shop
+
+`scout` and `shop` support three formats:
+
+- `--format text`: backwards-compatible human output with timeline text.
+- `--format json`: one final JSON envelope on stdout after the run finishes.
+- `--format ndjson`: one compact JSON object per line; event lines arrive as
+  progress is emitted, and the final line has `type:"result"`.
+
+Scout NDJSON:
+
+```bash
+.venv/bin/placeintel scout "guitar lesson" --near "Hoi An" --format ndjson
+```
+
+Event line:
+
+```json
+{"type":"event","version":"0.4.x","command":"scout","t":1781440000.0,"stage":"search","msg":"human readable","data":{}}
+```
+
+Final result line:
+
+```json
+{"type":"result","ok":true,"version":"0.4.x","command":"scout","data":{"result":{"query":"guitar lesson","location":"Hoi An","profile":"generic","mode":"discover","plan":{},"places":[],"filtered":[],"reports":[],"errors":[]}}}
+```
+
+`data.result` mirrors the web job `result` object: `query`, `location`,
+`profile`, `mode`, `plan`, `places`, `filtered`, `reports`, and `errors`.
+In JSON/NDJSON modes, human progress text is suppressed from stdout.
 
 ### `placeintel doctor --json`
 
@@ -100,8 +130,8 @@ warnings unless required.
 
 | Command | Current formats | Notes |
 | --- | --- | --- |
-| `scout "query"` | text | Long-running; emits human timeline text today. PRD target: `--format json|ndjson`. |
-| `shop "name-or-url"` | text | Single-place scout. PRD target: `--format json|ndjson`. |
+| `scout "query"` | text, JSON, NDJSON | Long-running; NDJSON event lines preserve `{t, stage, msg, data?}` and end with `type:"result"`. |
+| `shop "name-or-url"` | text, JSON, NDJSON | Single-place scout with the same machine formats as `scout`. |
 | `plan "text"` | JSON body | Existing debug output is already JSON. |
 | `history` | text, JSON | `history --format json` returns recent searches. |
 | `ask "question"` | text, JSON | `ask --format json` returns answer/cache/model/provider metadata and echoes `place_id` when scoped. |
@@ -111,7 +141,7 @@ warnings unless required.
 | `model [name] --list` | text | Live provider call when listing or switching. |
 | `export <place_id>` | JSON body, JSON envelope | Default remains the legacy raw JSON body; `--format json` uses the agent envelope. |
 | `doctor` | text, JSON | Implemented in this milestone. |
-| `schema` | text, JSON | `schema --format json` lists core CLI/API schemas and docs paths. |
+| `schema` | text, JSON | `schema --format json` lists core CLI/API schemas, including `pipeline_result`, and docs paths. |
 
 ## Agent Recipes
 
@@ -161,6 +191,18 @@ Inspect core schemas:
 
 ```bash
 .venv/bin/placeintel schema --format json
+```
+
+Run a scout from another agent and stream events:
+
+```bash
+.venv/bin/placeintel scout "guitar lesson" --near "Hoi An" --format ndjson
+```
+
+Run a single shop and parse only the final result:
+
+```bash
+.venv/bin/placeintel shop "D'Class Guitar" --near "Hoi An" --format json
 ```
 
 Ask from existing cache:

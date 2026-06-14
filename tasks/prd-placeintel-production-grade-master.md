@@ -110,11 +110,11 @@ Acceptance Criteria:
 As another agent, I want stable machine-readable commands and endpoints so that I can call `placeintel` without scraping the UI or interpreting human text.
 
 Acceptance Criteria:
-- [ ] Every read-only data command supports `--format json`.
-- [ ] Long-running operations can emit NDJSON events with the existing `{t, stage, msg, data?}` contract.
+- [x] Every read-only data command supports `--format json`.
+- [x] Long-running operations can emit NDJSON events with the existing `{t, stage, msg, data?}` contract.
 - [ ] CLI has stable exit codes and a documented `placeintel doctor` command.
-- [ ] API schemas and examples are documented in `docs/API.md` and `docs/agent-cli.md`.
-- [ ] Agent examples run without requiring a browser.
+- [x] API schemas and examples are documented in `docs/API.md` and `docs/agent-cli.md`.
+- [x] Agent examples run without requiring a browser.
 - [ ] Typecheck/lint passes.
 
 ### US-006: Production Operations Are Visible

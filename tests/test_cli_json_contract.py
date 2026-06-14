@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from placeintel import cache, cli, config
+from placeintel import cache, cli, config, pipeline
 
 
 class CliJsonContractTest(unittest.TestCase):
@@ -122,9 +122,12 @@ class CliJsonContractTest(unittest.TestCase):
         schemas = payload["data"]["schemas"]
         self.assertIn("cli_envelope", schemas)
         self.assertIn("health", schemas)
+        self.assertIn("pipeline_result", schemas)
         self.assertIn("job_event", schemas)
+        self.assertIn("deep", schemas["health"]["properties"]["mode"]["enum"])
         health_item_required = schemas["health"]["properties"]["checks"]["items"]["required"]
         self.assertIn("next_action", health_item_required)
+        self.assertIn("reports", schemas["pipeline_result"]["required"])
         self.assertEqual(schemas["job_event"]["required"], ["t", "stage", "msg"])
 
     def test_ask_format_json_wraps_answer_and_preserves_scope_flags(self) -> None:
@@ -169,6 +172,65 @@ class CliJsonContractTest(unittest.TestCase):
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"]["code"], "cache_empty")
         self.assertEqual(payload["data"], answer)
+
+    def test_scout_format_ndjson_emits_events_and_final_result(self) -> None:
+        result = pipeline.ScoutResult(
+            query="guitar lesson",
+            location="Hoi An",
+            profile="generic",
+            places=[{"place_id": "place-1", "name": "D'Class Guitar"}],
+            reports=[{"place_id": "place-1", "name": "D'Class Guitar", "md": "# Report"}],
+        )
+
+        def fake_scout(**kwargs):
+            kwargs["on_event"]({"t": 123.0, "stage": "plan", "msg": "planned"})
+            return result
+
+        with mock.patch("placeintel.pipeline.scout", side_effect=fake_scout) as scout:
+            code, stdout, stderr = self._run_cli([
+                "scout", "guitar lesson", "--near", "Hoi An", "--format", "ndjson",
+            ])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        scout.assert_called_once()
+        lines = [json.loads(line) for line in stdout.splitlines()]
+        self.assertEqual(lines[0]["type"], "event")
+        self.assertEqual(lines[0]["stage"], "plan")
+        self.assertEqual(lines[0]["msg"], "planned")
+        self.assertEqual(lines[-1]["type"], "result")
+        self.assertTrue(lines[-1]["ok"])
+        self.assertEqual(lines[-1]["command"], "scout")
+        self.assertEqual(lines[-1]["data"]["result"]["query"], "guitar lesson")
+
+    def test_shop_format_json_prints_only_final_result(self) -> None:
+        result = pipeline.ScoutResult(
+            query="Lazy Gecko Cafe",
+            location="Hoi An",
+            profile="generic",
+            mode="single",
+            places=[{"place_id": "place-1", "name": "Lazy Gecko Cafe"}],
+            reports=[{"place_id": "place-1", "name": "Lazy Gecko Cafe", "md": "# Report"}],
+        )
+
+        def fake_shop(**kwargs):
+            if kwargs["on_event"]:
+                kwargs["on_event"]({"t": 123.0, "stage": "search", "msg": "would be hidden"})
+            return result
+
+        with mock.patch("placeintel.pipeline.scout_single", side_effect=fake_shop) as shop:
+            code, stdout, stderr = self._run_cli([
+                "shop", "Lazy Gecko Cafe", "--near", "Hoi An", "--format", "json",
+            ])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        shop.assert_called_once()
+        payload = json.loads(stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["command"], "shop")
+        self.assertEqual(payload["data"]["result"]["mode"], "single")
+        self.assertNotIn("would be hidden", stdout)
 
 
 if __name__ == "__main__":

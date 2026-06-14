@@ -1,6 +1,6 @@
 # PRD: placeintel Agent-Friendly CLI and API
 
-Status: 📋 Draft
+Status: 🔨 In Progress — US-CLI stories implemented; global-option hardening remains
 Last Updated: 2026-06-14
 Parent PRD: `tasks/prd-placeintel-production-grade-master.md`
 Scope: CLI contracts, HTTP contracts, machine-readable output, agent handoff docs, and command ergonomics.
@@ -52,12 +52,18 @@ external-wheel checks. Required checks are enforced by name.
 As another agent, I want to run Scout/Shop and watch structured events so I can update task state without parsing prose.
 
 Acceptance Criteria:
-- [ ] `placeintel scout "query" --format ndjson` prints one JSON event per line.
-- [ ] Final line includes `type:"result"` with the same core fields as the web job result.
-- [ ] Human progress text moves to stderr or is suppressed.
-- [ ] `--format json` prints only final result JSON after completion.
-- [ ] Text mode remains backwards compatible.
-- [ ] Typecheck/lint passes.
+- [x] `placeintel scout "query" --format ndjson` prints one JSON event per line.
+- [x] Final line includes `type:"result"` with the same core fields as the web job result.
+- [x] Human progress text moves to stderr or is suppressed.
+- [x] `--format json` prints only final result JSON after completion.
+- [x] Text mode remains backwards compatible.
+- [x] Typecheck/lint passes.
+
+Implementation note 2026-06-14: Completed with machine output adapters in
+`placeintel/cli.py`. `scout` and `shop` now support `--format json|ndjson`;
+NDJSON event lines include `type:"event"` plus the existing `{t, stage, msg,
+data?}` contract, and the final line includes `type:"result"` with the shared
+pipeline result object. Coverage lives in `tests/test_cli_json_contract.py`.
 
 ### US-CLI-003: Stable Read Commands
 
@@ -106,9 +112,9 @@ Acceptance Criteria:
 - [x] Typecheck/lint passes.
 
 Implementation note 2026-06-14: Completed with `placeintel schema --format json`,
-core schema entries for `cli_envelope`, `health`, and `job_event`, and docs links
-from README. Verified by `tests/test_cli_json_contract.py` plus full local
-verification.
+core schema entries for `cli_envelope`, `health`, `pipeline_result`, and
+`job_event`, and docs links from README. Verified by
+`tests/test_cli_json_contract.py` plus full local verification.
 
 ## 4. Functional Requirements
 

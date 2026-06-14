@@ -140,6 +140,23 @@ Done:
 {"status": "done", "kind": "shop", "events": [], "result": {}}
 ```
 
+`result` has the shared pipeline result shape used by the web job table and
+`placeintel scout/shop --format json|ndjson`:
+
+```json
+{
+  "query": "guitar lesson",
+  "location": "Hoi An",
+  "profile": "generic",
+  "mode": "discover",
+  "plan": {},
+  "places": [],
+  "filtered": [],
+  "reports": [],
+  "errors": []
+}
+```
+
 Error:
 
 ```json

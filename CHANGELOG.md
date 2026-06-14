@@ -1,5 +1,14 @@
 # Changelog — place-intel
 
+## v0.4.21 — 2026-06-14 — Scout/Shop machine output
+- Added `--format json|ndjson` to `placeintel scout` and `placeintel shop`.
+- NDJSON mode emits one compact `type:"event"` object per pipeline event using
+  the existing `{t, stage, msg, data?}` contract, followed by a final
+  `type:"result"` envelope.
+- JSON mode suppresses human progress text and prints only the final agent-safe
+  result envelope, while text mode remains backward compatible.
+- Fixed the CLI schema contract so health mode allows both `cheap` and `deep`.
+
 ## v0.4.20 — 2026-06-14 — deep doctor + agent CLI contracts
 - Added opt-in deep health diagnostics through `placeintel doctor --live --json`
   and `GET /api/health/deep`.
