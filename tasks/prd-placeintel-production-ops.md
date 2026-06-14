@@ -34,11 +34,16 @@ This PRD makes the product survivable: restart-safe jobs, health checks, visible
 As an operator, I want `/api/health` and `placeintel doctor --json` to verify basic health without spending API credits.
 
 Acceptance Criteria:
-- [ ] `/api/health` returns 200 with version, DB connectivity, data dir writability, static web file status, and current provider labels.
-- [ ] It performs no model, scraper, SerpAPI, Docker, or Chrome calls.
-- [ ] CLI doctor reports the same cheap checks without web server.
-- [ ] Missing live keys are warnings unless a required path is requested.
-- [ ] Typecheck/lint passes.
+- [x] `/api/health` returns 200 with version, DB connectivity, data dir writability, static web file status, and current provider labels.
+- [x] It performs no model, scraper, SerpAPI, Docker, or Chrome calls.
+- [x] CLI doctor reports the same cheap checks without web server.
+- [x] Missing live keys are warnings unless a required path is requested.
+- [x] Typecheck/lint passes.
+
+Implementation note 2026-06-14: Completed by `placeintel/doctor.py`,
+`GET /api/health`, and `placeintel doctor --json`. Verified with
+`tests/test_doctor_contract.py`, full Python unit discovery, CLI doctor smoke,
+compileall, JS syntax check, line budget, and `git diff --check`.
 
 ### US-OPS-002: Deep Diagnostics
 

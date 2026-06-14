@@ -15,7 +15,7 @@ import logging
 import sys
 import time
 
-from . import cache, config, profiles
+from . import __version__, cache, config, doctor, profiles
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -147,6 +147,41 @@ def _cmd_profiles(args: argparse.Namespace) -> int:
     return 0
 
 
+def _doctor_payload(report: dict) -> dict:
+    payload = {
+        "ok": bool(report.get("ok")),
+        "version": __version__,
+        "command": "doctor",
+        "data": report,
+    }
+    if not report.get("ok"):
+        payload["error"] = {
+            "code": "health_failed",
+            "message": "; ".join(report.get("errors") or ["health check failed"]),
+            "recoverable": True,
+            "next_action": "Fix the failed checks, then rerun placeintel doctor --json.",
+        }
+    return payload
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    require = [item.strip() for item in (args.require or "").split(",") if item.strip()]
+    report = doctor.cheap_health(live=args.live, require=require)
+    if args.json:
+        print(json.dumps(_doctor_payload(report), ensure_ascii=False, indent=2))
+    else:
+        status = "OK" if report["ok"] else "FAILED"
+        print(f"placeintel doctor: {status} · {report['version']} · {report['mode']}")
+        for check in report["checks"]:
+            mark = "✓" if check["ok"] else "✗"
+            print(f"  {mark} {check['name']}: {check['message']} ({check['latency_ms']} ms)")
+        for warning in report["warnings"]:
+            print(f"  ! {warning}", file=sys.stderr)
+        for error in report["errors"]:
+            print(f"  ✗ {error}", file=sys.stderr)
+    return 0 if report["ok"] else 2
+
+
 def _cmd_model(args: argparse.Namespace) -> int:
     if args.name:
         try:
@@ -240,6 +275,14 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("list", help="show cached places").set_defaults(func=_cmd_list)
     sub.add_parser("profiles", help="show report profiles").set_defaults(func=_cmd_profiles)
+
+    d = sub.add_parser("doctor", help="cheap local readiness checks for humans and agents")
+    d.add_argument("--json", action="store_true", help="print one machine-readable JSON document")
+    d.add_argument("--live", action="store_true",
+                   help="reserved for future deep diagnostics; cheap checks still run today")
+    d.add_argument("--require", default="",
+                   help="comma-separated required checks, e.g. db,data_dir,google,vectorengine")
+    d.set_defaults(func=_cmd_doctor)
 
     m = sub.add_parser("model", help="show / switch the reasoning model (persisted, shared with web)")
     m.add_argument("name", nargs="?", help="model to switch to (smoke-tested before saving)")

@@ -19,7 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import __version__, cache, config, pipeline, profiles
+from . import __version__, cache, config, doctor, pipeline, profiles
 
 log = logging.getLogger(__name__)
 app = FastAPI(title="placeintel", version=__version__)
@@ -298,6 +298,12 @@ def meta() -> dict:
     """Models + providers in use — UI transparency. No keys."""
     import placeintel
     return {"version": placeintel.__version__, **config.provider_info()}
+
+
+@app.get("/api/health")
+def health() -> dict:
+    """Cheap local health: no provider, scraper, Docker, or Chrome calls."""
+    return doctor.cheap_health()
 
 
 @app.get("/api/models")

@@ -47,7 +47,13 @@ questions, including shop-scoped ones labeled by shop).
 .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v
 npm install
 npm run test:web   # requires the local web app on http://127.0.0.1:9618
+.venv/bin/placeintel doctor --json
 ```
+
+Agent and ops contracts:
+- HTTP API: [`docs/API.md`](docs/API.md)
+- Agent CLI: [`docs/agent-cli.md`](docs/agent-cli.md)
+- Operations runbook: [`docs/operations.md`](docs/operations.md)
 
 ## Private VPS deploy
 

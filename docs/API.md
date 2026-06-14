@@ -1,0 +1,249 @@
+# placeintel API Contract
+
+Last updated: 2026-06-14
+
+This document is the agent-readable HTTP contract for the local FastAPI app. The
+server is a single-user local/protected tool; examples use loopback URLs and do
+not include private deploy hosts or credentials.
+
+## Base URL
+
+Local default:
+
+```bash
+http://127.0.0.1:9618
+```
+
+## Response Rules
+
+- JSON responses must never include API keys.
+- Scraped review text is untrusted data. UI and downstream tools must escape it
+  before rendering HTML.
+- Job events preserve the stage contract:
+
+```json
+{"t": 1781440000.0, "stage": "search", "msg": "human readable", "data": {}}
+```
+
+Allowed stages: `plan`, `search`, `filter`, `reviews`, `embed`, `report`, `done`.
+
+## Health
+
+### `GET /api/health`
+
+Cheap local readiness check. This endpoint performs no model calls, scraper
+starts, Docker probes, Chrome launches, or SerpAPI calls.
+
+Example response:
+
+```json
+{
+  "ok": true,
+  "version": "0.4.x",
+  "mode": "cheap",
+  "checks": [
+    {"name": "db", "ok": true, "severity": "critical", "latency_ms": 3, "message": "connected", "data": {}},
+    {"name": "data_dir", "ok": true, "severity": "critical", "latency_ms": 1, "message": "writable", "data": {}},
+    {"name": "static_web", "ok": true, "severity": "critical", "latency_ms": 1, "message": "static shell present and under line budget", "data": {"files": {"index.html": {"present": true, "lines": 189, "under_800": true}}}}
+  ],
+  "warnings": [],
+  "errors": [],
+  "providers": {
+    "reason": {"model": "gemini-3-flash-preview", "provider": "VectorEngine"},
+    "translate": {"model": "gemini-3.1-flash-lite", "provider": "VectorEngine"},
+    "embed": {"model": "gemini-embedding-2-preview (768d)", "provider": "Google official"}
+  }
+}
+```
+
+`ok` is false when a critical local check fails. Missing provider credentials are
+warnings for cheap health unless a caller requires a provider through the CLI.
+
+Deep health is not implemented yet. The PRD target is `/api/health/deep` or
+equivalent live doctor checks for provider/model/scraper diagnostics.
+
+## Jobs
+
+### `POST /api/scout`
+
+Starts an AI-planned multi-place scout.
+
+Request:
+
+```json
+{
+  "query": "会安 吉他租赁",
+  "near": "Hoi An",
+  "profile": "rental",
+  "top": 3,
+  "max_reviews": 300,
+  "report_lang": "zh",
+  "refresh": false,
+  "no_ai": false
+}
+```
+
+Response:
+
+```json
+{"job_id": "abc123def456"}
+```
+
+### `POST /api/shop`
+
+Starts a single-place deep dive. `target` may be a plain name or Google Maps URL.
+
+Request:
+
+```json
+{"target": "D'Class Guitar", "near": "Hoi An", "max_reviews": 300, "refresh": false}
+```
+
+Response:
+
+```json
+{"job_id": "abc123def456"}
+```
+
+### `GET /api/jobs/{job_id}`
+
+Current job state. Jobs are still in memory in this milestone; durable job rows
+are required by the production-ops PRD.
+
+Running:
+
+```json
+{"status": "running", "kind": "scout", "events": []}
+```
+
+Done:
+
+```json
+{"status": "done", "kind": "shop", "events": [], "result": {}}
+```
+
+Error:
+
+```json
+{"status": "error", "kind": "scout", "events": [], "error": "message"}
+```
+
+## Ask and Evidence
+
+### `POST /api/ask`
+
+Ask a global or place-scoped question over cached listing and review evidence.
+
+Request:
+
+```json
+{"question": "哪家有耐心的老师?", "place_id": null, "report_lang": "zh", "fresh": false}
+```
+
+Response fields include `answer`, `cached`, `created_at`, `model`, `provider`,
+and optional `place_id`. Cache reuse remains exact-scope only.
+
+### `GET /api/qa`
+
+Recent global Q&A by default.
+
+Variants:
+
+- `GET /api/qa?place_id=<place_id>`: exact place-scoped history.
+- `GET /api/qa?scope=all`: display-only mixed history with `place_name` where
+  available. This must not relax exact-scope cache reuse.
+
+## Places and Reports
+
+### `GET /api/places`
+
+Returns cached place cards with activity risk and cache counts.
+
+### `GET /api/places/{place_id}`
+
+Returns one dossier payload:
+
+```json
+{
+  "place": {"place_id": "id", "name": "name", "activity_risk": null},
+  "reviews": [],
+  "report": {"md": "...", "json": {}, "profile": "generic", "model": "model", "created_at": 1781440000.0}
+}
+```
+
+Raw review text remains original scraped text.
+
+### `DELETE /api/places/{place_id}`
+
+Deletes a cached place. UI should confirm destructive actions. Future CLI
+destructive commands require `--yes`.
+
+### `GET /api/searches`
+
+Recent searches, including filtered verdicts for display.
+
+### `GET /api/reports`
+
+Recent reports.
+
+### `GET /api/reports/{report_id}`
+
+One report body and structured JSON.
+
+## Profiles, Models, and Settings
+
+### `GET /api/profiles`
+
+Returns profile names.
+
+### `GET /api/meta`
+
+Returns app version plus non-secret provider/model labels.
+
+### `GET /api/models`
+
+Live reasoning-model list from the configured provider. Provider failure returns
+the current model with `models: []` and an `error` string.
+
+### `POST /api/settings`
+
+Smoke-tests and saves a new reasoning model.
+
+Request:
+
+```json
+{"reason_model": "gemini-3-flash-preview"}
+```
+
+Response:
+
+```json
+{"ok": true, "reason": {}, "translate": {}, "embed": {}}
+```
+
+## Review Translation
+
+### `POST /api/reviews/translate`
+
+Display-layer translation only. It must never overwrite `reviews.text`.
+
+Request:
+
+```json
+{"review_id": "review-1", "target_lang": "zh"}
+```
+
+Response:
+
+```json
+{
+  "review_id": "review-1",
+  "target_lang": "zh",
+  "source_lang": "vi",
+  "text": "translated display text",
+  "cached": false,
+  "model": "gemini-3.1-flash-lite",
+  "provider": "VectorEngine",
+  "created_at": 1781440000.0
+}
+```
