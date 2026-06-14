@@ -38,6 +38,7 @@ EMBED_DIMS = int(os.getenv("PLACEINTEL_EMBED_DIMS", "768"))
 # Available models must always be listed LIVE from the provider (list_reason_models)
 # — never from training-data knowledge, which goes stale.
 DEFAULT_REASON_MODEL = "gemini-2.5-flash"
+DEFAULT_TRANSLATION_MODEL = "gemini-3.1-flash-lite"
 
 SETTINGS_PATH = DATA_DIR / "settings.json"
 
@@ -146,6 +147,15 @@ def reason_model() -> str:
     )
 
 
+def translation_model() -> str:
+    """Cheap model for display-only review translations: setting > env > default."""
+    return (
+        _load_settings().get("translation_model")
+        or os.getenv("PLACEINTEL_TRANSLATION_MODEL")
+        or DEFAULT_TRANSLATION_MODEL
+    )
+
+
 def list_reason_models() -> list[str]:
     """LIVE generateContent-capable model list from the reasoning provider.
 
@@ -214,6 +224,7 @@ def provider_info() -> dict:
         return {"model": model, "provider": provider}
     return {
         "reason": describe(reason_credentials, reason_model()),
+        "translate": describe(reason_credentials, translation_model()),
         "embed": describe(embed_credentials, f"{EMBED_MODEL} ({EMBED_DIMS}d)"),
     }
 

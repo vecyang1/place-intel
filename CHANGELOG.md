@@ -1,5 +1,23 @@
 # Changelog — place-intel
 
+## v0.4.16 — 2026-06-14 — cheaper batch review translation
+- Review translations now use a separate low-cost translation model role,
+  defaulting to `gemini-3.1-flash-lite` via the VectorEngine reasoning route,
+  instead of sharing the main report/Ask reasoning model.
+- Clicking any review translation button now translates every currently visible
+  review in that dossier section, respecting the active language filter and
+  skipping already translated cards.
+- Batch translation is guarded against rapid duplicate clicks and target changes
+  while requests are in flight, so stale responses do not overwrite the current
+  target-language view.
+- Added a remembered target-language selector in the review lens. The browser
+  default is Chinese (`zh` / CN), users can switch to English, and the choice is
+  saved in local storage for later dossiers.
+- The translation endpoint now accepts `cn` as a Chinese alias and `/api/meta`
+  exposes the separate `translate` model/provider for transparency.
+- Cached review translations now store provider metadata, keeping old cache rows
+  from being mislabeled after a future provider route change.
+
 ## v0.4.15 — 2026-06-14 — optional review translation
 - Added per-review on-demand translation in shop dossiers. Raw reviews remain
   original by default; users can click a compact `译文` control on a specific

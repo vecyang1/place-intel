@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS review_translations (
     source_lang   TEXT,
     translation   TEXT NOT NULL,
     model         TEXT,
+    provider      TEXT,
     created_at    REAL NOT NULL,
     PRIMARY KEY (review_id, target_lang)
 );
@@ -154,6 +155,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     for ddl in (
         "ALTER TABLE searches ADD COLUMN plan_json TEXT",
         "ALTER TABLE searches ADD COLUMN verdicts_json TEXT",
+        "ALTER TABLE review_translations ADD COLUMN provider TEXT",
     ):
         try:
             conn.execute(ddl)
@@ -274,17 +276,17 @@ def cached_review_translation(
 
 def save_review_translation(
     conn: sqlite3.Connection, review_id: str, target_lang: str, source_hash: str,
-    source_lang: str | None, translation: str, model: str,
+    source_lang: str | None, translation: str, model: str, provider: str | None = None,
 ) -> None:
     conn.execute(
         """INSERT INTO review_translations
-           (review_id, target_lang, source_hash, source_lang, translation, model, created_at)
-           VALUES (?,?,?,?,?,?,?)
+           (review_id, target_lang, source_hash, source_lang, translation, model, provider, created_at)
+           VALUES (?,?,?,?,?,?,?,?)
            ON CONFLICT(review_id, target_lang) DO UPDATE SET
              source_hash=excluded.source_hash, source_lang=excluded.source_lang,
-             translation=excluded.translation, model=excluded.model,
+             translation=excluded.translation, model=excluded.model, provider=excluded.provider,
              created_at=excluded.created_at""",
-        (review_id, target_lang, source_hash, source_lang, translation, model, time.time()),
+        (review_id, target_lang, source_hash, source_lang, translation, model, provider, time.time()),
     )
     conn.commit()
 

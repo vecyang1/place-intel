@@ -35,6 +35,18 @@ class ServerContractTest(unittest.TestCase):
         self.assertIn(f'/static/app.css?v={placeintel.__version__}"', html)
         self.assertIn(f'/static/app.js?v={placeintel.__version__}"', html)
 
+    def test_meta_exposes_separate_translation_model(self) -> None:
+        info = {
+            "reason": {"model": "expensive-model", "provider": "VectorEngine"},
+            "translate": {"model": "gemini-3.1-flash-lite", "provider": "VectorEngine"},
+            "embed": {"model": "embed-model", "provider": "Google 官方"},
+        }
+        with mock.patch.object(server.config, "provider_info", return_value=info):
+            response = TestClient(server.app).get("/api/meta")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["translate"]["model"], "gemini-3.1-flash-lite")
+
     def test_qa_history_endpoint_returns_recent_questions_by_exact_scope(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "placeintel.db"

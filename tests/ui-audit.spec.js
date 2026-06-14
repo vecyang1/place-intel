@@ -164,19 +164,20 @@ test('shop dossier segments reviews by language and filters raw comments', async
   await expect(page.locator('.review-filter-count')).toContainText('显示全部 4');
 });
 
-test('review cards translate one comment on demand', async ({ page }) => {
+test('review translate click translates all visible comments on demand', async ({ page }) => {
   const translateBodies = [];
   await page.route('**/api/reviews/translate', (route) => {
-    translateBodies.push(route.request().postDataJSON());
+    const body = route.request().postDataJSON();
+    translateBodies.push(body);
     return route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
-        review_id: 'review-vi-1',
-        target_lang: 'zh',
-        source_lang: 'vi',
-        text: '通往这里的路有点难走，但景色很漂亮。',
+        review_id: body.review_id,
+        target_lang: body.target_lang,
+        source_lang: body.review_id.includes('en') ? 'en' : 'vi',
+        text: body.review_id.includes('en') ? '老板很热情，价格透明。' : '通往这里的路有点难走，但景色很漂亮。',
         cached: false,
-        model: 'test-model',
+        model: 'gemini-3.1-flash-lite',
         provider: 'test-provider',
         created_at: Date.now() / 1000,
       }),
@@ -184,8 +185,11 @@ test('review cards translate one comment on demand', async ({ page }) => {
   });
   await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
   await page.evaluate(() => {
-    const place = { place_id: 'translate-test', name: 'Translate Test', rating: 4.8, review_count: 1 };
-    const reviews = [{ review_id: 'review-vi-1', rating: 5, author: 'Minh', text: 'Đường vào hơi khó nhưng cảnh rất đẹp.', lang: 'vi' }];
+    const place = { place_id: 'translate-test', name: 'Translate Test', rating: 4.8, review_count: 2 };
+    const reviews = [
+      { review_id: 'review-vi-1', rating: 5, author: 'Minh', text: 'Đường vào hơi khó nhưng cảnh rất đẹp.', lang: 'vi' },
+      { review_id: 'review-en-1', rating: 5, author: 'Grace', text: 'Helpful owner and transparent prices.', lang: 'en' },
+    ];
     document.body.insertAdjacentHTML('beforeend', `<div id="translate-host">${window.__pi.render.detail({ place, reviews, report: null })}</div>`);
     document.querySelector('#translate-host .detail-reviews').open = true;
   });
@@ -194,9 +198,102 @@ test('review cards translate one comment on demand', async ({ page }) => {
   const button = page.locator('[data-review-translate="review-vi-1"]');
   await expect(button).toBeVisible();
   await button.click();
-  await expect(page.locator('#translate-host .review-translation')).toContainText('通往这里的路有点难走');
-  await expect(button).toContainText('已译');
-  expect(translateBodies).toEqual([{ review_id: 'review-vi-1', target_lang: 'zh' }]);
+  await expect(page.locator('#translate-host .review-translation')).toHaveCount(2);
+  await expect(page.locator('#translate-host .review-translation')).toContainText(['通往这里的路有点难走', '老板很热情']);
+  await expect(page.locator('#translate-host [data-review-translate="review-vi-1"]')).toContainText('已译');
+  await expect(page.locator('#translate-host [data-review-translate="review-en-1"]')).toContainText('已译');
+  expect(translateBodies).toEqual([
+    { review_id: 'review-vi-1', target_lang: 'zh' },
+    { review_id: 'review-en-1', target_lang: 'zh' },
+  ]);
+});
+
+test('review translation target is configurable and remembered', async ({ page }) => {
+  const translateBodies = [];
+  await page.route('**/api/reviews/translate', (route) => {
+    const body = route.request().postDataJSON();
+    translateBodies.push(body);
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        review_id: body.review_id,
+        target_lang: body.target_lang,
+        source_lang: 'vi',
+        text: 'The road is a little hard, but the view is beautiful.',
+        cached: false,
+        model: 'gemini-3.1-flash-lite',
+        provider: 'test-provider',
+        created_at: Date.now() / 1000,
+      }),
+    });
+  });
+  await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  await page.evaluate(() => {
+    localStorage.removeItem('placeintel.translationTarget');
+    const place = { place_id: 'translate-target-test', name: 'Translate Target Test', rating: 4.8, review_count: 1 };
+    const reviews = [{ review_id: 'review-vi-target', rating: 5, author: 'Minh', text: 'Đường vào hơi khó nhưng cảnh rất đẹp.', lang: 'vi' }];
+    document.body.insertAdjacentHTML('beforeend', `<div id="translate-target-host">${window.__pi.render.detail({ place, reviews, report: null })}</div>`);
+    document.querySelector('#translate-target-host .detail-reviews').open = true;
+  });
+
+  const target = page.locator('#translate-target-host .translation-target');
+  await expect(target).toHaveValue('zh');
+  await target.selectOption('en');
+  await expect(page.locator('#translate-target-host [data-review-translate="review-vi-target"]')).toContainText('EN');
+  await expect(page.evaluate(() => localStorage.getItem('placeintel.translationTarget'))).resolves.toBe('en');
+  await page.locator('#translate-target-host [data-review-translate="review-vi-target"]').click();
+  await expect(page.locator('#translate-target-host .review-translation')).toContainText('The road is a little hard');
+  expect(translateBodies).toEqual([{ review_id: 'review-vi-target', target_lang: 'en' }]);
+});
+
+test('review translation batch blocks duplicate clicks and stale target responses', async ({ page }) => {
+  const translateBodies = [];
+  let releaseZh;
+  const zhGate = new Promise((resolve) => { releaseZh = resolve; });
+  await page.route('**/api/reviews/translate', async (route) => {
+    const body = route.request().postDataJSON();
+    translateBodies.push(body);
+    if (body.target_lang === 'zh') await zhGate;
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        review_id: body.review_id,
+        target_lang: body.target_lang,
+        source_lang: 'vi',
+        text: body.target_lang === 'en' ? `Fresh English ${body.review_id}` : `旧中文 ${body.review_id}`,
+        cached: false,
+        model: 'gemini-3.1-flash-lite',
+        provider: 'test-provider',
+        created_at: Date.now() / 1000,
+      }),
+    });
+  });
+  await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  await page.evaluate(() => {
+    localStorage.removeItem('placeintel.translationTarget');
+    const place = { place_id: 'translate-race-test', name: 'Translate Race Test', rating: 4.8, review_count: 4 };
+    const reviews = [1, 2, 3, 4].map((n) => ({ review_id: `review-race-${n}`, rating: 5, author: `Guest ${n}`, text: `Đường vào hơi khó nhưng cảnh rất đẹp ${n}.`, lang: 'vi' }));
+    document.body.insertAdjacentHTML('beforeend', `<div id="translate-race-host">${window.__pi.render.detail({ place, reviews, report: null })}</div>`);
+    document.querySelector('#translate-race-host .detail-reviews').open = true;
+  });
+
+  await page.locator('#translate-race-host [data-review-translate="review-race-1"]').click();
+  await expect(page.locator('#translate-race-host [data-review-translate="review-race-4"]')).toBeDisabled();
+  await page.evaluate(() => document.querySelector('#translate-race-host [data-review-translate="review-race-4"]').click());
+  await expect.poll(() => translateBodies.length).toBe(3);
+  await page.evaluate(() => {
+    const sel = document.querySelector('#translate-race-host .translation-target');
+    sel.value = 'en';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  releaseZh();
+  await page.waitForTimeout(100);
+  await expect(page.locator('#translate-race-host .review-translation')).toHaveCount(0);
+  await expect(page.locator('#translate-race-host [data-review-translate="review-race-1"]')).toContainText('EN');
+  await page.locator('#translate-race-host [data-review-translate="review-race-1"]').click();
+  await expect(page.locator('#translate-race-host .review-translation')).toHaveCount(4);
+  expect(translateBodies.filter((body) => body.target_lang === 'zh')).toHaveLength(3);
+  expect(translateBodies.filter((body) => body.target_lang === 'en')).toHaveLength(4);
 });
 
 test('review translation can retry after a transient failure', async ({ page }) => {

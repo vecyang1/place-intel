@@ -13,12 +13,9 @@ function relTime(v) {
   const d = toDate(v);
   if (!d) return '—';
   const s = (Date.now() - d.getTime()) / 1000;
-  if (s < 0) return d.toLocaleDateString('zh-CN');
-  if (s < 60) return '刚刚';
-  if (s < 3600) return `${Math.floor(s / 60)}分钟前`;
-  if (s < 86400) return `${Math.floor(s / 3600)}小时前`;
-  if (s < 86400 * 30) return `${Math.floor(s / 86400)}天前`;
-  return d.toLocaleDateString('zh-CN');
+  if (s < 0) return d.toLocaleDateString('zh-CN'); if (s < 60) return '刚刚';
+  if (s < 3600) return `${Math.floor(s / 60)}分钟前`; if (s < 86400) return `${Math.floor(s / 3600)}小时前`;
+  return s < 86400 * 30 ? `${Math.floor(s / 86400)}天前` : d.toLocaleDateString('zh-CN');
 }
 function fmtClock(v) { const d = toDate(v); return d ? d.toTimeString().slice(0, 8) : ''; }
 function stars(rating) { const n = Number(rating); return rating != null && Number.isFinite(n) ? `★ ${n.toFixed(1)}` : '★ —'; }
@@ -78,6 +75,9 @@ async function apiDelete(path) {
 }
 const POLL_MS = 2000;
 const MAX_POLL_FAILS = 5;
+const TX_TARGET_KEY = 'placeintel.translationTarget';
+const txTarget = () => (['zh', 'en'].includes(localStorage.getItem(TX_TARGET_KEY)) ? localStorage.getItem(TX_TARGET_KEY) : 'zh');
+const txLabel = (target) => (target === 'en' ? 'EN' : '中文');
 const STAGES = {
   plan: { zh: 'AI规划', en: 'plan' },
   search: { zh: '搜索', en: 'search' },
@@ -89,9 +89,7 @@ const STAGES = {
 };
 const TAB_NAMES = ['scout', 'shop', 'library', 'ask'];
 const tabFromHash = () => (TAB_NAMES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'scout');
-const state = { tab: 'scout', profiles: [], places: [], searches: [], libraryLoaded: false,
-  jobs: { scout: null, shop: null }, detail: null, detailReturnFocus: null,
-  meta: null }; // {version, reason: {model, provider}, embed: {model, provider}}
+const state = { tab: 'scout', profiles: [], places: [], searches: [], libraryLoaded: false, jobs: { scout: null, shop: null }, detail: null, detailReturnFocus: null, meta: null, translationTarget: txTarget() }; // {version, reason/translate/embed}
 function loadingHtml(msg) { return `<p class="loading">${esc(msg)} <span class="dots">●●●</span></p>`; }
 function errorHtml(msg) { return `<div class="error-box"><span class="error-label">出错 error</span>${esc(msg)}</div>`; }
 function emptyHtml(msg, gotoTab, gotoLabel) { const btn = gotoTab ? `<button type="button" class="btn-ghost" data-goto="${esc(gotoTab)}">${esc(gotoLabel || '去侦察 →')}</button>` : ''; return `<div class="empty">${esc(msg)}${btn}</div>`; }
@@ -266,14 +264,15 @@ function renderLanguageLens(reviews) {
     const themes = Array.from(g.themes.values()).sort((a, b) => b.count - a.count).slice(0, 4).map((x) => `<span>${esc(x.row[1])}<small>${esc(x.row[2])} · ${x.count}</small></span>`).join('');
     return `<article class="language-card" data-review-lang-card="${esc(g.code)}"><h4>${esc(m[0])} <span>${esc(m[1])}</span></h4><p>${g.count} 条 · ★ ${avg} · ${esc(m[2])}</p><div class="language-themes">${themes}</div>${g.sample ? `<blockquote>${esc(g.sample)}</blockquote>` : ''}</article>`;
   }).join('');
-  return `<section class="language-lens" aria-label="review language lens"><div class="language-lens-head"><div><h3>语言视角 <span>language lens</span></h3><p>language tab 保留给读原文；细分洞察可展开。</p></div><p class="review-filter-count" aria-live="polite">显示全部 ${reviews.length}</p></div><div class="language-filters">${filters}</div><details class="language-insights"><summary>展开语言洞察 <span>insight cards · ${groups.length}</span></summary><div class="language-grid">${cards}</div></details></section>`;
+  const target = `<label class="translation-target-wrap">译成 <select class="translation-target" aria-label="译文目标语言"><option value="zh"${state.translationTarget === 'zh' ? ' selected' : ''}>中文 CN</option><option value="en"${state.translationTarget === 'en' ? ' selected' : ''}>English</option></select></label>`;
+  return `<section class="language-lens" aria-label="review language lens"><div class="language-lens-head"><div><h3>语言视角 <span>language lens</span></h3><p>language tab 保留给读原文；细分洞察可展开。</p></div><div class="language-actions">${target}<p class="review-filter-count" aria-live="polite">显示全部 ${reviews.length}</p></div></div><div class="language-filters">${filters}</div><details class="language-insights"><summary>展开语言洞察 <span>insight cards · ${groups.length}</span></summary><div class="language-grid">${cards}</div></details></section>`;
 }
 function renderReviewCard(r) {
   const lang = detectReviewLang(reviewBody(r));
   const dateStr = typeof r.review_date === 'number' ? relTime(r.review_date) : (r.review_date || '');
   const m = langMeta(lang);
-  const target = lang === 'zh' ? 'en' : 'zh';
-  const tx = r.review_id && r.text ? `<button type="button" class="review-translate" data-review-translate="${esc(r.review_id)}" data-review-translate-target="${target}">译文 ${target === 'zh' ? '中文' : 'EN'}</button>` : '';
+  const target = state.translationTarget;
+  const tx = r.review_id && r.text ? `<button type="button" class="review-translate" data-review-translate="${esc(r.review_id)}" data-review-translate-target="${target}">译文 ${txLabel(target)}</button>` : '';
   return `<article class="review" data-review-lang="${esc(lang)}"><header class="review-meta">
       <span class="review-stars">${esc(stars(r.rating))}</span><span class="review-author">${esc(r.author || '匿名')}</span><span class="review-lang">${esc(m[0])}</span>${dateStr ? `<span class="review-date">${esc(dateStr)}</span>` : ''}${tx}</header>
     ${r.text ? `<p class="review-text">${esc(r.text)}</p>` : ''}
@@ -642,6 +641,7 @@ function bindGlobal() {
     if (e.target.closest('#model-switch')) return toggleModelPicker();
     if (e.target.closest('#model-save')) return saveModel();
   });
+  document.addEventListener('change', (e) => { const sel = e.target.closest('.translation-target'); if (sel) setTranslationTarget(sel); });
   $('#model-select').addEventListener('change', () => {
     $('#model-custom').hidden = $('#model-select').value !== CUSTOM_MODEL;
   });
@@ -675,18 +675,39 @@ function filterReviewLanguage(btn) {
   const label = $('.review-filter-count', panel);
   if (label) label.textContent = code === 'all' ? `显示全部 ${cards.length}` : `显示 ${shown} / ${cards.length}`;
 }
-async function translateReview(btn) {
-  const card = btn.closest('.review'), target = btn.dataset.reviewTranslateTarget || 'zh', label = `译文 ${target === 'zh' ? '中文' : 'EN'}`, existing = $('.review-translation:not(.is-error)', card);
-  if (existing) { existing.hidden = !existing.hidden; btn.textContent = existing.hidden ? label : '已译'; return; } $('.review-translation.is-error', card)?.remove();
+function setTranslationTarget(sel) {
+  const panel = sel.closest('.detail-reviews'), target = ['zh', 'en'].includes(sel.value) ? sel.value : 'zh';
+  if (panel) { panel.dataset.txBatch = String(Number(panel.dataset.txBatch || 0) + 1); delete panel.dataset.txBusy; }
+  state.translationTarget = target; localStorage.setItem(TX_TARGET_KEY, target);
+  $$('.translation-target', panel).forEach((x) => { x.value = target; }); $$('.review-translation', panel).forEach((x) => x.remove());
+  $$('[data-review-translate]', panel).forEach((b) => { b.dataset.reviewTranslateTarget = target; b.textContent = `译文 ${txLabel(target)}`; b.disabled = false; });
+}
+function visibleTranslateButtons(btn) { const panel = btn.closest('.detail-reviews') || document; return $$('[data-review-translate]', panel).filter((b) => !b.closest('.review')?.hidden); }
+async function translateOneReview(btn, token) {
+  const panel = btn.closest('.detail-reviews');
+  if (panel && panel.dataset.txBatch !== token) return;
+  const card = btn.closest('.review'), target = btn.dataset.reviewTranslateTarget || state.translationTarget, label = `译文 ${txLabel(target)}`;
+  $('.review-translation.is-error', card)?.remove();
   btn.disabled = true; btn.textContent = '翻译中…';
   try {
     const r = await apiPost('/api/reviews/translate', { review_id: btn.dataset.reviewTranslate, target_lang: target });
+    if ((panel && panel.dataset.txBatch !== token) || (btn.dataset.reviewTranslateTarget || state.translationTarget) !== target) return;
     card.insertAdjacentHTML('beforeend', `<div class="review-translation"><span>译文 ${esc(r.target_lang)}${r.cached ? ' · cached' : ''}</span><p>${esc(r.text)}</p></div>`);
     btn.textContent = '已译';
   } catch (err) {
+    if (panel && panel.dataset.txBatch !== token) return;
     card.insertAdjacentHTML('beforeend', `<div class="review-translation is-error">${esc(`翻译失败：${err.message}`)}</div>`);
     btn.textContent = label;
   } finally { btn.disabled = false; }
+}
+async function translateReview(btn) {
+  const panel = btn.closest('.detail-reviews'); if (panel?.dataset.txBusy === '1') return;
+  const buttons = visibleTranslateButtons(btn), pending = buttons.filter((b) => !$('.review-translation:not(.is-error)', b.closest('.review')));
+  if (!pending.length) { buttons.forEach((b) => { const block = $('.review-translation', b.closest('.review')); if (block) { block.hidden = !block.hidden; b.textContent = block.hidden ? `译文 ${txLabel(b.dataset.reviewTranslateTarget || state.translationTarget)}` : '已译'; } }); return; }
+  const token = String(Number(panel?.dataset.txBatch || 0) + 1); if (panel) { panel.dataset.txBatch = token; panel.dataset.txBusy = '1'; }
+  const controls = panel ? [...buttons, ...$$('.translation-target', panel)] : buttons; controls.forEach((x) => { x.disabled = true; });
+  let i = 0; try { await Promise.all(Array.from({ length: Math.min(3, pending.length) }, async () => { while (i < pending.length && (!panel || panel.dataset.txBatch === token)) await translateOneReview(pending[i++], token); })); }
+  finally { if (!panel || panel.dataset.txBatch === token) { if (panel) delete panel.dataset.txBusy; controls.forEach((x) => { x.disabled = false; }); } }
 }
 async function deletePlace(placeId, name) {
   if (!window.confirm(`把「${name || placeId}」连同它缓存的评价、报告、问答一起移除？\n（下次搜到它会重新抓取）`)) return;
@@ -713,48 +734,37 @@ async function loadMeta() {
     state.meta = m;
     const el = $('#meta-line');
     if (el && m.reason) {
-      el.textContent = `推理 ${m.reason.model} @ ${m.reason.provider} · `
-        + `向量 ${m.embed.model} @ ${m.embed.provider} · v${m.version}`;
+      el.textContent = `推理 ${m.reason.model} @ ${m.reason.provider} · 译文 ${m.translate?.model || '?'} @ ${m.translate?.provider || '?'} · 向量 ${m.embed.model} @ ${m.embed.provider} · v${m.version}`;
       $('#model-switch').hidden = false;
     }
   } catch { /* backend offline — footer stays minimal */ }
 }
-
 const CUSTOM_MODEL = '__custom__';
 async function toggleModelPicker() {
   const picker = $('#model-picker');
   if (!picker.hidden) { picker.hidden = true; return; }
   picker.hidden = false;
-  const sel = $('#model-select');
-  const status = $('#model-status');
+  const sel = $('#model-select'), status = $('#model-status');
   sel.innerHTML = '';
   status.textContent = '实时拉取提供商可用模型…';
   try {
     const res = await apiGet('/api/models');
-    for (const name of res.models) {
-      sel.appendChild(new Option(name === res.current ? `${name} ← 当前` : name, name));
-    }
+    for (const name of res.models) sel.appendChild(new Option(name === res.current ? `${name} ← 当前` : name, name));
     sel.appendChild(new Option('自定义手输…', CUSTOM_MODEL));
-    if (res.models.includes(res.current)) sel.value = res.current;
-    else sel.value = CUSTOM_MODEL;
-    status.textContent = res.error
-      ? `列表获取失败（仍可手输）：${res.error}`
-      : `${res.models.length} 个模型 · 提供商实时列表`;
+    sel.value = res.models.includes(res.current) ? res.current : CUSTOM_MODEL;
+    status.textContent = res.error ? `列表获取失败（仍可手输）：${res.error}` : `${res.models.length} 个模型 · 提供商实时列表`;
   } catch (err) {
     sel.appendChild(new Option('自定义手输…', CUSTOM_MODEL));
-    sel.value = CUSTOM_MODEL;
-    status.textContent = `列表加载失败（仍可手输）：${err.message}`;
+    sel.value = CUSTOM_MODEL; status.textContent = `列表加载失败（仍可手输）：${err.message}`;
   }
   $('#model-custom').hidden = sel.value !== CUSTOM_MODEL;
 }
 async function saveModel() {
-  const sel = $('#model-select');
+  const sel = $('#model-select'), status = $('#model-status');
   const name = (sel.value === CUSTOM_MODEL ? $('#model-custom').value : sel.value).trim();
-  const status = $('#model-status');
   if (!name) { status.textContent = '模型名不能为空'; return; }
   const btn = $('#model-save');
-  btn.disabled = true;
-  status.textContent = `用「${name}」做一次真实冒烟调用…`;
+  btn.disabled = true; status.textContent = `用「${name}」做一次真实冒烟调用…`;
   try {
     await apiPost('/api/settings', { reason_model: name });
     status.textContent = '✓ 已切换并保存 — CLI 与 Web 共用，重启不丢';
@@ -762,19 +772,8 @@ async function saveModel() {
     setTimeout(() => { $('#model-picker').hidden = true; status.textContent = ''; }, 2000);
   } catch (err) {
     status.textContent = `✗ 未保存：${err.message}`;
-  } finally {
-    btn.disabled = false;
-  }
+  } finally { btn.disabled = false; }
 }
-function init() {
-  bindForms();
-  bindGlobal();
-  switchTab(tabFromHash(), false);
-  window.addEventListener('hashchange', () => switchTab(tabFromHash(), false));
-  loadProfiles();
-  loadMeta();
-}
+function init() { bindForms(); bindGlobal(); switchTab(tabFromHash(), false); window.addEventListener('hashchange', () => switchTab(tabFromHash(), false)); loadProfiles(); loadMeta(); }
 init();
-window.__pi = { state, esc, mdToHtml, relTime, stars, fmtClock, safeUrl, detectReviewLang,
-  render: { event: renderEvent, planCard: renderPlanCard, verdicts: renderVerdicts, result: renderResult, report: renderReportArticle, libraryGrid: renderLibraryGrid, shopCard: renderShopCard, searchRow: renderSearchRow, detail: renderDetail, review: renderReviewCard, hours: renderHours, languageLens: renderLanguageLens },
-  openDetail, closeDetail, switchTab, loadLibrary, startJob };
+window.__pi = { state, esc, mdToHtml, relTime, stars, fmtClock, safeUrl, detectReviewLang, render: { event: renderEvent, planCard: renderPlanCard, verdicts: renderVerdicts, result: renderResult, report: renderReportArticle, libraryGrid: renderLibraryGrid, shopCard: renderShopCard, searchRow: renderSearchRow, detail: renderDetail, review: renderReviewCard, hours: renderHours, languageLens: renderLanguageLens }, openDetail, closeDetail, switchTab, loadLibrary, startJob };
