@@ -74,6 +74,13 @@ class SettingsRequest(BaseModel):
     reason_model: str
 
 
+class FavoriteRequest(BaseModel):
+    favorite: bool = True
+    refresh_enabled: bool | None = None
+    refresh_interval_days: int | None = None
+    max_reviews: int | None = None
+
+
 def _request_payload(req: BaseModel) -> dict:
     return req.model_dump() if hasattr(req, "model_dump") else req.dict()
 
@@ -250,60 +257,94 @@ def qa_history(place_id: str | None = None, scope: str = "exact") -> JSONRespons
 @app.delete("/api/places/{place_id}")
 def delete_place(place_id: str) -> dict:
     conn = cache.connect()
-    if not cache.delete_place(conn, place_id):
+    try:
+        deleted = cache.delete_place(conn, place_id)
+    finally:
+        conn.close()
+    if not deleted:
         raise HTTPException(404, "unknown place")
     return {"deleted": place_id}
+
+
+@app.post("/api/places/{place_id}/favorite")
+def favorite_place(place_id: str, req: FavoriteRequest) -> dict:
+    conn = cache.connect()
+    try:
+        meta = cache.set_favorite(
+            conn, place_id, req.favorite,
+            refresh_enabled=req.refresh_enabled,
+            refresh_interval_days=req.refresh_interval_days,
+            max_reviews=req.max_reviews,
+        )
+    finally:
+        conn.close()
+    if meta is None:
+        raise HTTPException(404, "unknown place")
+    return meta
 
 
 @app.get("/api/places")
 def places() -> JSONResponse:
     conn = cache.connect()
-    rows = conn.execute(
-        """SELECT p.place_id, p.name, p.category, p.rating, p.review_count, p.address,
-                  p.last_refreshed,
-                  COUNT(DISTINCT r.review_id) AS cached_reviews,
-                  COUNT(DISTINCT rep.id) AS report_count
-           FROM places p
-           LEFT JOIN reviews r ON r.place_id = p.place_id
-           LEFT JOIN reports rep ON rep.place_id = p.place_id
-           GROUP BY p.place_id ORDER BY p.last_refreshed DESC"""
-    ).fetchall()
-    out = []
-    for row in rows:
-        item = dict(row)
-        item["activity_risk"] = cache.activity_risk(conn, row["place_id"])
-        out.append(item)
+    try:
+        rows = conn.execute(
+            """SELECT p.place_id, p.name, p.category, p.rating, p.review_count, p.address,
+                      p.last_refreshed,
+                      COALESCE(f.favorite, 0) AS favorite,
+                      COALESCE(f.refresh_enabled, 0) AS refresh_enabled,
+                      f.refresh_interval_days, f.max_reviews, f.last_refresh_at,
+                      COUNT(DISTINCT r.review_id) AS cached_reviews,
+                      COUNT(DISTINCT rep.id) AS report_count
+               FROM places p
+               LEFT JOIN reviews r ON r.place_id = p.place_id
+               LEFT JOIN reports rep ON rep.place_id = p.place_id
+               LEFT JOIN place_favorites f ON f.place_id = p.place_id
+               GROUP BY p.place_id ORDER BY p.last_refreshed DESC"""
+        ).fetchall()
+        out = []
+        for row in rows:
+            item = dict(row)
+            item["favorite"] = bool(item.get("favorite"))
+            item["refresh_enabled"] = bool(item.get("refresh_enabled"))
+            item["activity_risk"] = cache.activity_risk(conn, row["place_id"])
+            out.append(item)
+    finally:
+        conn.close()
     return JSONResponse(out)
 
 
 @app.get("/api/places/{place_id}")
 def place_detail(place_id: str) -> dict:
     conn = cache.connect()
-    place = cache.get_place(conn, place_id)
-    if not place:
-        raise HTTPException(404, "unknown place")
-    reviews = conn.execute(
-        """SELECT review_id, author, rating, text, review_date, owner_response
-           FROM reviews WHERE place_id=? ORDER BY review_date DESC LIMIT ?""",
-        (place_id, MAX_REVIEWS_IN_DETAIL),
-    ).fetchall()
-    report = conn.execute(
-        """SELECT report_md, report_json, profile, model, created_at FROM reports
-           WHERE place_id=? ORDER BY created_at DESC LIMIT 1""",
-        (place_id,),
-    ).fetchone()
-    place_payload = {k: place[k] for k in (
-            "place_id", "name", "category", "address", "phone", "website",
-            "hours_json", "rating", "review_count", "maps_url", "last_refreshed")}
-    place_payload["activity_risk"] = cache.activity_risk(conn, place_id)
-    return {
-        "place": place_payload,
-        "reviews": [dict(r) for r in reviews],
-        "report": ({"md": report["report_md"], "json": json.loads(report["report_json"]),
-                    "profile": report["profile"], "model": report["model"],
-                    "created_at": report["created_at"]}
-                   if report else None),
-    }
+    try:
+        place = cache.get_place(conn, place_id)
+        if not place:
+            raise HTTPException(404, "unknown place")
+        reviews = conn.execute(
+            """SELECT review_id, author, rating, text, review_date, owner_response
+               FROM reviews WHERE place_id=? ORDER BY review_date DESC LIMIT ?""",
+            (place_id, MAX_REVIEWS_IN_DETAIL),
+        ).fetchall()
+        report = conn.execute(
+            """SELECT report_md, report_json, profile, model, created_at FROM reports
+               WHERE place_id=? ORDER BY created_at DESC LIMIT 1""",
+            (place_id,),
+        ).fetchone()
+        place_payload = {k: place[k] for k in (
+                "place_id", "name", "category", "address", "phone", "website",
+                "hours_json", "rating", "review_count", "maps_url", "last_refreshed")}
+        place_payload["activity_risk"] = cache.activity_risk(conn, place_id)
+        place_payload.update(cache.favorite_meta(conn, place_id))
+        return {
+            "place": place_payload,
+            "reviews": [dict(r) for r in reviews],
+            "report": ({"md": report["report_md"], "json": json.loads(report["report_json"]),
+                        "profile": report["profile"], "model": report["model"],
+                        "created_at": report["created_at"]}
+                       if report else None),
+        }
+    finally:
+        conn.close()
 
 
 @app.get("/api/searches")

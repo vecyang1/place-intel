@@ -235,6 +235,90 @@ class CliJsonContractTest(unittest.TestCase):
         self.assertEqual(payload["data"]["result"]["mode"], "single")
         self.assertNotIn("would be hidden", stdout)
 
+    def test_favorite_and_favorites_commands_are_machine_readable(self) -> None:
+        conn = self._with_temp_db()
+        cache.upsert_place(conn, cache.Place(place_id="place-1", name="D'Class Guitar"))
+        conn.close()
+
+        code, stdout, stderr = self._run_cli(["favorite", "place-1", "--format", "json"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        payload = json.loads(stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["command"], "favorite")
+        self.assertTrue(payload["data"]["favorite"]["favorite"])
+        self.assertFalse(payload["data"]["favorite"]["refresh_enabled"])
+
+        code, stdout, stderr = self._run_cli(["favorites", "--format", "json"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        payload = json.loads(stdout)
+        self.assertEqual(payload["command"], "favorites")
+        self.assertEqual(payload["data"]["favorites"][0]["place_id"], "place-1")
+
+    def test_refresh_favorites_dry_run_lists_only_opt_in_due_places(self) -> None:
+        conn = self._with_temp_db()
+        cache.upsert_place(conn, cache.Place(place_id="due", name="Due Guitar"))
+        cache.upsert_place(conn, cache.Place(place_id="manual", name="Manual Guitar"))
+        cache.set_favorite(conn, "due", True, refresh_enabled=True, max_reviews=90)
+        cache.set_favorite(conn, "manual", True, refresh_enabled=False)
+        conn.close()
+
+        health = {"ok": True, "providers": {"embed": {}, "reason": {}}, "errors": []}
+        with mock.patch.object(cli.doctor, "cheap_health", return_value=health):
+            code, stdout, stderr = self._run_cli([
+                "refresh-favorites", "--dry-run", "--format", "json",
+            ])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        payload = json.loads(stdout)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["command"], "refresh-favorites")
+        self.assertTrue(payload["data"]["dry_run"])
+        self.assertEqual([p["place_id"] for p in payload["data"]["candidates"]], ["due"])
+        self.assertEqual(payload["data"]["candidates"][0]["max_reviews"], 90)
+
+    def test_refresh_favorites_run_streams_events_and_keeps_old_data_on_failure(self) -> None:
+        conn = self._with_temp_db()
+        cache.upsert_place(conn, cache.Place(place_id="due", name="Due Guitar"))
+        cache.upsert_reviews(conn, [
+            cache.Review(review_id="old-review", place_id="due", text="old useful review")
+        ])
+        cache.set_favorite(conn, "due", True, refresh_enabled=True, max_reviews=75)
+        conn.close()
+
+        def fail_refresh(**kwargs):
+            kwargs["on_event"]({"t": 10.0, "stage": "reviews", "msg": "starting"})
+            raise RuntimeError("scraper unavailable")
+
+        health = {"ok": True, "providers": {"embed": {}, "reason": {}}, "errors": []}
+        with mock.patch.object(cli.doctor, "cheap_health", return_value=health), \
+                mock.patch("placeintel.pipeline.scout_single", side_effect=fail_refresh) as refresh:
+            code, stdout, stderr = self._run_cli([
+                "refresh-favorites", "--run", "--format", "ndjson",
+            ])
+
+        self.assertEqual(code, 1)
+        self.assertEqual(stderr, "")
+        refresh.assert_called_once()
+        kwargs = refresh.call_args.kwargs
+        self.assertEqual(kwargs["target"], "Due Guitar")
+        self.assertTrue(kwargs["refresh"])
+        self.assertEqual(kwargs["max_reviews"], 75)
+        lines = [json.loads(line) for line in stdout.splitlines()]
+        self.assertEqual(lines[0]["type"], "event")
+        self.assertEqual(lines[-1]["type"], "result")
+        self.assertFalse(lines[-1]["ok"])
+        conn = cache.connect()
+        try:
+            self.assertIsNotNone(cache.get_place(conn, "due"))
+            self.assertEqual(len(cache.get_reviews(conn, "due")), 1)
+        finally:
+            conn.close()
+
 
 if __name__ == "__main__":
     unittest.main()

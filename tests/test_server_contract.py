@@ -99,6 +99,46 @@ class ServerContractTest(unittest.TestCase):
         self.assertEqual(response.json(), expected)
         translate.assert_called_once_with("review-1", "zh")
 
+    def test_places_api_exposes_and_toggles_favorite_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "placeintel.db"
+            with mock.patch.object(config, "DB_PATH", db_path):
+                conn = cache.connect()
+                cache.upsert_place(conn, cache.Place(
+                    place_id="place-1",
+                    name="D'Class Guitar",
+                    source="test",
+                ))
+                conn.close()
+
+                client = TestClient(server.app)
+                toggle = client.post(
+                    "/api/places/place-1/favorite",
+                    json={"favorite": True},
+                )
+                places = client.get("/api/places")
+                detail = client.get("/api/places/place-1")
+
+        self.assertEqual(toggle.status_code, 200)
+        self.assertTrue(toggle.json()["favorite"])
+        self.assertFalse(toggle.json()["refresh_enabled"])
+        self.assertEqual(places.status_code, 200)
+        self.assertTrue(places.json()[0]["favorite"])
+        self.assertFalse(places.json()[0]["refresh_enabled"])
+        self.assertEqual(detail.status_code, 200)
+        self.assertTrue(detail.json()["place"]["favorite"])
+
+    def test_favorite_toggle_unknown_place_returns_404(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "placeintel.db"
+            with mock.patch.object(config, "DB_PATH", db_path):
+                response = TestClient(server.app).post(
+                    "/api/places/missing/favorite",
+                    json={"favorite": True},
+                )
+
+        self.assertEqual(response.status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

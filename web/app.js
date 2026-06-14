@@ -153,7 +153,7 @@ function renderResult(result) {
   return parts.join('');
 }
 function renderShopCard(p, featured) {
-  return `<button type="button" class="shop-card${featured ? ' is-featured' : ''}" data-open-place="${esc(p.place_id)}">
+  return `<article class="shop-card${featured ? ' is-featured' : ''}">
     <div class="shop-card-top">
       <span class="shop-rating">${esc(stars(p.rating))}</span>
       ${p.activity_risk ? `<span class="badge badge-risk">${esc(p.activity_risk.severity === 'high' ? '低活跃风险' : '近期偏静')}</span>` : ''}
@@ -164,7 +164,9 @@ function renderShopCard(p, featured) {
     <p class="shop-stats"><span>${fmtInt(p.review_count)} 条在列</span><span>${fmtInt(p.cached_reviews)} 条已缓存</span></p>
     ${p.address ? `<p class="shop-addr">${esc(p.address)}</p>` : ''}
     <p class="shop-fresh">更新于 ${esc(relTime(p.last_refreshed))}</p>
-  </button>`;
+    <div><button type="button" class="btn-ghost" data-favorite-place="${esc(p.place_id)}" aria-pressed="${p.favorite ? 'true' : 'false'}">${p.favorite ? '已收藏' : '收藏'}</button>
+    <button type="button" class="btn-ghost" data-open-place="${esc(p.place_id)}">打开档案</button></div>
+  </article>`;
 }
 function placeScore(p) { const age = Math.max(0, Date.now() / 1000 - (p.last_refreshed || 0)); return (p.report_count || 0) * 650 + (p.cached_reviews || 0) * 2 + (p.review_count || 0) * 0.02 + (Number(p.rating) || 0) * 25 + Math.max(0, 80 - age / 3600) - (p.activity_risk ? 80 : 0); }
 function libraryMatches() { const q = ($('#library-search')?.value || '').trim().toLowerCase(), sort = $('#library-sort')?.value || 'smart'; return state.places.filter((p) => !q || [p.name, p.category, p.address].join(' ').toLowerCase().includes(q)).sort((a, b) => sort === 'fresh' ? (b.last_refreshed || 0) - (a.last_refreshed || 0) : sort === 'cached' ? (b.cached_reviews || 0) - (a.cached_reviews || 0) : sort === 'rating' ? (Number(b.rating) || 0) - (Number(a.rating) || 0) : placeScore(b) - placeScore(a)); }
@@ -424,6 +426,7 @@ async function loadLibrary() {
     hStatus.innerHTML = errorHtml(`读取历史失败：${searchesR.reason.message}`);
   }
 }
+async function toggleFavorite(btn) { const id = btn.dataset.favoritePlace, next = btn.getAttribute('aria-pressed') !== 'true'; btn.disabled = true; try { await apiPost(`/api/places/${encodeURIComponent(id)}/favorite`, { favorite: next }); await loadLibrary(); } catch (err) { window.alert(`收藏失败：${err.message}`); } finally { btn.disabled = false; } }
 async function openDetail(placeId) {
   const overlay = $('#detail-overlay');
   const body = $('#detail-body');
@@ -616,6 +619,8 @@ function bindGlobal() {
     if (reviewFilter) return filterReviewLanguage(reviewFilter);
     const tx = e.target.closest('[data-review-translate]');
     if (tx) return translateReview(tx);
+    const fav = e.target.closest('[data-favorite-place]');
+    if (fav) return toggleFavorite(fav);
     const del = e.target.closest('[data-delete-place]');
     if (del) return deletePlace(del.dataset.deletePlace, del.dataset.placeName);
     const open = e.target.closest('[data-open-place]');

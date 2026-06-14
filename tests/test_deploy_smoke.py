@@ -63,6 +63,13 @@ class DeploySmokeTest(unittest.TestCase):
             code = cli.main(argv)
         return code, json.loads(stdout.getvalue()), stderr.getvalue()
 
+    def _run_cli_text(self, argv: list[str]) -> tuple[int, str, str]:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = cli.main(argv)
+        return code, stdout.getvalue(), stderr.getvalue()
+
     def test_deploy_smoke_json_verifies_read_only_runtime_flow(self) -> None:
         with _server(_SmokeHandler) as base_url:
             code, payload, stderr = self._run_cli([
@@ -107,6 +114,19 @@ class DeploySmokeTest(unittest.TestCase):
         self.assertTrue(payload["error"]["recoverable"])
         self.assertIn("expected version 0.5.0", payload["error"]["message"])
         self.assertIn("Check the deployed commit", payload["error"]["next_action"])
+
+    def test_deploy_smoke_text_prints_each_check(self) -> None:
+        with _server(_SmokeHandler) as base_url:
+            code, stdout, stderr = self._run_cli_text([
+                "deploy-smoke", "--base-url", base_url,
+                "--expected-version", "0.4.99",
+            ])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        self.assertIn("deploy-smoke: OK", stdout)
+        for name in ["meta", "health", "static_version", "library", "dossier"]:
+            self.assertIn(f" {name}:", stdout)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,19 @@
 # Changelog — place-intel
 
+## v0.4.26 — 2026-06-14 — favorite refresh
+- Added SQLite-backed favorite metadata for cached places. Refresh remains
+  opt-in and disabled by default for every newly favorited place.
+- Added `POST /api/places/{place_id}/favorite`; `/api/places` and
+  `/api/places/{place_id}` now expose favorite and refresh metadata for the
+  Library and dossier surfaces.
+- Added agent-safe `placeintel favorite`, `placeintel favorites`, and
+  `placeintel refresh-favorites` commands. Refresh defaults to dry-run, checks
+  cheap provider routing, caps places/reviews, emits NDJSON pipeline events in
+  run mode, and writes search history before each refresh attempt.
+- The Library now shows a compact favorite toggle while preserving the dossier
+  open action and the no-build web line budget.
+- Hardened touched read endpoints to close SQLite connections cleanly.
+
 ## v0.4.25 — 2026-06-14 — deployment smoke
 - Added `placeintel deploy-smoke --format json`, a read-only runtime verifier
   for `/api/meta`, `/api/health`, versioned static assets, Library reads, and

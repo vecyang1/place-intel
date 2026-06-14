@@ -227,7 +227,17 @@ Variants:
 
 ### `GET /api/places`
 
-Returns cached place cards with activity risk and cache counts.
+Returns cached place cards with activity risk, cache counts, and favorite
+metadata.
+
+Favorite fields:
+
+- `favorite`: boolean; true only after the user/agent marks the cached place.
+- `refresh_enabled`: boolean; false by default. Only true favorites are refresh
+  candidates.
+- `refresh_interval_days`: integer or null; default favorite interval is 14.
+- `max_reviews`: integer or null; per-refresh cap, clamped by the CLI guardrail.
+- `last_refresh_at`: unix timestamp or null.
 
 ### `GET /api/places/{place_id}`
 
@@ -235,13 +245,52 @@ Returns one dossier payload:
 
 ```json
 {
-  "place": {"place_id": "id", "name": "name", "activity_risk": null},
+  "place": {
+    "place_id": "id",
+    "name": "name",
+    "activity_risk": null,
+    "favorite": false,
+    "refresh_enabled": false
+  },
   "reviews": [],
   "report": {"md": "...", "json": {}, "profile": "generic", "model": "model", "created_at": 1781440000.0}
 }
 ```
 
 Raw review text remains original scraped text.
+
+### `POST /api/places/{place_id}/favorite`
+
+Marks or unmarks one cached place as a favorite. Unknown `place_id` returns
+`404`.
+
+Request:
+
+```json
+{
+  "favorite": true,
+  "refresh_enabled": false,
+  "refresh_interval_days": 14,
+  "max_reviews": 300
+}
+```
+
+All fields except `favorite` are optional. Refresh is opt-in and remains disabled
+unless `refresh_enabled:true` is sent.
+
+Response:
+
+```json
+{
+  "place_id": "id",
+  "favorite": true,
+  "refresh_enabled": false,
+  "refresh_interval_days": 14,
+  "max_reviews": 300,
+  "last_refresh_at": null,
+  "updated_at": 1781454000.0
+}
+```
 
 ### `DELETE /api/places/{place_id}`
 

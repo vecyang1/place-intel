@@ -1,6 +1,6 @@
 # PRD: placeintel Production Operations Readiness
 
-Status: 🔨 In Progress — US-OPS-006 complete; favorite refresh remains
+Status: ✅ Complete
 Last Updated: 2026-06-14
 Parent PRD: `tasks/prd-placeintel-production-grade-master.md`
 Scope: Reliability, deployment, health checks, job durability, backups, observability, and operational safety.
@@ -140,12 +140,24 @@ without exposing the real protected domain.
 As a repeat user, I want selected places to refresh on a safe schedule so the app warns me when evidence gets stale.
 
 Acceptance Criteria:
-- [ ] User can mark cached places as favorites.
-- [ ] Refresh schedule is opt-in and disabled by default.
-- [ ] Refresh respects max reviews, provider availability, and cost guardrails.
-- [ ] Refresh emits normal job events and writes history.
-- [ ] Failed refresh does not delete old reports or reviews.
-- [ ] Typecheck/lint passes.
+- [x] User can mark cached places as favorites.
+- [x] Refresh schedule is opt-in and disabled by default.
+- [x] Refresh respects max reviews, provider availability, and cost guardrails.
+- [x] Refresh emits normal job events and writes history.
+- [x] Failed refresh does not delete old reports or reviews.
+- [x] Typecheck/lint passes.
+
+Implementation note 2026-06-14: Completed with SQLite `place_favorites`,
+`POST /api/places/{place_id}/favorite`, favorite metadata in Library/Dossier
+payloads, `placeintel favorite`, `placeintel favorites`, and
+`placeintel refresh-favorites`. Refresh is manual-first, dry-run by default,
+requires explicit `refresh_enabled`, checks cheap provider routing before run
+mode, caps work, streams normal pipeline events in NDJSON, writes
+`favorite-refresh` history rows, and keeps old evidence on failure. Coverage:
+`tests/test_cache_contract.py`, `tests/test_server_contract.py`,
+`tests/test_cli_json_contract.py`, `tests/ui-audit.spec.js`, full Python
+unittest discovery, full Playwright smoke, compileall, CLI JSON/NDJSON smokes,
+line budget, `git diff --check`, `deploy-smoke`, and live `/api/health`.
 
 ## 4. Functional Requirements
 

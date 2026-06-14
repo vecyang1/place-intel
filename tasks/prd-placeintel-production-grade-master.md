@@ -1,8 +1,8 @@
 # PRD: placeintel Production-Grade Master Plan
 
-Status: 🔨 In Progress — ops/agent foundation complete; UI/product stories remain
+Status: 🔨 In Progress — ops PRD complete; UI/product stories and CLI global-option hardening remain
 Last Updated: 2026-06-14
-Product Version Observed: 0.4.25 in working tree
+Product Version Observed: 0.4.26 in working tree
 Deployment Profile: hybrid (local-first product with private protected web deployment)
 Primary Owner: next `/goal` implementation agent
 Related PRDs:

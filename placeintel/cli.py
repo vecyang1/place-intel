@@ -192,6 +192,16 @@ CORE_SCHEMAS = {
             },
         },
     },
+    "favorite": {
+        "type": "object",
+        "required": ["place_id", "favorite", "refresh_enabled"],
+        "properties": {
+            "place_id": {"type": "string"},
+            "favorite": {"type": "boolean"},
+            "refresh_enabled": {"type": "boolean"},
+            "max_reviews": {"type": "integer"},
+        },
+    },
 }
 
 
@@ -572,6 +582,129 @@ def _cmd_deploy_smoke(args: argparse.Namespace) -> int:
     return 0 if report["ok"] else 3
 
 
+def _cmd_favorite(args: argparse.Namespace) -> int:
+    conn = cache.connect()
+    try:
+        meta = cache.set_favorite(
+            conn, args.place_id, not args.unset,
+            refresh_enabled=args.refresh_enabled,
+            max_reviews=args.max_reviews,
+        )
+    finally:
+        conn.close()
+    if meta is None:
+        payload = _json_payload(
+            "favorite", {"place_id": args.place_id}, ok=False,
+            error={
+                "code": "not_found",
+                "message": f"unknown place_id {args.place_id}",
+                "recoverable": True,
+                "next_action": "Run placeintel list --format json and choose a cached place_id.",
+            },
+        )
+        if args.format == "json":
+            _print_json(payload)
+        else:
+            print(payload["error"]["message"], file=sys.stderr)
+        return 5
+    if args.format == "json":
+        _print_json(_json_payload("favorite", {"favorite": meta}))
+    else:
+        state = "favorite" if meta["favorite"] else "not favorite"
+        print(f"{args.place_id}: {state}")
+    return 0
+
+
+def _cmd_favorites(args: argparse.Namespace) -> int:
+    conn = cache.connect()
+    try:
+        rows = cache.favorite_places(conn, refresh_enabled=True if args.refresh_enabled else None)
+        data = {"favorites": [dict(row) for row in rows]}
+    finally:
+        conn.close()
+    if args.format == "json":
+        _print_json(_json_payload("favorites", data))
+    else:
+        for item in data["favorites"]:
+            refresh = " · refresh on" if item["refresh_enabled"] else ""
+            print(f"{item['place_id']:<24}{item['name']}{refresh}")
+    return 0
+
+
+def _refresh_final_payload(candidates: list[dict], refreshed: list[dict],
+                           errors: list[dict], dry_run: bool, health: dict) -> dict:
+    return {
+        "dry_run": dry_run,
+        "guardrails": {
+            "max_places": len(candidates),
+            "provider_check": health["ok"],
+            "providers": health["providers"],
+        },
+        "candidates": candidates,
+        "refreshed": refreshed,
+        "errors": errors,
+    }
+
+
+def _cmd_refresh_favorites(args: argparse.Namespace) -> int:
+    from . import pipeline
+    conn = cache.connect()
+    try:
+        candidates = cache.favorite_refresh_candidates(conn, limit=args.max_places)
+    finally:
+        conn.close()
+    health = doctor.cheap_health(require=["google", "vectorengine"])
+    dry_run = not args.run
+    if dry_run or not health["ok"]:
+        data = _refresh_final_payload(candidates, [], [], True, health)
+        ok = bool(health["ok"])
+        if args.format == "ndjson":
+            _print_ndjson({"type": "result", **_json_payload("refresh-favorites", data, ok=ok)})
+        elif args.format == "json":
+            _print_json(_json_payload("refresh-favorites", data, ok=ok))
+        else:
+            print(f"{len(candidates)} favorite refresh candidate(s); run with --run to refresh.")
+        return 0 if ok else 2
+    refreshed, errors = [], []
+    for item in candidates:
+        conn = cache.connect()
+        try:
+            cache.save_search(conn, f"favorite refresh: {item['name']}", None,
+                              [item["place_id"]], "favorite-refresh",
+                              plan={"mode": "single", "target": item["name"], "refresh": True})
+        finally:
+            conn.close()
+        def on_event(event: dict) -> None:
+            if args.format == "ndjson":
+                _print_ndjson({"type": "event", "version": __version__,
+                               "command": "refresh-favorites", **event})
+        try:
+            result = pipeline.scout_single(
+                target=item["name"], profile_name=args.profile,
+                max_reviews=min(int(item["max_reviews"]), args.max_reviews),
+                refresh=True, on_event=on_event,
+            )
+            conn = cache.connect()
+            try:
+                cache.mark_favorite_refreshed(conn, item["place_id"])
+            finally:
+                conn.close()
+            refreshed.append({"place_id": item["place_id"], "name": item["name"],
+                              "reports": len(result.reports), "errors": result.errors})
+        except Exception as exc:  # keep old cache/report data intact
+            errors.append({"place_id": item["place_id"], "name": item["name"],
+                           "message": str(exc)})
+    data = _refresh_final_payload(candidates, refreshed, errors, False, health)
+    ok = not errors
+    if args.format == "ndjson":
+        _print_ndjson({"type": "result", **_json_payload("refresh-favorites", data, ok=ok)})
+    elif args.format == "json":
+        _print_json(_json_payload("refresh-favorites", data, ok=ok))
+    else:
+        print(f"Refreshed {len(refreshed)} favorite(s), {len(errors)} error(s).")
+    return 0 if ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="placeintel", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -685,6 +818,31 @@ def main(argv: list[str] | None = None) -> int:
     ds.add_argument("--timeout", type=float, default=5.0)
     _add_format_arg(ds)
     ds.set_defaults(func=_cmd_deploy_smoke)
+
+    fv = sub.add_parser("favorite", help="mark or unmark a cached place as a favorite")
+    fv.add_argument("place_id")
+    fv.add_argument("--unset", action="store_true", help="remove favorite state")
+    fv.add_argument("--refresh-enabled", action="store_true", default=None,
+                    help="opt this favorite into manual/scheduled refresh candidates")
+    fv.add_argument("--max-reviews", type=int, default=None,
+                    help="per-refresh review cap for this favorite")
+    _add_format_arg(fv)
+    fv.set_defaults(func=_cmd_favorite)
+
+    fvs = sub.add_parser("favorites", help="list favorite cached places")
+    fvs.add_argument("--refresh-enabled", action="store_true",
+                     help="list only favorites opted into refresh")
+    _add_format_arg(fvs)
+    fvs.set_defaults(func=_cmd_favorites)
+
+    rf = sub.add_parser("refresh-favorites", help="dry-run or manually refresh opt-in favorites")
+    rf.add_argument("--run", action="store_true", help="perform refresh; default is dry-run")
+    rf.add_argument("--dry-run", action="store_true", help="show candidates without refreshing")
+    rf.add_argument("--max-places", type=int, default=5)
+    rf.add_argument("--max-reviews", type=int, default=300)
+    rf.add_argument("--profile", choices=profiles.list_profiles() + [None], default=None)
+    _add_format_arg(rf, ndjson=True)
+    rf.set_defaults(func=_cmd_refresh_favorites)
 
     args = parser.parse_args(argv)
     _setup_logging(args.verbose)

@@ -126,6 +126,18 @@ CREATE TABLE IF NOT EXISTS job_events (
     data_json     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_job_events_job ON job_events(job_id, id);
+CREATE TABLE IF NOT EXISTS place_favorites (
+    place_id              TEXT PRIMARY KEY REFERENCES places(place_id),
+    favorite              INTEGER NOT NULL DEFAULT 1,
+    refresh_enabled       INTEGER NOT NULL DEFAULT 0,
+    refresh_interval_days INTEGER NOT NULL DEFAULT 14,
+    max_reviews           INTEGER NOT NULL DEFAULT 300,
+    last_refresh_at       REAL,
+    created_at            REAL NOT NULL,
+    updated_at            REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_place_favorites_refresh
+    ON place_favorites(refresh_enabled, last_refresh_at);
 """
 
 
@@ -184,6 +196,24 @@ def _migrate(conn: sqlite3.Connection) -> None:
             conn.commit()
         except sqlite3.OperationalError:
             pass  # column already exists
+
+
+def _favorite_payload(row: sqlite3.Row | None, place_id: str) -> dict:
+    if not row:
+        return {
+            "place_id": place_id, "favorite": False, "refresh_enabled": False,
+            "refresh_interval_days": 14, "max_reviews": 300,
+            "last_refresh_at": None, "updated_at": None,
+        }
+    return {
+        "place_id": row["place_id"],
+        "favorite": bool(row["favorite"]),
+        "refresh_enabled": bool(row["refresh_enabled"]),
+        "refresh_interval_days": int(row["refresh_interval_days"] or 14),
+        "max_reviews": int(row["max_reviews"] or 300),
+        "last_refresh_at": row["last_refresh_at"],
+        "updated_at": row["updated_at"],
+    }
 
 
 def _text_or_none(value) -> str | None:
@@ -270,6 +300,101 @@ def place_is_fresh(conn: sqlite3.Connection, place_id: str) -> bool:
 
 def get_place(conn: sqlite3.Connection, place_id: str) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM places WHERE place_id=?", (place_id,)).fetchone()
+
+
+def favorite_meta(conn: sqlite3.Connection, place_id: str) -> dict:
+    row = conn.execute(
+        "SELECT * FROM place_favorites WHERE place_id=? AND favorite=1",
+        (place_id,),
+    ).fetchone()
+    return _favorite_payload(row, place_id)
+
+
+def set_favorite(
+    conn: sqlite3.Connection, place_id: str, favorite: bool = True,
+    refresh_enabled: bool | None = None, refresh_interval_days: int | None = None,
+    max_reviews: int | None = None,
+) -> dict | None:
+    """Mark a cached place as a favorite. Refresh stays opt-in unless enabled."""
+    if not get_place(conn, place_id):
+        return None
+    existing = conn.execute(
+        "SELECT * FROM place_favorites WHERE place_id=?", (place_id,)
+    ).fetchone()
+    if not favorite:
+        conn.execute("DELETE FROM place_favorites WHERE place_id=?", (place_id,))
+        conn.commit()
+        return _favorite_payload(None, place_id)
+    now = time.time()
+    refresh = int(bool(refresh_enabled) if refresh_enabled is not None
+                  else bool(existing["refresh_enabled"]) if existing else False)
+    interval = max(1, int(refresh_interval_days or (existing["refresh_interval_days"] if existing else 14)))
+    maxr = min(5000, max(20, int(max_reviews or (existing["max_reviews"] if existing else 300))))
+    created = existing["created_at"] if existing else now
+    conn.execute(
+        """INSERT INTO place_favorites
+           (place_id, favorite, refresh_enabled, refresh_interval_days, max_reviews,
+            last_refresh_at, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?)
+           ON CONFLICT(place_id) DO UPDATE SET
+             favorite=excluded.favorite,
+             refresh_enabled=excluded.refresh_enabled,
+             refresh_interval_days=excluded.refresh_interval_days,
+             max_reviews=excluded.max_reviews,
+             updated_at=excluded.updated_at""",
+        (
+            place_id, 1, refresh, interval, maxr,
+            existing["last_refresh_at"] if existing else None, created, now,
+        ),
+    )
+    conn.commit()
+    return favorite_meta(conn, place_id)
+
+
+def favorite_places(
+    conn: sqlite3.Connection, refresh_enabled: bool | None = None,
+) -> list[sqlite3.Row]:
+    where = "WHERE f.favorite=1"
+    params: tuple = ()
+    if refresh_enabled is not None:
+        where += " AND f.refresh_enabled=?"
+        params = (int(bool(refresh_enabled)),)
+    return conn.execute(
+        f"""SELECT p.place_id, p.name, p.category, p.rating, p.review_count,
+                   p.address, p.last_refreshed,
+                   f.favorite, f.refresh_enabled, f.refresh_interval_days,
+                   f.max_reviews, f.last_refresh_at, f.updated_at
+            FROM place_favorites f JOIN places p ON p.place_id = f.place_id
+            {where}
+            ORDER BY f.updated_at DESC""",
+        params,
+    ).fetchall()
+
+
+def favorite_refresh_candidates(
+    conn: sqlite3.Connection, now_ts: float | None = None, limit: int = 5,
+) -> list[dict]:
+    now_ts = now_ts or time.time()
+    rows = favorite_places(conn, refresh_enabled=True)
+    due = []
+    for row in rows:
+        last = row["last_refresh_at"]
+        interval = int(row["refresh_interval_days"] or 14) * 86400
+        if last is None or now_ts - float(last) >= interval:
+            due.append(dict(row))
+    due.sort(key=lambda item: item["last_refresh_at"] or 0)
+    return due[:max(0, int(limit))]
+
+
+def mark_favorite_refreshed(
+    conn: sqlite3.Connection, place_id: str, refreshed_at: float | None = None,
+) -> None:
+    ts = refreshed_at or time.time()
+    conn.execute(
+        "UPDATE place_favorites SET last_refresh_at=?, updated_at=? WHERE place_id=?",
+        (ts, ts, place_id),
+    )
+    conn.commit()
 
 
 def get_reviews(conn: sqlite3.Connection, place_id: str) -> list[sqlite3.Row]:
@@ -718,6 +843,7 @@ def delete_place(conn: sqlite3.Connection, place_id: str) -> int:
     cur = conn.execute("SELECT 1 FROM places WHERE place_id=?", (place_id,)).fetchone()
     if not cur:
         return 0
+    conn.execute("DELETE FROM place_favorites WHERE place_id=?", (place_id,))
     conn.execute(
         "DELETE FROM review_translations WHERE review_id IN "
         "(SELECT review_id FROM reviews WHERE place_id=?)", (place_id,))

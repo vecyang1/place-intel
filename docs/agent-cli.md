@@ -145,6 +145,9 @@ warnings unless required.
 | `backup` | text, JSON | `backup --format json` creates a non-secret backup package with manifest hashes. |
 | `restore <manifest-or-dir>` | text, JSON | Requires `--yes`; verifies hashes and DB schema before replacing local runtime data. |
 | `deploy-smoke` | text, JSON | Read-only deployment proof for `/api/meta`, `/api/health`, versioned static asset, Library, dossier, and optional unauthenticated public rejection. |
+| `favorite <place_id>` | text, JSON | Marks or unmarks a cached place as a favorite. Refresh remains disabled unless `--refresh-enabled` is used. |
+| `favorites` | text, JSON | Lists favorited cached places; `--refresh-enabled` filters to refresh opt-ins. |
+| `refresh-favorites` | text, JSON, NDJSON | Defaults to dry-run. `--run --format ndjson` manually refreshes due opt-in favorites and streams normal pipeline events. |
 
 ## Agent Recipes
 
@@ -171,6 +174,48 @@ List cached places:
 ```bash
 .venv/bin/placeintel list --format json
 ```
+
+Mark one cached place as a favorite without enabling refresh:
+
+```bash
+.venv/bin/placeintel favorite "<place_id>" --format json
+```
+
+Opt a favorite into refresh candidates with a per-place cap:
+
+```bash
+.venv/bin/placeintel favorite "<place_id>" --refresh-enabled --max-reviews 300 --format json
+```
+
+List favorites:
+
+```bash
+.venv/bin/placeintel favorites --format json
+```
+
+Preview refresh work without scraping, provider calls, or cache mutation:
+
+```bash
+.venv/bin/placeintel refresh-favorites --dry-run --format json
+```
+
+Run a manual refresh for due opt-in favorites, streaming the normal pipeline
+event contract:
+
+```bash
+.venv/bin/placeintel refresh-favorites --run --format ndjson
+```
+
+`refresh-favorites` guardrails:
+
+- refresh is disabled by default for newly favorited places.
+- only favorites with `refresh_enabled:true` can run.
+- default cap is 5 places per run and 300 reviews per place unless the favorite
+  has a lower cap.
+- cheap provider routing is checked before run mode; live deep diagnostics remain
+  explicit through `placeintel doctor --live --json`.
+- each attempted place writes a `favorite-refresh` history row before refresh.
+- failed refresh attempts keep existing place, review, report, and QA cache data.
 
 Read recent searches:
 

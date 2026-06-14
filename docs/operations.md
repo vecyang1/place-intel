@@ -218,6 +218,48 @@ Restore behavior:
 - Validates the restored `placeintel.db` schema before and after restore.
 - Replaces generated `reports/` atomically via a temporary directory.
 
+## Favorite Refresh
+
+Favorite refresh is manual/CLI-first in this release. There is no background
+daemon yet, and newly favorited places are **not** refresh-enabled by default.
+
+Mark a cached place as a favorite:
+
+```bash
+.venv/bin/placeintel favorite "<place_id>" --format json
+```
+
+Opt it into refresh candidates:
+
+```bash
+.venv/bin/placeintel favorite "<place_id>" --refresh-enabled --max-reviews 300 --format json
+```
+
+Preview due refresh work:
+
+```bash
+.venv/bin/placeintel refresh-favorites --dry-run --format json
+```
+
+Run due opt-in favorites manually:
+
+```bash
+.venv/bin/placeintel refresh-favorites --run --format ndjson
+```
+
+Operational guardrails:
+
+- `refresh_enabled` defaults to `false`.
+- `refresh-favorites` defaults to dry-run unless `--run` is passed.
+- Default run cap is 5 places and 300 reviews per place; per-favorite
+  `max_reviews` can lower the cap.
+- Cheap provider routing (`google` for embeddings, `vectorengine` for reasoning)
+  is checked before run mode without exposing keys.
+- Each attempted refresh writes a `favorite-refresh` row to search history before
+  scraping starts, so operators can audit what was attempted.
+- A failed place refresh records an error in the CLI result and keeps old
+  places, reviews, reports, translations, and QA answers intact.
+
 ## Rollback
 
 Target rollback time: under 60 seconds after a bad deploy is identified.

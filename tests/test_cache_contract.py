@@ -83,6 +83,60 @@ class CacheContractTest(unittest.TestCase):
             self.assertIsNone(cache.activity_risk(conn, "stale-small", now_ts=now_ts))
             conn.close()
 
+    def test_favorite_defaults_to_manual_refresh_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = cache.connect(Path(tmp) / "placeintel.db")
+            cache.upsert_place(conn, cache.Place(
+                place_id="favorite-place",
+                name="Favorite Guitar",
+                source="test",
+            ))
+
+            meta = cache.set_favorite(conn, "favorite-place", True)
+            favorites = cache.favorite_places(conn)
+
+            self.assertTrue(meta["favorite"])
+            self.assertFalse(meta["refresh_enabled"])
+            self.assertEqual(meta["max_reviews"], 300)
+            self.assertEqual([row["place_id"] for row in favorites], ["favorite-place"])
+            self.assertEqual(favorites[0]["name"], "Favorite Guitar")
+            self.assertFalse(favorites[0]["refresh_enabled"])
+
+            cache.set_favorite(conn, "favorite-place", False)
+            self.assertEqual(cache.favorite_places(conn), [])
+            conn.close()
+
+    def test_refresh_candidates_only_include_opt_in_favorites_due_for_refresh(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = cache.connect(Path(tmp) / "placeintel.db")
+            for place_id in ("due", "manual-only", "too-fresh"):
+                cache.upsert_place(conn, cache.Place(
+                    place_id=place_id,
+                    name=place_id,
+                    source="test",
+                ))
+
+            cache.set_favorite(conn, "due", True, refresh_enabled=True,
+                               refresh_interval_days=7, max_reviews=120)
+            cache.set_favorite(conn, "manual-only", True, refresh_enabled=False)
+            cache.set_favorite(conn, "too-fresh", True, refresh_enabled=True,
+                               refresh_interval_days=7, max_reviews=80)
+            conn.execute(
+                "UPDATE place_favorites SET last_refresh_at=? WHERE place_id=?",
+                (1000.0 - 2 * 86400, "too-fresh"),
+            )
+            conn.execute(
+                "UPDATE place_favorites SET last_refresh_at=? WHERE place_id=?",
+                (1000.0 - 10 * 86400, "due"),
+            )
+            conn.commit()
+
+            candidates = cache.favorite_refresh_candidates(conn, now_ts=1000.0)
+
+            self.assertEqual([row["place_id"] for row in candidates], ["due"])
+            self.assertEqual(candidates[0]["max_reviews"], 120)
+            conn.close()
+
 
 if __name__ == "__main__":
     unittest.main()

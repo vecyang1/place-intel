@@ -101,6 +101,70 @@ test('library search filters cached shops and caps the initial list', async ({ p
   await expect(page.locator('#library-status')).toContainText('显示 1 / 15');
 });
 
+test('library favorite toggle posts state and rerenders without opening dossier', async ({ page }) => {
+  const now = Date.now() / 1000;
+  let favorite = false;
+  const requests = [];
+  await page.route('**/api/places', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify([{
+      place_id: 'guitar-shop', name: "D'Class Guitar Hội An",
+      category: 'Musical instrument store', rating: 4.9, review_count: 149,
+      cached_reviews: 149, address: 'Hoi An', last_refreshed: now,
+      report_count: 3, favorite, refresh_enabled: false,
+    }]),
+  }));
+  await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/places/guitar-shop/favorite', async (route) => {
+    const body = route.request().postDataJSON();
+    requests.push(body);
+    favorite = body.favorite;
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ place_id: 'guitar-shop', favorite, refresh_enabled: false }) });
+  });
+
+  await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
+  const fav = page.locator('[data-favorite-place="guitar-shop"]');
+
+  await expect(fav).toHaveAttribute('aria-pressed', 'false');
+  await fav.click();
+
+  expect(requests).toEqual([{ favorite: true }]);
+  await expect(fav).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#detail-overlay')).toBeHidden();
+});
+
+test('dossier delete closes modal and rerenders library from API state', async ({ page }) => {
+  const now = Date.now() / 1000;
+  let deleted = false;
+  const place = {
+    place_id: 'delete-me', name: 'Delete Me Guitar', category: 'Instrument store',
+    rating: 4.7, review_count: 50, cached_reviews: 20, address: 'Hoi An',
+    last_refreshed: now, favorite: false, refresh_enabled: false,
+  };
+  page.on('dialog', (dialog) => dialog.accept());
+  await page.route('**/api/places', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify(deleted ? [] : [place]),
+  }));
+  await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/places/delete-me', (route) => {
+    if (route.request().method() === 'DELETE') {
+      deleted = true;
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ deleted: 'delete-me' }) });
+    }
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ place, reviews: [], report: null }) });
+  });
+
+  await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
+  await page.locator('[data-open-place="delete-me"]').click();
+  await expect(page.locator('[data-delete-place="delete-me"]')).toBeVisible();
+  await page.locator('[data-delete-place="delete-me"]').click();
+
+  expect(deleted).toBe(true);
+  await expect(page.locator('#detail-overlay')).toBeHidden();
+  await expect(page.locator('#library-status')).toContainText('资料库是空的');
+});
+
 test('activity risk renders as a cautious visible tag', async ({ page }) => {
   await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
   const html = await page.evaluate(() => {
