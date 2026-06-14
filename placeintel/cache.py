@@ -418,8 +418,8 @@ def create_job(
     conn.commit()
 
 
-def append_job_event(conn: sqlite3.Connection, job_id: str, event: dict) -> None:
-    conn.execute(
+def append_job_event(conn: sqlite3.Connection, job_id: str, event: dict) -> int:
+    cur = conn.execute(
         """INSERT INTO job_events (job_id, t, stage, msg, data_json)
            VALUES (?,?,?,?,?)""",
         (
@@ -432,6 +432,24 @@ def append_job_event(conn: sqlite3.Connection, job_id: str, event: dict) -> None
     )
     conn.execute("UPDATE jobs SET updated_at=? WHERE job_id=?", (time.time(), job_id))
     conn.commit()
+    return int(cur.lastrowid)
+
+
+def job_events_after(
+    conn: sqlite3.Connection, job_id: str, after_id: int = 0,
+) -> list[dict]:
+    rows = conn.execute(
+        """SELECT id, t, stage, msg, data_json FROM job_events
+           WHERE job_id=? AND id>? ORDER BY id""",
+        (job_id, max(0, int(after_id or 0))),
+    ).fetchall()
+    events = []
+    for ev in rows:
+        item = {"id": ev["id"], "t": ev["t"], "stage": ev["stage"], "msg": ev["msg"]}
+        if ev["data_json"] is not None:
+            item["data"] = json.loads(ev["data_json"])
+        events.append(item)
+    return events
 
 
 def finish_job(
@@ -469,15 +487,7 @@ def get_job(conn: sqlite3.Connection, job_id: str) -> dict | None:
     row = conn.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
     if not row:
         return None
-    events = []
-    for ev in conn.execute(
-        "SELECT t, stage, msg, data_json FROM job_events WHERE job_id=? ORDER BY id",
-        (job_id,),
-    ).fetchall():
-        item = {"t": ev["t"], "stage": ev["stage"], "msg": ev["msg"]}
-        if ev["data_json"] is not None:
-            item["data"] = json.loads(ev["data_json"])
-        events.append(item)
+    events = job_events_after(conn, job_id, 0)
     payload = {
         "job_id": row["job_id"],
         "status": row["status"],

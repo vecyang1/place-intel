@@ -1,6 +1,6 @@
 # PRD: placeintel Production Operations Readiness
 
-Status: 🔨 In Progress — US-OPS-003 complete; backup/deploy/refresh remain
+Status: 🔨 In Progress — US-OPS-004 complete; backup/deploy/refresh remain
 Last Updated: 2026-06-14
 Parent PRD: `tasks/prd-placeintel-production-grade-master.md`
 Scope: Reliability, deployment, health checks, job durability, backups, observability, and operational safety.
@@ -84,11 +84,18 @@ job interruption, and an interrupted-state web retry button. Coverage:
 As a user or agent, I want progress to stream promptly without wasteful polling.
 
 Acceptance Criteria:
-- [ ] `/api/jobs/{job_id}/events` streams events as SSE or NDJSON.
-- [ ] Web UI uses stream when available and falls back to polling.
-- [ ] CLI `scout/shop --format ndjson` can use the same event source internally or equivalent pipeline callback.
-- [ ] Stream reconnect can resume from last event id or timestamp.
-- [ ] Typecheck/lint passes.
+- [x] `/api/jobs/{job_id}/events` streams events as SSE or NDJSON.
+- [x] Web UI uses stream when available and falls back to polling.
+- [x] CLI `scout/shop --format ndjson` can use the same event source internally or equivalent pipeline callback.
+- [x] Stream reconnect can resume from last event id or timestamp.
+- [x] Typecheck/lint passes.
+
+Implementation note 2026-06-14: Completed with FastAPI
+`StreamingResponse`/SSE over durable `job_events`, query/header resume cursors,
+and a web `EventSource` path that falls back to the existing polling final-state
+reader. CLI NDJSON uses the same pipeline event contract through callback output.
+Coverage: `tests/test_durable_jobs.py`, `tests/test_web_static_contract.py`,
+`npm run test:web`, and an ad-hoc Playwright stream smoke.
 
 ### US-OPS-005: Backup and Restore
 
@@ -152,7 +159,7 @@ Acceptance Criteria:
 
 - FR-OPS-005: Add SQLite tables:
   - `jobs(job_id, kind, status, request_json, result_json, error, created_at, updated_at, process_id?)`.
-  - `job_events(id, job_id, event_json, created_at)`.
+  - `job_events(id, job_id, t, stage, msg, data_json)`.
 - FR-OPS-006: Use transactions for job status transitions.
 - FR-OPS-007: Keep in-memory cache optional for performance, but SQLite is source of truth.
 - FR-OPS-008: Mark stale `running` jobs as `interrupted` on startup.

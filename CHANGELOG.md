@@ -1,5 +1,15 @@
 # Changelog — place-intel
 
+## v0.4.23 — 2026-06-14 — resumable job event stream
+- Added `GET /api/jobs/{id}/events` as an SSE stream over durable
+  `job_events`, with `after` and `Last-Event-ID` resume support.
+- Job event payloads now include the append-only event `id`, so the web timeline
+  can dedupe streamed events from fallback polling.
+- The web UI uses `EventSource` for Scout/Shop progress when available and
+  falls back to the existing polling path for final state/results.
+- Guarded stale job submissions so a slower previous submit cannot start
+  polling a newer job.
+
 ## v0.4.22 — 2026-06-14 — durable web jobs
 - Persisted Scout/Shop job records in SQLite before worker threads start.
 - Added append-only `job_events` storage while preserving the existing

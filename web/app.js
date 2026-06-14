@@ -22,11 +22,7 @@ function stars(rating) { const n = Number(rating); return rating != null && Numb
 function fmtInt(n) { return n == null ? '—' : String(n); }
 function clampInt(v, min, max, dflt) { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : dflt; }
 function safeUrl(u) { return /^https?:\/\//i.test(String(u || '')) ? String(u) : null; }
-function mdInline(escaped) {
-  return escaped
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[\s(（，。、；：—])_([^_\n]+)_/g, '$1<em>$2</em>');
-}
+function mdInline(escaped) { return escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/(^|[\s(（，。、；：—])_([^_\n]+)_/g, '$1<em>$2</em>'); }
 function mdToHtml(md) {
   const out = [];
   let list = null;
@@ -56,11 +52,7 @@ async function apiGet(path) {
   return res.json();
 }
 async function apiPost(path, body) {
-  const res = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(body),
-  });
+  const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
   if (!res.ok) {
     let detail = '';
     try { detail = (await res.json()).detail || ''; } catch { /* not json */ }
@@ -87,13 +79,8 @@ function errorHtml(msg) { return `<div class="error-box"><span class="error-labe
 function emptyHtml(msg, gotoTab, gotoLabel) { const btn = gotoTab ? `<button type="button" class="btn-ghost" data-goto="${esc(gotoTab)}">${esc(gotoLabel || '去侦察 →')}</button>` : ''; return `<div class="empty">${esc(msg)}${btn}</div>`; }
 function renderPlanCard(plan) {
   if (!plan) return '';
-  const queries = (plan.queries || [])
-    .map((q) => `<span class="chip">${esc(q)}</span>`).join('');
-  const metaBits = [
-    plan.near ? `near · ${esc(plan.near)}` : '',
-    plan.profile ? `profile · ${esc(plan.profile)}` : '',
-    plan.report_lang ? `lang · ${esc(plan.report_lang)}` : '',
-  ].filter(Boolean).join('<span class="sep">/</span>');
+  const queries = (plan.queries || []).map((q) => `<span class="chip">${esc(q)}</span>`).join('');
+  const metaBits = [plan.near ? `near · ${esc(plan.near)}` : '', plan.profile ? `profile · ${esc(plan.profile)}` : '', plan.report_lang ? `lang · ${esc(plan.report_lang)}` : ''].filter(Boolean).join('<span class="sep">/</span>');
   return `<div class="plan-card">
     <div class="plan-label">AI 的计划 · the plan</div>
     ${plan.reasoning ? `<p class="plan-reasoning">${esc(plan.reasoning)}</p>` : ''}
@@ -322,10 +309,13 @@ function setLiveMsg(kind, msg) { const el = $(`#${kind}-live .tl-msg`); if (el) 
 function removeLive(kind) { const el = $(`#${kind}-live`); if (el) el.remove(); }
 function appendEvents(kind, events) {
   const job = state.jobs[kind];
-  if (!job || !Array.isArray(events) || events.length <= job.rendered) return;
+  if (!job || !Array.isArray(events) || !events.length) return;
+  const fresh = events.filter((ev, i) => ev.id == null ? i >= job.rendered : Number(ev.id) > job.lastEventId);
+  if (!fresh.length) return;
   const els = jobEls(kind);
-  const html = events.slice(job.rendered).map(renderEvent).join('');
-  job.rendered = events.length;
+  const html = fresh.map(renderEvent).join('');
+  job.rendered = Math.max(job.rendered, events.length);
+  job.lastEventId = Math.max(job.lastEventId, ...fresh.map((ev) => Number(ev.id) || 0));
   const live = $(`#${kind}-live`);
   if (live) live.insertAdjacentHTML('beforebegin', html);
   else els.timeline.insertAdjacentHTML('beforeend', html);
@@ -333,7 +323,7 @@ function appendEvents(kind, events) {
 }
 function failJob(kind, msg) {
   const job = state.jobs[kind];
-  if (job) job.active = false;
+  if (job) { job.active = false; if (job.es) job.es.close(); }
   const els = jobEls(kind);
   els.submit.disabled = false;
   removeLive(kind);
@@ -342,8 +332,9 @@ function failJob(kind, msg) {
 async function startJob(kind, path, body) {
   const prev = state.jobs[kind];
   if (prev && prev.timer) clearTimeout(prev.timer);
+  if (prev && prev.es) prev.es.close();
   if (prev) prev.active = false;
-  const job = { id: null, path, body, rendered: 0, fails: 0, timer: null, active: true };
+  const job = { id: null, path, body, rendered: 0, lastEventId: 0, fails: 0, timer: null, es: null, active: true };
   state.jobs[kind] = job;
   const els = jobEls(kind);
   els.submit.disabled = true;
@@ -356,12 +347,19 @@ async function startJob(kind, path, body) {
   </li>`;
   try {
     const { job_id } = await apiPost(path, body);
+    if (state.jobs[kind] !== job || !job.active) return;
     job.id = job_id;
     els.jobid.textContent = `job ${job_id}`;
-    pollJob(kind); // poll once immediately — cache hits can be instant
+    streamJob(kind);
   } catch (err) {
     failJob(kind, `提交失败：${err.message} — 确认后端在运行后重试。`);
   }
+}
+function streamJob(kind) {
+  const job = state.jobs[kind]; if (!window.EventSource || !job?.id) return pollJob(kind);
+  const es = new EventSource(`/api/jobs/${encodeURIComponent(job.id)}/events?after=${job.lastEventId || 0}`); job.es = es;
+  es.onmessage = (e) => { if (state.jobs[kind] !== job || !job.active) return es.close(); try { const ev = JSON.parse(e.data); appendEvents(kind, [ev]); if (ev.stage === 'done') { es.close(); pollJob(kind); } } catch { /* bad SSE frame falls through to final poll */ } };
+  es.onerror = () => { es.close(); if (state.jobs[kind] === job && job.active) pollJob(kind); };
 }
 async function pollJob(kind) {
   const job = state.jobs[kind];
@@ -389,6 +387,7 @@ async function pollJob(kind) {
   job.active = false;
   const els = jobEls(kind);
   els.submit.disabled = false;
+  if (job.es) job.es.close();
   removeLive(kind);
   if (data.status === 'error') {
     els.results.innerHTML = errorHtml(`任务失败：${data.error || '未知错误'} — 可直接重新提交，已完成的步骤会命中缓存。`);
@@ -481,19 +480,8 @@ function switchTab(name, syncHash = true) {
     loadQaHistory(null);
   }
 }
-function flashInvalid(el) {
-  el.classList.add('is-invalid');
-  el.focus();
-  setTimeout(() => el.classList.remove('is-invalid'), 1200);
-}
-function submitOnEnter(textarea, form) {
-  textarea.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-      e.preventDefault();
-      form.requestSubmit();
-    }
-  });
-}
+function flashInvalid(el) { el.classList.add('is-invalid'); el.focus(); setTimeout(() => el.classList.remove('is-invalid'), 1200); }
+function submitOnEnter(textarea, form) { textarea.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } }); }
 function bindForms() {
   const scoutForm = $('#scout-form');
   scoutForm.addEventListener('submit', (e) => {

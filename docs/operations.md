@@ -84,6 +84,10 @@ Scout and Shop jobs are persisted in SQLite:
   `{t, stage, msg, data?}` contract.
 - `GET /api/jobs/{job_id}` reads SQLite, so page reloads do not lose known job
   state.
+- `GET /api/jobs/{job_id}/events?after=N` streams Server-Sent Events from
+  durable `job_events`; `Last-Event-ID` is also accepted for browser resume.
+- The web UI uses `EventSource` first and falls back to `/api/jobs/{job_id}`
+  polling, so live progress works without making polling the only path.
 - On web-server startup, old `running` jobs from another process are marked
   `interrupted` with a retry hint.
 - The web UI shows interrupted jobs with a `用缓存重试` action that resubmits the

@@ -1,8 +1,8 @@
 """Web shell over the pipeline. Run:  placeintel-web  (port 9618 by default).
 
-Jobs run in worker threads and stream progress events into an in-memory job table;
-the page polls /api/jobs/{id} and renders a live timeline. Single-user local tool —
-no auth, binds 127.0.0.1 only.
+Jobs run in worker threads and persist progress events into SQLite; the page
+streams /api/jobs/{id}/events with /api/jobs/{id} polling as fallback.
+Single-user local tool — no auth, binds 127.0.0.1 only.
 """
 
 from __future__ import annotations
@@ -11,11 +11,12 @@ import json
 import logging
 import os
 import threading
+import time
 import uuid
 from dataclasses import asdict
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -170,6 +171,51 @@ def job_status(job_id: str) -> dict:
     if not job:
         raise HTTPException(404, "unknown job")
     return json.loads(json.dumps(job, default=str))  # snapshot, not live refs
+
+
+def _sse_event(event: dict) -> str:
+    data = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+    return f"id: {event['id']}\ndata: {data}\n\n"
+
+
+@app.get("/api/jobs/{job_id}/events")
+def job_events(
+    job_id: str, after: int = 0,
+    last_event_id: str | None = Header(default=None),
+) -> StreamingResponse:
+    try:
+        cursor = int(last_event_id) if last_event_id is not None else after
+    except ValueError:
+        cursor = after
+    conn = cache.connect()
+    try:
+        if not cache.get_job(conn, job_id):
+            raise HTTPException(404, "unknown job")
+    finally:
+        conn.close()
+
+    def stream():
+        last_id = cursor
+        while True:
+            conn = cache.connect()
+            try:
+                job = cache.get_job(conn, job_id)
+                if not job:
+                    return
+                events = cache.job_events_after(conn, job_id, last_id)
+            finally:
+                conn.close()
+            for event in events:
+                last_id = max(last_id, int(event["id"]))
+                yield _sse_event(event)
+            if job["status"] != "running":
+                return
+            time.sleep(1)
+
+    return StreamingResponse(
+        stream(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/api/ask")

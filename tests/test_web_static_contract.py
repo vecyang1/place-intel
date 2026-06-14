@@ -120,6 +120,17 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("data-retry-job", js)
         self.assertIn("用缓存重试", js)
 
+    def test_jobs_use_eventsource_stream_with_polling_fallback(self) -> None:
+        js = (WEB / "app.js").read_text(encoding="utf-8")
+        self.assertIn("EventSource", js)
+        self.assertIn("/events?after=", js)
+        self.assertIn("streamJob(kind)", js)
+        self.assertIn("pollJob(kind)", js)
+
+    def test_stale_job_submission_cannot_poll_newer_job(self) -> None:
+        js = (WEB / "app.js").read_text(encoding="utf-8")
+        self.assertIn("state.jobs[kind] !== job", js)
+
 
 if __name__ == "__main__":
     unittest.main()

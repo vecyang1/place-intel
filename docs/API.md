@@ -131,7 +131,7 @@ events are appended to `job_events`, and this endpoint reads the durable row.
 Running:
 
 ```json
-{"job_id": "abc123def456", "status": "running", "kind": "scout", "request": {}, "events": []}
+{"job_id": "abc123def456", "status": "running", "kind": "scout", "request": {}, "events": [{"id": 1, "t": 1781450000.0, "stage": "plan", "msg": "planning"}]}
 ```
 
 Done:
@@ -174,6 +174,29 @@ Interrupted after process restart:
   "retry_hint": "Retry the same Scout/Shop request; completed work will be reused from cache."
 }
 ```
+
+### `GET /api/jobs/{job_id}/events`
+
+Resumable Server-Sent Events stream over the same durable `job_events` rows.
+The browser uses this for live Scout/Shop progress and falls back to
+`GET /api/jobs/{job_id}` polling if streaming is unavailable.
+
+Resume controls:
+
+- Query: `?after=12`
+- Header: `Last-Event-ID: 12`
+
+Event frame:
+
+```text
+id: 13
+data: {"id":13,"t":1781450000.0,"stage":"reviews","msg":"抓取评价","data":{"count":80}}
+```
+
+Completed or interrupted jobs replay events after the cursor and then close the
+stream. Running jobs keep the connection open until a terminal state or browser
+fallback. The stream uses default EventSource `message` frames so browser
+clients can consume it with `source.onmessage`.
 
 ## Ask and Evidence
 
