@@ -342,6 +342,35 @@ def _listing_block(row) -> str:
     )
 
 
+def _ask_scope(conn, place_id: str | None) -> dict:
+    if place_id:
+        row = cache.get_place(conn, place_id)
+        return {"kind": "place", "place_id": place_id, "label": row["name"] if row else place_id}
+    return {"kind": "global", "place_id": None, "label": "all cached places"}
+
+
+def _listing_evidence(rows) -> list[dict]:
+    cards = []
+    for row in rows:
+        for label, value in (
+            ("category", row["category"]), ("rating", row["rating"]),
+            ("review_count", row["review_count"]), ("address", row["address"]),
+            ("phone", row["phone"]), ("website", row["website"]),
+            ("hours", row["hours_json"]), ("maps", row["maps_url"]),
+        ):
+            if value not in (None, "", "{}", "[]"):
+                cards.append({"type": "listing", "place_id": row["place_id"],
+                              "place_name": row["name"], "label": label, "value": value})
+    return cards
+
+
+def _review_evidence(hits: list[dict]) -> list[dict]:
+    return [{"type": "review", "place_id": h["place_id"], "place_name": h["place_name"],
+             "review_id": h["review_id"], "rating": h["rating"], "date": h["review_date"],
+             "source_lang": h.get("source_lang"), "text": (h["text"] or "")[:500],
+             "score": round(float(h.get("score") or 0), 4)} for h in hits]
+
+
 def ask(question: str, place_id: str | None = None, top_k: int = 20,
         report_lang: str = "zh", no_cache: bool = False) -> dict:
     """RAG over the cache: reviews + place listing metadata, grounded answer.
@@ -352,32 +381,39 @@ def ask(question: str, place_id: str | None = None, top_k: int = 20,
     qvec = embed.embed_query(question)
 
     reason_info = config.provider_info()["reason"]
+    scope = _ask_scope(conn, place_id)
+    fresh_after = cache.newest_review_scrape(conn, place_id)
     if not no_cache:
         hit = cache.find_cached_answer(conn, question, qvec, place_id)
         if hit:
             log.info("QA cache hit (score %.3f): %r", hit["score"], hit["question"])
-            return {"answer": hit["answer"], "cached": True,
-                    "created_at": hit["created_at"], "matched": hit["question"],
-                    "model": hit["model"] or reason_info["model"],
-                    "provider": reason_info["provider"]}
+            result = {"answer": hit["answer"], "cached": True,
+                      "created_at": hit["created_at"], "matched": hit["question"],
+                      "model": hit["model"] or reason_info["model"],
+                      "provider": reason_info["provider"], "cache_scope": scope,
+                      "evidence_fresh_after": fresh_after, "evidence": []}
+            conn.close()
+            return result
 
     hits = cache.vector_search(conn, qvec, top_k=top_k, place_id=place_id)
     if not hits:
-        return {"answer": "Cache is empty (or nothing relevant) — run a scout first.",
-                "cached": False, "created_at": time.time(),
-                "model": reason_info["model"], "provider": reason_info["provider"]}
+        result = {"answer": "Cache is empty (or nothing relevant) — run a scout first.",
+                  "cached": False, "created_at": time.time(),
+                  "model": reason_info["model"], "provider": reason_info["provider"],
+                  "cache_scope": scope, "evidence_fresh_after": fresh_after, "evidence": []}
+        conn.close()
+        return result
 
     # Listing metadata for every place represented in the evidence (or the scoped one)
     listing_ids = [place_id] if place_id else list(dict.fromkeys(
         h["place_id"] for h in hits))[:MAX_LISTINGS_IN_ASK]
-    listings = "\n\n".join(
-        _listing_block(row) for pid in listing_ids
-        if (row := cache.get_place(conn, pid))
-    )
+    listing_rows = [row for pid in listing_ids if (row := cache.get_place(conn, pid))]
+    listings = "\n\n".join(_listing_block(row) for row in listing_rows)
     evidence = "\n".join(
         f"[{h['place_name']} | {h['review_date'] or '?'} | ★{h['rating'] or '?'}] {h['text'][:500]}"
         for h in hits
     )
+    evidence_cards = _listing_evidence(listing_rows) + _review_evidence(hits)
     lang_rule = "Answer in Chinese." if report_lang == "zh" else f"Answer in {report_lang}."
     from google.genai import types
     response = analyze._client().models.generate_content(
@@ -398,8 +434,12 @@ def ask(question: str, place_id: str | None = None, top_k: int = 20,
     answer = response.text or ""
     if answer.strip():
         cache.save_qa(conn, question, place_id, answer, reason_info["model"], qvec)
-    return {"answer": answer, "cached": False, "created_at": time.time(),
-            "model": reason_info["model"], "provider": reason_info["provider"]}
+    result = {"answer": answer, "cached": False, "created_at": time.time(),
+              "model": reason_info["model"], "provider": reason_info["provider"],
+              "cache_scope": scope, "evidence_fresh_after": fresh_after,
+              "evidence": evidence_cards}
+    conn.close()
+    return result
 
 
 def translate_review(review_id: str, target_lang: str = "zh") -> dict:

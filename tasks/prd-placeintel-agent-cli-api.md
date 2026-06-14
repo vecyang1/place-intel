@@ -1,7 +1,7 @@
 # PRD: placeintel Agent-Friendly CLI and API
 
 Status: 🔨 In Progress — US-CLI stories implemented; global-option hardening remains
-Last Updated: 2026-06-14
+Last Updated: 2026-06-15
 Parent PRD: `tasks/prd-placeintel-production-grade-master.md`
 Scope: CLI contracts, HTTP contracts, machine-readable output, agent handoff docs, and command ergonomics.
 
@@ -94,11 +94,12 @@ Acceptance Criteria:
 - [x] Empty cache exits with documented code and JSON message, not a stack trace.
 - [x] Typecheck/lint passes.
 
-Implementation note 2026-06-14: Completed with `ask --format json` in
+Implementation note 2026-06-15: Completed with `ask --format json` in
 `placeintel/cli.py`; scoped JSON echoes `place_id`, `--fresh` maps to
-`no_cache=True`, and empty cache returns exit code 5 with `cache_empty`. The
-`evidence[]` criterion is satisfied as not-applicable until the backend exposes
-evidence cards; once backend evidence exists, the CLI must pass it through.
+`no_cache=True`, and empty cache returns exit code 5 with `cache_empty`.
+As of v0.4.31, backend Ask exposes `evidence[]`, `cache_scope`, and
+`evidence_fresh_after`; the CLI JSON envelope passes those fields through
+unchanged for agent callers.
 
 ### US-CLI-005: Schemas and Examples
 

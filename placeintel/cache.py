@@ -469,7 +469,7 @@ def vector_search(
     params = (place_id,) if place_id else ()
     rows = conn.execute(
         f"""
-        SELECT v.review_id, v.vector, r.place_id, r.text, r.rating, r.review_date,
+        SELECT v.review_id, v.vector, r.place_id, r.text, r.rating, r.review_date, r.lang,
                p.name AS place_name
         FROM review_vectors v
         JOIN reviews r ON r.review_id = v.review_id
@@ -493,6 +493,7 @@ def vector_search(
             "text": rows[i]["text"],
             "rating": rows[i]["rating"],
             "review_date": rows[i]["review_date"],
+            "source_lang": rows[i]["lang"],
             "score": float(scores[i]),
         }
         for i in order

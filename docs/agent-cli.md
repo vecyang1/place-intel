@@ -1,6 +1,6 @@
 # placeintel Agent CLI
 
-Last updated: 2026-06-14
+Last updated: 2026-06-15
 
 This document tells future agents how to call the CLI without scraping the web
 UI. The stable machine-readable surface is JSON for read commands and JSON or
@@ -134,7 +134,7 @@ warnings unless required.
 | `shop "name-or-url"` | text, JSON, NDJSON | Single-place scout with the same machine formats as `scout`. |
 | `plan "text"` | JSON body | Existing debug output is already JSON. |
 | `history` | text, JSON | `history --format json` returns recent searches. |
-| `ask "question"` | text, JSON | `ask --format json` returns answer/cache/model/provider metadata and echoes `place_id` when scoped. |
+| `ask "question"` | text, JSON | `ask --format json` returns answer/cache/model/provider metadata plus `evidence[]` when fresh reasoning used listing/review evidence. |
 | `report <place_id>` | markdown text, JSON | `report --format json` returns the latest cached report without regenerating. |
 | `list` | text, JSON | `list --format json` returns cached places. |
 | `profiles` | text, JSON | `profiles --format json` returns profile names and dimensions. |
@@ -305,6 +305,33 @@ Ask with machine-readable output:
 ```bash
 .venv/bin/placeintel ask "Which shop looks safest for a beginner?" --format json
 .venv/bin/placeintel ask "Is this shop beginner friendly?" --place "<place_id>" --fresh --format json
+```
+
+Ask JSON success includes an `ask_result` payload. Fresh answers include
+listing and review evidence cards; cached answers keep exact-scope/freshness
+metadata and may have an empty `evidence[]` because the QA cache stores the
+answer rather than frozen evidence rows.
+
+```json
+{
+  "ok": true,
+  "version": "0.4.x",
+  "command": "ask",
+  "data": {
+    "answer": "D'Class is usable, but confirm the deposit before leaving ID.",
+    "cached": false,
+    "created_at": 1781459000.0,
+    "model": "gemini-3-flash-preview",
+    "provider": "VectorEngine",
+    "cache_scope": {"kind": "place", "place_id": "place-1", "label": "D'Class Guitar"},
+    "evidence_fresh_after": 1781451000.0,
+    "evidence": [
+      {"type": "listing", "place_name": "D'Class Guitar", "label": "phone", "value": "+84 123"},
+      {"type": "review", "place_name": "D'Class Guitar", "rating": 2, "date": "2026-06-01", "source_lang": "en", "text": "Parking was difficult.", "score": 0.82}
+    ],
+    "place_id": "place-1"
+  }
+}
 ```
 
 ## Safety Rules for Agents

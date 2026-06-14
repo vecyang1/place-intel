@@ -159,6 +159,15 @@ CORE_SCHEMAS = {
             "data": {"type": "object"},
         },
     },
+    "ask_result": {
+        "type": "object",
+        "required": ["answer", "cached", "created_at", "model", "provider", "evidence"],
+        "properties": {
+            "cache_scope": {"type": "object"},
+            "evidence_fresh_after": {"type": ["number", "null"]},
+            "evidence": {"type": "array", "items": {"type": "object", "required": ["type"]}},
+        },
+    },
     "backup_manifest": {
         "type": "object",
         "required": ["app", "version", "created_at", "files"],

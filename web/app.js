@@ -542,17 +542,16 @@ function bindForms() {
     runAsk(q, form.dataset.placeId, out, false);
   });
 }
+function evidenceHtml(items) { const rows = (type) => (items || []).filter((e) => e.type === type), meta = (e) => [e.place_name, e.rating ? `★${e.rating}` : '', e.date || '', e.source_lang ? `原文:${e.source_lang}` : ''].filter(Boolean).map(esc).join(' · '); const group = (title, type) => rows(type).length ? `<section><h4>${title}</h4>${rows(type).slice(0, 6).map((e) => `<p><span class="model-tag">${meta(e)}</span> ${esc(e.label ? `${e.label}: ${e.value}` : e.text)}</p>`).join('')}</section>` : ''; return rows('listing').length || rows('review').length ? `<div class="answer-evidence">${group('Listing facts used', 'listing')}${group('Review evidence used', 'review')}</div>` : ''; }
 function renderAnswer(res, q, placeId) {
-  const cachedNote = res.cached
-    ? `<div class="answer-cached">⚡ 缓存答案 · 来自 ${esc(relTime(res.created_at))}的相同问题
-        <button type="button" class="btn-ghost btn-refresh" data-refresh-q="${esc(q)}"
-          data-refresh-place="${esc(placeId || '')}">重新推理 ↻</button></div>`
-    : '';
+  const scope = res.cache_scope ? `${res.cache_scope.kind === 'place' ? 'place' : 'global'} exact scope · ${res.cache_scope.label || ''}` : 'exact scope';
+  const fresh = res.evidence_fresh_after ? ` · no newer reviews since ${esc(relTime(res.evidence_fresh_after))}` : '';
+  const cachedNote = res.cached ? `<div class="answer-cached">⚡ 缓存答案 · ${esc(scope)}${fresh} · 来自 ${esc(relTime(res.created_at))}的相同问题 <button type="button" class="btn-ghost btn-refresh" data-refresh-q="${esc(q)}" data-refresh-place="${esc(placeId || '')}">重新推理 ↻</button></div>` : '';
   const modelTag = res.model
     ? `<span class="model-tag">${esc(res.model)}${res.provider ? ` @ ${esc(res.provider)}` : ''}</span>`
     : '';
   return `<div class="answer"><div class="answer-label">回答 answer ${modelTag}</div>${cachedNote}
-    <div class="report-body">${mdToHtml(res.answer)}</div></div>`;
+    <div class="report-body">${mdToHtml(res.answer)}</div>${evidenceHtml(res.evidence)}</div>`;
 }
 async function runAsk(q, placeId, out, fresh) {
   const submit = $('#ask-submit');

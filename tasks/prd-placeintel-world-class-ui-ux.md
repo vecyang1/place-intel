@@ -1,6 +1,6 @@
 # PRD: placeintel World-Class UI/UX
 
-Status: 🔨 In Progress — US-UI-001 through US-UI-004 complete; US-UI-005 next
+Status: 🔨 In Progress — US-UI-001 through US-UI-005 complete; US-UI-006 next
 Last Updated: 2026-06-15
 Parent PRD: `tasks/prd-placeintel-production-grade-master.md`
 Scope: Web UI, interaction design, mobile/desktop responsiveness, accessibility, and product workflows.
@@ -105,13 +105,19 @@ Playwright regressions.
 As a user asking follow-up questions, I want an answer and the evidence behind it in the same view.
 
 Acceptance Criteria:
-- [ ] Answer card has a compact answer first.
-- [ ] Evidence section lists listing facts and review snippets separately.
-- [ ] Evidence rows include place, rating/date when available, and original-language tag for translated snippets.
-- [ ] Cached-answer banner explains scope and freshness.
-- [ ] Re-reason action does not delete the prior cached answer.
-- [ ] Typecheck/lint passes.
-- [ ] Visual verification via dev-browser or preview skill.
+- [x] Answer card has a compact answer first.
+- [x] Evidence section lists listing facts and review snippets separately.
+- [x] Evidence rows include place, rating/date when available, and original-language tag for translated snippets.
+- [x] Cached-answer banner explains scope and freshness.
+- [x] Re-reason action does not delete the prior cached answer.
+- [x] Typecheck/lint passes.
+- [x] Visual verification via dev-browser or preview skill.
+
+Implementation note 2026-06-15: Completed in v0.4.31. Ask answers now render
+the answer body first, followed by `Listing facts used` and `Review evidence
+used` sections when the backend supplies evidence. Review evidence keeps place,
+rating/date, and original-language tags; cached answers show exact scope and
+freshness while preserving `重新推理` as a non-destructive cache bypass.
 
 ### US-UI-006: Compare Board
 

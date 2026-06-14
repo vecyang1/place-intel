@@ -1,8 +1,8 @@
 # PRD: placeintel Production-Grade Master Plan
 
-Status: 🔨 In Progress — US-001 and US-002 complete; Ask/Compare stories and CLI global-option hardening remain
+Status: 🔨 In Progress — US-001 through US-003 complete; Compare story and CLI global-option hardening remain
 Last Updated: 2026-06-15
-Product Version Observed: 0.4.30 in working tree
+Product Version Observed: 0.4.31 in working tree
 Deployment Profile: hybrid (local-first product with private protected web deployment)
 Primary Owner: next `/goal` implementation agent
 Related PRDs:
@@ -97,12 +97,19 @@ intact.
 As a user asking follow-up questions, I want answers to show which listing facts and review snippets were used so that I can judge trust quickly.
 
 Acceptance Criteria:
-- [ ] Ask answer includes separate "Listing facts used" and "Review evidence used" sections when available.
-- [ ] Cached-answer banner preserves exact-scope semantics and shows why reuse is safe.
-- [ ] Scoped dossier questions remain visible in top-level Ask history with shop names.
-- [ ] `--fresh` and "重新推理" still bypass QA cache without deleting cached history.
-- [ ] Typecheck/lint passes.
-- [ ] Visual verification via dev-browser or preview skill.
+- [x] Ask answer includes separate "Listing facts used" and "Review evidence used" sections when available.
+- [x] Cached-answer banner preserves exact-scope semantics and shows why reuse is safe.
+- [x] Scoped dossier questions remain visible in top-level Ask history with shop names.
+- [x] `--fresh` and "重新推理" still bypass QA cache without deleting cached history.
+- [x] Typecheck/lint passes.
+- [x] Visual verification via dev-browser or preview skill.
+
+Implementation note 2026-06-15: Completed in v0.4.31 via the UI PRD
+`US-UI-005` milestone. Fresh Ask responses now expose `cache_scope`,
+`evidence_fresh_after`, and listing/review evidence cards through `/api/ask`
+and CLI JSON; the web answer card keeps the answer first, then separates
+listing facts from review evidence. Cached answers retain exact-scope reuse and
+the existing `重新推理` bypass path.
 
 ### US-004: Compare Places Before Choosing
 

@@ -124,6 +124,7 @@ class CliJsonContractTest(unittest.TestCase):
         self.assertIn("health", schemas)
         self.assertIn("pipeline_result", schemas)
         self.assertIn("job_event", schemas)
+        self.assertIn("ask_result", schemas)
         self.assertIn("backup_manifest", schemas)
         self.assertIn("deploy_smoke", schemas)
         self.assertIn("deep", schemas["health"]["properties"]["mode"]["enum"])
@@ -131,6 +132,7 @@ class CliJsonContractTest(unittest.TestCase):
         self.assertIn("next_action", health_item_required)
         self.assertIn("reports", schemas["pipeline_result"]["required"])
         self.assertEqual(schemas["job_event"]["required"], ["t", "stage", "msg"])
+        self.assertIn("evidence", schemas["ask_result"]["required"])
         self.assertIn("checks", schemas["deploy_smoke"]["required"])
 
     def test_ask_format_json_wraps_answer_and_preserves_scope_flags(self) -> None:
@@ -141,6 +143,7 @@ class CliJsonContractTest(unittest.TestCase):
             "matched": "Which guitar shop is beginner friendly?",
             "model": "test-model",
             "provider": "VectorEngine",
+            "evidence": [{"type": "review", "place_name": "D'Class Guitar"}],
         }
         with mock.patch("placeintel.pipeline.ask", return_value=answer) as ask:
             code, stdout, stderr = self._run_cli([

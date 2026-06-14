@@ -1,6 +1,6 @@
 # placeintel API Contract
 
-Last updated: 2026-06-14
+Last updated: 2026-06-15
 
 This document is the agent-readable HTTP contract for the local FastAPI app. The
 server is a single-user local/protected tool; examples use loopback URLs and do
@@ -210,8 +210,36 @@ Request:
 {"question": "哪家有耐心的老师?", "place_id": null, "report_lang": "zh", "fresh": false}
 ```
 
-Response fields include `answer`, `cached`, `created_at`, `model`, `provider`,
-and optional `place_id`. Cache reuse remains exact-scope only.
+Response:
+
+```json
+{
+  "answer": "押金通常需要现场确认，停车入口也要提前问清。",
+  "cached": false,
+  "created_at": 1781459000.0,
+  "model": "gemini-3-flash-preview",
+  "provider": "VectorEngine",
+  "cache_scope": {"kind": "place", "place_id": "place-1", "label": "D'Class Guitar"},
+  "evidence_fresh_after": 1781451000.0,
+  "evidence": [
+    {"type": "listing", "place_id": "place-1", "place_name": "D'Class Guitar", "label": "address", "value": "49/9 Nguyen Tat Thanh"},
+    {"type": "review", "place_id": "place-1", "place_name": "D'Class Guitar", "review_id": "r1", "rating": 2, "date": "2026-06-01", "source_lang": "ko", "text": "Parking was difficult.", "score": 0.82}
+  ]
+}
+```
+
+`evidence[]` is split by `type`:
+
+- `listing`: authoritative Google Maps metadata such as address, phone, hours,
+  website, rating, review count, and Maps link.
+- `review`: retrieved original review snippets with place name, rating/date
+  when available, source language, and vector score.
+
+Cached responses may return `evidence: []` because the saved QA row stores the
+answer, not a frozen copy of prior evidence. The `cache_scope` and
+`evidence_fresh_after` fields explain why reuse is safe: cache lookup is still
+exact-scope, and cached answers are valid only while no newer reviews exist in
+that same scope.
 
 ### `GET /api/qa`
 

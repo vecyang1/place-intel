@@ -77,6 +77,47 @@ test('command center manual Ask override answers from the first input', async ({
   await expect(page.locator('#ask-answer')).toContainText('押金需要现场确认');
 });
 
+test('ask answer renders separated listing and review evidence', async ({ page }) => {
+  await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/qa**', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/ask', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      answer: '押金通常需要现场确认，停车入口也要提前问清。',
+      cached: true,
+      matched: '押金怎么收？',
+      created_at: Date.now() / 1000 - 3600,
+      cache_scope: { kind: 'place', place_id: 'place-1', label: "D'Class Guitar" },
+      evidence_fresh_after: Date.now() / 1000 - 7200,
+      model: 'test-model',
+      provider: 'test-provider',
+      evidence: [
+        { type: 'listing', place_id: 'place-1', place_name: "D'Class Guitar", label: 'address', value: '49/9 Nguyen Tat Thanh' },
+        { type: 'review', place_id: 'place-1', place_name: "D'Class Guitar", review_id: 'r1', rating: 2, date: '2026-06-01', source_lang: 'ko', text: 'Parking was difficult and the entrance was hard to find.' },
+      ],
+    }),
+  }));
+
+  await page.goto('http://127.0.0.1:9618/#ask', { waitUntil: 'networkidle' });
+  await page.locator('#ask-question').fill('押金怎么收？');
+  await page.locator('#ask-submit').click();
+
+  const order = await page.locator('#ask-answer .answer').evaluate((host) => {
+    const body = host.querySelector('.report-body');
+    const evidence = host.querySelector('.answer-evidence');
+    return Boolean(body && evidence && (body.compareDocumentPosition(evidence) & Node.DOCUMENT_POSITION_FOLLOWING));
+  });
+  expect(order).toBe(true);
+  await expect(page.locator('#ask-answer .answer-cached')).toContainText('exact scope');
+  await expect(page.locator('#ask-answer .answer-evidence')).toContainText('Listing facts used');
+  await expect(page.locator('#ask-answer .answer-evidence')).toContainText('Review evidence used');
+  await expect(page.locator('#ask-answer .answer-evidence')).toContainText("D'Class Guitar");
+  await expect(page.locator('#ask-answer .answer-evidence')).toContainText('★2');
+  await expect(page.locator('#ask-answer .answer-evidence')).toContainText('2026-06-01');
+  await expect(page.locator('#ask-answer .answer-evidence')).toContainText('原文:ko');
+  await expect(page.locator('#ask-answer .answer-evidence')).toContainText('49/9 Nguyen Tat Thanh');
+});
+
 test('command center reuses matching fresh scout history instead of submitting a duplicate scrape', async ({ page }) => {
   let scoutRequests = 0;
   await page.route('**/api/searches', (route) => route.fulfill({

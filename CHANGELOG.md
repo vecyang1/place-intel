@@ -1,5 +1,13 @@
 # Changelog — place-intel
 
+## v0.4.31 — 2026-06-15 — evidence-centered Ask
+- Ask answers can now include separate listing-fact and review-evidence cards,
+  keeping the compact answer first while exposing the source material nearby.
+- Fresh Ask results return `evidence[]`, `cache_scope`, and
+  `evidence_fresh_after` through the web API and CLI JSON envelope.
+- Cached-answer banners now explain exact scope and freshness while preserving
+  the existing `重新推理` cache-bypass behavior.
+
 ## v0.4.30 — 2026-06-15 — dossier decision brief
 - Dossiers now open with a compact decision brief before the long report:
   verdict, risk/freshness, top hard facts, and up to three walk-in bullets.
