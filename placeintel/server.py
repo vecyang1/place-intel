@@ -15,7 +15,7 @@ import uuid
 from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -119,8 +119,9 @@ def _run_shop(job_id: str, req: ShopRequest, on_event) -> None:
 
 
 @app.get("/")
-def index() -> FileResponse:
-    return FileResponse(WEB_DIR / "index.html")
+def index() -> HTMLResponse:
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(html.replace("__PLACEINTEL_VERSION__", __version__))
 
 
 @app.post("/api/scout")

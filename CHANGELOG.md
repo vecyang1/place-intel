@@ -1,5 +1,23 @@
 # Changelog — place-intel
 
+## v0.4.13 — 2026-06-14 — review language lens
+- Added a language-aware lens to the shop dossier's raw reviews section. Reviews
+  are grouped by detected original language, with Chinese and English surfaced
+  first when present for Vec's reading flow.
+- Each language cohort now shows count, average rating, likely audience signal,
+  recurring topic chips, and a representative excerpt from the cached review
+  text.
+- Added review-language filter pills so users can switch the raw comments list
+  between all reviews and a single language cohort without leaving the dossier.
+- Fingerprinted the no-build `app.css` and `app.js` URLs with the server-injected
+  package version so already-open browser tabs pick up fresh styling after restart.
+- Kept country/region wording honest: the current cache has review text but no
+  reliable reviewer-country field, so the UI treats language as a signal rather
+  than inventing nationality.
+- Added a Playwright regression proving the language lens renders Chinese,
+  English, Vietnamese, and Korean cohorts and filters raw review cards, plus a
+  server contract for static asset fingerprinting.
+
 ## v0.4.12 — 2026-06-14 — dossier ask placement polish
 - Moved the shop-scoped **只问这家店 / Ask this shop** form above the long dossier
   report body, so users can ask follow-up questions immediately after opening a

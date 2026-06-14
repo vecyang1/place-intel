@@ -100,6 +100,65 @@ test('shop dossier keeps the scoped ask form above the report body', async ({ pa
   });
 });
 
+test('shop dossier segments reviews by language and filters raw comments', async ({ page }) => {
+  await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  await page.evaluate(() => {
+    const place = {
+      place_id: 'language-test',
+      name: 'Language Test Shop',
+      category: 'Instrument store',
+      rating: 4.8,
+      review_count: 4,
+      cached_reviews: 4,
+      last_refreshed: Date.now() / 1000,
+    };
+    const reviews = [{
+      rating: 5,
+      author: 'Chen',
+      review_date: Date.now() / 1000,
+      text: '价格公道，老板会调琴，也可以租吉他练习。',
+    }, {
+      rating: 4,
+      author: 'Grace',
+      review_date: Date.now() / 1000,
+      text: 'Helpful owner, fair rental price, and a good selection of guitars.',
+    }, {
+      rating: 4,
+      author: 'Minh',
+      review_date: Date.now() / 1000,
+      text: 'Đường vào hơi khó nhưng cửa hàng phục vụ tốt và đàn chất lượng.',
+    }, {
+      rating: 3,
+      author: 'Kim',
+      review_date: Date.now() / 1000,
+      text: '주차가 어렵지만 직원은 친절했어요.',
+    }];
+    document.body.insertAdjacentHTML('beforeend', `<div id="lang-host">${window.__pi.render.detail({
+      place,
+      reviews,
+      report: null,
+    })}</div>`);
+    document.querySelector('#lang-host .detail-reviews').open = true;
+  });
+
+  await expect(page.locator('.language-lens')).toContainText('语言视角');
+  await expect(page.locator('[data-review-lang-card="zh"]')).toContainText('中文');
+  await expect(page.locator('[data-review-lang-card="en"]')).toContainText('English');
+  await expect(page.locator('[data-review-lang-card="vi"]')).toContainText('Tiếng Việt');
+  await expect(page.locator('[data-review-lang-card="ko"]')).toContainText('Korean');
+  await expect(page.locator('.language-lens')).toContainText('价格');
+  await expect(page.locator('.language-lens')).toContainText('到达');
+
+  await page.locator('[data-review-lang-filter="en"]').click();
+  await expect(page.locator('.review[data-review-lang="en"]')).toBeVisible();
+  await expect(page.locator('.review[data-review-lang="zh"]')).toBeHidden();
+  await expect(page.locator('.review-filter-count')).toContainText('显示 1 / 4');
+
+  await page.locator('[data-review-lang-filter="all"]').click();
+  await expect(page.locator('.review[data-review-lang="zh"]')).toBeVisible();
+  await expect(page.locator('.review-filter-count')).toContainText('显示全部 4');
+});
+
 test('tabs are deep-linkable and keyboard navigable', async ({ page }) => {
   await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
   await expect(page.locator('#panel-library')).toBeVisible();
