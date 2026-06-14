@@ -142,6 +142,11 @@ test('shop dossier segments reviews by language and filters raw comments', async
   });
 
   await expect(page.locator('.language-lens')).toContainText('语言视角');
+  await expect(page.locator('.language-filters')).toBeVisible();
+  await expect(page.locator('.language-grid')).toBeHidden();
+  await expect(page.locator('.review[data-review-lang="zh"]')).toBeVisible();
+
+  await page.locator('.language-insights > summary').click();
   await expect(page.locator('[data-review-lang-card="zh"]')).toContainText('中文');
   await expect(page.locator('[data-review-lang-card="en"]')).toContainText('English');
   await expect(page.locator('[data-review-lang-card="vi"]')).toContainText('Tiếng Việt');

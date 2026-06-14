@@ -283,7 +283,7 @@ function renderLanguageLens(reviews) {
     const themes = Array.from(g.themes.values()).sort((a, b) => b.count - a.count).slice(0, 4).map((x) => `<span>${esc(x.row[1])}<small>${esc(x.row[2])} · ${x.count}</small></span>`).join('');
     return `<article class="language-card" data-review-lang-card="${esc(g.code)}"><h4>${esc(m[0])} <span>${esc(m[1])}</span></h4><p>${g.count} 条 · ★ ${avg} · ${esc(m[2])}</p><div class="language-themes">${themes}</div>${g.sample ? `<blockquote>${esc(g.sample)}</blockquote>` : ''}</article>`;
   }).join('');
-  return `<section class="language-lens" aria-label="review language lens"><div class="language-lens-head"><div><h3>语言视角 <span>language lens</span></h3><p>按评价原文自动分群；国家/地区没有可靠字段时，只展示语言和旅客群线索。</p></div><p class="review-filter-count" aria-live="polite">显示全部 ${reviews.length}</p></div><div class="language-filters">${filters}</div><div class="language-grid">${cards}</div></section>`;
+  return `<section class="language-lens" aria-label="review language lens"><div class="language-lens-head"><div><h3>语言视角 <span>language lens</span></h3><p>language tab 保留给读原文；细分洞察可展开。</p></div><p class="review-filter-count" aria-live="polite">显示全部 ${reviews.length}</p></div><div class="language-filters">${filters}</div><details class="language-insights"><summary>展开语言洞察 <span>insight cards · ${groups.length}</span></summary><div class="language-grid">${cards}</div></details></section>`;
 }
 function renderReviewCard(r) {
   const lang = detectReviewLang(reviewBody(r));

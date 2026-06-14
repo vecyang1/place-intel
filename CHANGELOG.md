@@ -1,5 +1,12 @@
 # Changelog — place-intel
 
+## v0.4.14 — 2026-06-14 — compact review language lens
+- Kept the review language tabs visible, but moved the large per-language
+  insight cards behind a collapsed disclosure so raw comments remain easy to
+  read.
+- Tightened the language lens spacing and prevented nested insight summaries
+  from inheriting the raw-review disclosure marker style.
+
 ## v0.4.13 — 2026-06-14 — review language lens
 - Added a language-aware lens to the shop dossier's raw reviews section. Reviews
   are grouped by detected original language, with Chinese and English surfaced
