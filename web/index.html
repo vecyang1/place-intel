@@ -186,13 +186,15 @@
 
   <footer class="colophon">placeintel · 本地评价情报站 · 数据只缓存在本机<br>
     <span id="meta-line" class="meta-line"></span>
+    <button type="button" class="btn-model" id="system-toggle">系统 System</button>
     <button type="button" class="btn-model" id="model-switch" hidden>更换模型 ⇄</button>
     <div class="model-picker" id="model-picker" hidden>
       <select id="model-select" name="reason_model" aria-label="推理模型"></select>
       <input id="model-custom" name="custom_reason_model" type="text" placeholder="例：gemini-flash-latest…" hidden>
       <button type="button" class="btn-model" id="model-save">保存</button>
       <span class="model-status" id="model-status" role="status"></span>
-    </div></footer>
+    </div>
+    <section id="system-panel" class="model-picker" aria-live="polite" hidden></section></footer>
 </div>
 
 <!-- ============ SHOP DETAIL OVERLAY ============ -->

@@ -354,6 +354,50 @@ Returns profile names.
 
 Returns app version plus non-secret provider/model labels.
 
+### `GET /api/config`
+
+Returns non-secret runtime settings for the owner System panel and agent status
+checks. The endpoint intentionally hides local data paths and never returns API
+keys, tokens, private hosts, or deploy values.
+
+Example response:
+
+```json
+{
+  "version": "0.4.33",
+  "settings": {
+    "reason_model": "gemini-3-flash-preview",
+    "translation_model": "gemini-3.1-flash-lite",
+    "default_answer_language": "zh",
+    "evidence_language": "report",
+    "cache_ttl_days": 14
+  },
+  "runtime": {
+    "port": 9618,
+    "data_dir": {"configured": true, "path_visible": false}
+  },
+  "providers": {
+    "reason": {"model": "gemini-3-flash-preview", "provider": "VectorEngine"},
+    "translate": {"model": "gemini-3.1-flash-lite", "provider": "VectorEngine"},
+    "embed": {"model": "gemini-embedding-2-preview (768d)", "provider": "Google official"}
+  },
+  "feature_status": {
+    "reasoning": {"available": true, "provider": "VectorEngine", "model": "gemini-3-flash-preview", "next_action": "none"},
+    "translation": {"available": true, "provider": "VectorEngine", "model": "gemini-3.1-flash-lite", "next_action": "none"},
+    "embedding": {"available": true, "provider": "Google official", "model": "gemini-embedding-2-preview (768d)", "next_action": "none"}
+  },
+  "health": {"cheap_url": "/api/health", "deep_url": "/api/health/deep"},
+  "danger_zone": {
+    "destructive_changes": false,
+    "message": "Destructive cache/restore actions stay in the CLI and require explicit confirmation."
+  }
+}
+```
+
+`feature_status.*.available` is feature-specific: missing reasoning credentials
+must not block read-only Library access, and missing embedding credentials must
+not hide already-cached dossier evidence.
+
 ### `GET /api/models`
 
 Live reasoning-model list from the configured provider. Provider failure returns

@@ -47,6 +47,35 @@ class ServerContractTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["translate"]["model"], "gemini-3.1-flash-lite")
 
+    def test_config_endpoint_exposes_non_secret_system_settings(self) -> None:
+        info = {
+            "reason": {"model": "reason-model", "provider": "未配置"},
+            "translate": {"model": "translate-model", "provider": "VectorEngine"},
+            "embed": {"model": "embed-model", "provider": "Google 官方"},
+        }
+        with mock.patch.object(server.config, "provider_info", return_value=info), \
+                mock.patch.object(server.config, "reason_model", return_value="reason-model"), \
+                mock.patch.object(server.config, "translation_model", return_value="translate-model"), \
+                mock.patch.object(server.config, "EVIDENCE_LANG", "original"), \
+                mock.patch.object(server.config, "PLACE_TTL_DAYS", 9), \
+                mock.patch.object(server.config, "DATA_DIR", Path("/private/user/data")):
+            response = TestClient(server.app).get("/api/config")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["settings"]["reason_model"], "reason-model")
+        self.assertEqual(payload["settings"]["translation_model"], "translate-model")
+        self.assertEqual(payload["settings"]["default_answer_language"], "zh")
+        self.assertEqual(payload["settings"]["evidence_language"], "original")
+        self.assertEqual(payload["settings"]["cache_ttl_days"], 9)
+        self.assertEqual(payload["runtime"]["data_dir"], {"configured": True, "path_visible": False})
+        self.assertEqual(payload["health"]["cheap_url"], "/api/health")
+        self.assertEqual(payload["health"]["deep_url"], "/api/health/deep")
+        self.assertFalse(payload["feature_status"]["reasoning"]["available"])
+        self.assertNotIn("/private/user/data", str(payload))
+        self.assertNotIn("AIza", str(payload))
+        self.assertNotIn("sk-", str(payload))
+
     def test_qa_history_endpoint_returns_recent_questions_by_exact_scope(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "placeintel.db"

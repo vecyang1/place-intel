@@ -638,6 +638,7 @@ function bindGlobal() {
     if (e.target.closest('#scout-past-reload')) return loadScoutPast();
     if (e.target.closest('[data-library-more]')) { state.libraryLimit += LIBRARY_PAGE_SIZE; return renderLibrary(); }
     if (e.target.closest('#library-reload')) return loadLibrary();
+    if (e.target.closest('#system-toggle')) return toggleSystem();
     if (e.target.closest('#model-switch')) return toggleModelPicker();
     if (e.target.closest('#model-save')) return saveModel();
   });
@@ -720,15 +721,9 @@ async function deletePlace(placeId, name) {
     window.alert(`删除失败：${err.message}`);
   }
 }
-async function loadProfiles() {
-  try {
-    const names = await apiGet('/api/profiles');
-    state.profiles = names;
-    for (const sel of [$('#scout-profile'), $('#shop-profile')]) {
-      for (const n of names) sel.appendChild(new Option(n, n));
-    }
-  } catch { /* backend offline — selects keep "auto" only */ }
-}
+async function loadProfiles() { try { const names = await apiGet('/api/profiles'); state.profiles = names; for (const sel of [$('#scout-profile'), $('#shop-profile')]) for (const n of names) sel.appendChild(new Option(n, n)); } catch { /* backend offline — selects keep "auto" only */ } }
+function renderSystemPanel(c, h) { const s = c.settings || {}, p = c.providers || {}, f = c.feature_status || {}, r = c.runtime?.data_dir || {}, link = c.health || {}; return `<h3>System Status</h3><p>推理 ${esc(s.reason_model)} · 译文 ${esc(s.translation_model)} · 默认回答 ${esc(s.default_answer_language)} · 证据 ${esc(s.evidence_language)} · 缓存 TTL ${esc(s.cache_ttl_days)} 天</p><p>data dir ${r.configured ? 'configured' : 'missing'} · path ${r.path_visible ? 'visible' : 'hidden'} · port ${esc(c.runtime?.port || '—')} · health ${h?.ok ? 'ok' : 'check'}</p><p>Provider status · reason ${esc(p.reason?.provider || 'unknown')} · translate ${esc(p.translate?.provider || 'unknown')} · embed ${esc(p.embed?.provider || 'unknown')}</p><p>Setup state · reasoning ${f.reasoning?.available ? 'ok' : 'setup required'} · embedding ${f.embedding?.available ? 'ok' : 'setup required'} · translation ${f.translation?.available ? 'ok' : 'setup required'}</p><p><a href="${esc(link.cheap_url || '/api/health')}">cheap health</a> · <a href="${esc(link.deep_url || '/api/health/deep')}">deep health</a></p><p id="system-danger"><strong>Dangerous settings</strong> — destructive cache/restore actions stay in CLI and require confirmation.</p>`; }
+async function toggleSystem() { const panel = $('#system-panel'); if (!panel) return; if (!panel.hidden) { panel.hidden = true; return; } panel.hidden = false; panel.innerHTML = loadingHtml('读取系统状态'); try { const [c, h] = await Promise.all([apiGet('/api/config'), apiGet('/api/health')]); panel.innerHTML = renderSystemPanel(c, h); } catch (err) { panel.innerHTML = errorHtml(`系统状态读取失败：${err.message}`); } }
 async function loadMeta() {
   try {
     const m = await apiGet('/api/meta');

@@ -1,8 +1,8 @@
 # PRD: placeintel Production-Grade Master Plan
 
-Status: 🔨 In Progress — US-001 through US-004 complete; CLI global-option hardening and Settings/System remain
+Status: 🔨 In Progress — US-001 through US-004 and Settings/System complete; CLI global-option hardening remains
 Last Updated: 2026-06-15
-Product Version Observed: 0.4.32 in working tree
+Product Version Observed: 0.4.33 in working tree
 Deployment Profile: hybrid (local-first product with private protected web deployment)
 Primary Owner: next `/goal` implementation agent
 Related PRDs:

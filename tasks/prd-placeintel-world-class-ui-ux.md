@@ -1,6 +1,6 @@
 # PRD: placeintel World-Class UI/UX
 
-Status: 🔨 In Progress — US-UI-001 through US-UI-006 complete; US-UI-007 next
+Status: ✅ Complete
 Last Updated: 2026-06-15
 Parent PRD: `tasks/prd-placeintel-production-grade-master.md`
 Scope: Web UI, interaction design, mobile/desktop responsiveness, accessibility, and product workflows.
@@ -146,13 +146,19 @@ calls.
 As the owner/operator, I want model, language, cache, provider, and privacy settings to be visible and safe.
 
 Acceptance Criteria:
-- [ ] Settings exposes reasoning model, translation model, default answer language, evidence language, data directory, and cache TTL.
-- [ ] Dangerous settings are separated and require confirmation.
-- [ ] Provider status is visible without revealing keys.
-- [ ] Health checks are reachable from Settings.
-- [ ] Missing keys show setup-required state for affected features only.
-- [ ] Typecheck/lint passes.
-- [ ] Visual verification via dev-browser or preview skill.
+- [x] Settings exposes reasoning model, translation model, default answer language, evidence language, data directory, and cache TTL.
+- [x] Dangerous settings are separated and require confirmation.
+- [x] Provider status is visible without revealing keys.
+- [x] Health checks are reachable from Settings.
+- [x] Missing keys show setup-required state for affected features only.
+- [x] Typecheck/lint passes.
+- [x] Visual verification via dev-browser or preview skill.
+
+Implementation note 2026-06-15: Completed in v0.4.33. The footer now exposes a
+compact read-only System panel backed by `GET /api/config`; it shows model,
+language, cache TTL, hidden data-dir state, provider status, per-feature setup
+state, and links to cheap/deep health. Destructive cache/restore settings remain
+CLI-only and confirmation-gated.
 
 ## 4. Functional Requirements
 

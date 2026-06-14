@@ -32,6 +32,62 @@ test('home has no console errors, no horizontal overflow, and visible first acti
   expect(metrics.placeholderColor).not.toBe('rgba(0, 0, 0, 0)');
 });
 
+test('system panel exposes safe settings and health without leaking secrets', async ({ page }) => {
+  await page.route('**/api/meta', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      version: '0.4.test',
+      reason: { model: 'reason-model', provider: 'VectorEngine' },
+      translate: { model: 'translate-model', provider: 'VectorEngine' },
+      embed: { model: 'embed-model', provider: 'Google 官方' },
+    }),
+  }));
+  await page.route('**/api/config', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      settings: {
+        reason_model: 'reason-model',
+        translation_model: 'translate-model',
+        default_answer_language: 'zh',
+        evidence_language: 'original',
+        cache_ttl_days: 9,
+      },
+      runtime: { data_dir: { configured: true, path_visible: false }, port: 9618 },
+      providers: {
+        reason: { model: 'reason-model', provider: 'VectorEngine' },
+        translate: { model: 'translate-model', provider: 'VectorEngine' },
+        embed: { model: 'embed-model', provider: 'Google 官方' },
+      },
+      health: { cheap_url: '/api/health', deep_url: '/api/health/deep' },
+      feature_status: { reasoning: { available: true }, embedding: { available: true }, translation: { available: true } },
+      danger_zone: { destructive_changes: false, message: 'Read-only in this panel.' },
+    }),
+  }));
+  await page.route('**/api/health', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ ok: true, version: '0.4.test', mode: 'cheap', warnings: [], errors: [] }),
+  }));
+
+  await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  await page.locator('#system-toggle').click();
+
+  const panel = page.locator('#system-panel');
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText('System Status');
+  await expect(panel).toContainText('reason-model');
+  await expect(panel).toContainText('translate-model');
+  await expect(panel).toContainText('默认回答 zh');
+  await expect(panel).toContainText('证据 original');
+  await expect(panel).toContainText('缓存 TTL 9 天');
+  await expect(panel).toContainText('data dir configured');
+  await expect(panel).toContainText('Provider status');
+  await expect(panel.locator('[href="/api/health"]')).toHaveCount(1);
+  await expect(panel.locator('[href="/api/health/deep"]')).toHaveCount(1);
+  await expect(panel.locator('#system-danger')).toContainText('Dangerous settings');
+  await expect(panel).not.toContainText('AIza');
+  await expect(panel).not.toContainText('sk-');
+});
+
 test('command center recommends shop for Maps links and starts Shop from the first input', async ({ page }) => {
   let shopBody = null;
   await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));

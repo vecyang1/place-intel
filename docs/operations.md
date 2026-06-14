@@ -1,6 +1,6 @@
 # placeintel Operations
 
-Last updated: 2026-06-14
+Last updated: 2026-06-15
 
 This runbook is public-safe: it uses local placeholders and does not include real
 deploy hosts, private paths, Basic Auth values, or secrets.
@@ -40,6 +40,20 @@ Cheap health checks:
 - Provider/model labels are visible without exposing keys.
 
 Cheap health does not call models, Chrome, Docker, scrapers, or SerpAPI.
+
+## System Panel and Safe Config
+
+The web footer has a compact `系统 System` panel backed by `GET /api/config`.
+It is read-only and public-safe:
+
+- shows app version, reasoning model, translation model, default answer
+  language, evidence language, cache TTL, and provider labels.
+- shows data-dir status as configured/hidden without exposing the local path.
+- links to `/api/health` and `/api/health/deep`.
+- shows setup-required state per feature, so missing live credentials degrade
+  only the affected capability.
+- keeps dangerous cache/restore actions out of the web panel. Use
+  `placeintel backup` / `placeintel restore --yes` for destructive workflows.
 
 ## Deep Diagnostics
 

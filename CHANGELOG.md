@@ -1,5 +1,15 @@
 # Changelog — place-intel
 
+## v0.4.33 — 2026-06-15 — Settings/System status
+- Added `GET /api/config`, a non-secret runtime settings endpoint for owner and
+  agent status checks.
+- Added a compact footer System panel showing reasoning/translation models,
+  default answer language, evidence language, cache TTL, hidden data-dir status,
+  provider availability, and links to cheap/deep health.
+- Dangerous cache/restore actions remain separated in the CLI and require
+  explicit confirmation; the web panel is read-only and does not reveal keys or
+  private local paths.
+
 ## v0.4.32 — 2026-06-15 — cached evidence Compare Board
 - Scout result picks and Library picks now open a cached-evidence Compare Board
   once 2-5 places are selected.

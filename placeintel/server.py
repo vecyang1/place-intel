@@ -424,6 +424,49 @@ def health_deep() -> dict:
     return doctor.deep_health()
 
 
+@app.get("/api/config")
+def config_status() -> dict:
+    """Non-secret runtime settings for the owner System panel."""
+    providers = config.provider_info()
+    role_map = {
+        "reasoning": providers.get("reason", {}),
+        "translation": providers.get("translate", {}),
+        "embedding": providers.get("embed", {}),
+    }
+
+    def feature(info: dict) -> dict:
+        provider = info.get("provider") or "未配置"
+        available = provider != "未配置"
+        return {
+            "available": available,
+            "provider": provider,
+            "model": info.get("model"),
+            "next_action": "none" if available else "configure provider credentials for this feature",
+        }
+
+    return {
+        "version": __version__,
+        "settings": {
+            "reason_model": config.reason_model(),
+            "translation_model": config.translation_model(),
+            "default_answer_language": "zh",
+            "evidence_language": config.EVIDENCE_LANG,
+            "cache_ttl_days": config.PLACE_TTL_DAYS,
+        },
+        "runtime": {
+            "port": DEFAULT_PORT,
+            "data_dir": {"configured": True, "path_visible": False},
+        },
+        "providers": providers,
+        "feature_status": {name: feature(info) for name, info in role_map.items()},
+        "health": {"cheap_url": "/api/health", "deep_url": "/api/health/deep"},
+        "danger_zone": {
+            "destructive_changes": False,
+            "message": "Destructive cache/restore actions stay in the CLI and require explicit confirmation.",
+        },
+    }
+
+
 @app.get("/api/models")
 def models() -> dict:
     """LIVE model list from the reasoning provider — never a baked-in list."""
