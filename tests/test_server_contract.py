@@ -66,6 +66,27 @@ class ServerContractTest(unittest.TestCase):
         )
         self.assertEqual(all_rows.json()[1]["place_name"], "D'Class Guitar")
 
+    def test_review_translation_endpoint_delegates_to_pipeline(self) -> None:
+        expected = {
+            "review_id": "review-1",
+            "target_lang": "zh",
+            "source_lang": "vi",
+            "text": "路有点难走，但景色很漂亮。",
+            "cached": False,
+            "model": "test-model",
+            "provider": "test-provider",
+            "created_at": 100.0,
+        }
+        with mock.patch.object(server.pipeline, "translate_review", return_value=expected) as translate:
+            response = TestClient(server.app).post(
+                "/api/reviews/translate",
+                json={"review_id": "review-1", "target_lang": "zh"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), expected)
+        translate.assert_called_once_with("review-1", "zh")
+
 
 if __name__ == "__main__":
     unittest.main()

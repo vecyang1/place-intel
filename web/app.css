@@ -600,12 +600,18 @@ textarea.query-input { min-height: 6em; }
 .language-themes small { margin-left: 0.35em; color: var(--ink-40); font-family: var(--mono); }
 .language-card blockquote { margin-top: 0.55rem; color: var(--ink-70); font-size: 0.78rem; line-height: 1.5; }
 .review { padding: 0.85rem 0.1rem; border-bottom: 1px dashed var(--line-soft); }
-.review-meta { display: flex; gap: 0.8rem; align-items: baseline; font-family: var(--mono); font-size: 0.74rem; }
+.review-meta { display: flex; flex-wrap: wrap; gap: 0.55rem 0.8rem; align-items: baseline; font-family: var(--mono); font-size: 0.74rem; }
 .review-stars { color: var(--accent); font-weight: 600; }
 .review-author { color: var(--ink-70); }
 .review-lang { border: 1px solid var(--line-soft); border-radius: 999px; padding: 0 0.38rem; color: var(--ink-55); }
 .review-date { color: var(--ink-40); margin-left: auto; }
 .review-text { font-size: 0.9rem; margin-top: 0.3rem; line-height: 1.6; }
+.review-translate { margin-left: auto; border: 1px solid var(--line-soft); border-radius: 999px; padding: 0 0.45rem; color: var(--ink-55); font-size: 0.68rem; }
+.review-translate:hover { border-color: var(--accent); color: var(--accent); }
+.review-translate:disabled { opacity: 0.6; cursor: wait; }
+.review-translation { margin-top: 0.45rem; padding: 0.55rem 0.7rem; border-left: 3px solid var(--accent); background: var(--card); font-size: 0.86rem; }
+.review-translation span { font-family: var(--mono); font-size: 0.64rem; color: var(--accent); display: block; margin-bottom: 0.2rem; }
+.review-translation.is-error { border-left-color: var(--line); color: var(--ink-55); }
 .owner-reply { margin-top: 0.5rem; border-left: 3px solid var(--line); padding: 0.1rem 0.8rem; }
 .owner-label { font-family: var(--mono); font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-55); display: block; }
 .owner-reply p { font-size: 0.84rem; color: var(--ink-70); margin-top: 0.15rem; }

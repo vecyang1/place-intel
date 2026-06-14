@@ -1,5 +1,15 @@
 # Changelog — place-intel
 
+## v0.4.15 — 2026-06-14 — optional review translation
+- Added per-review on-demand translation in shop dossiers. Raw reviews remain
+  original by default; users can click a compact `译文` control on a specific
+  review to see a translated overlay.
+- Added `POST /api/reviews/translate`, backed by the existing reasoning provider
+  rather than scrape-time Google translation. Translations are cached by
+  `review_id`, target language, and raw-text hash so refreshed reviews invalidate
+  stale translations.
+- Added tests for translation caching, API delegation, and the browser click path.
+
 ## v0.4.14 — 2026-06-14 — compact review language lens
 - Kept the review language tabs visible, but moved the large per-language
   insight cards behind a collapsed disclosure so raw comments remain easy to

@@ -67,6 +67,11 @@ class AskRequest(BaseModel):
     fresh: bool = False  # skip the QA answer cache
 
 
+class ReviewTranslateRequest(BaseModel):
+    review_id: str
+    target_lang: str = "zh"
+
+
 class SettingsRequest(BaseModel):
     reason_model: str
 
@@ -151,6 +156,16 @@ def job_status(job_id: str) -> dict:
 def ask(req: AskRequest) -> dict:
     return pipeline.ask(req.question, place_id=req.place_id,
                         report_lang=req.report_lang, no_cache=req.fresh)
+
+
+@app.post("/api/reviews/translate")
+def translate_review(req: ReviewTranslateRequest) -> dict:
+    try:
+        return pipeline.translate_review(req.review_id, req.target_lang)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
 
 
 @app.get("/api/qa")

@@ -164,6 +164,80 @@ test('shop dossier segments reviews by language and filters raw comments', async
   await expect(page.locator('.review-filter-count')).toContainText('显示全部 4');
 });
 
+test('review cards translate one comment on demand', async ({ page }) => {
+  const translateBodies = [];
+  await page.route('**/api/reviews/translate', (route) => {
+    translateBodies.push(route.request().postDataJSON());
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        review_id: 'review-vi-1',
+        target_lang: 'zh',
+        source_lang: 'vi',
+        text: '通往这里的路有点难走，但景色很漂亮。',
+        cached: false,
+        model: 'test-model',
+        provider: 'test-provider',
+        created_at: Date.now() / 1000,
+      }),
+    });
+  });
+  await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  await page.evaluate(() => {
+    const place = { place_id: 'translate-test', name: 'Translate Test', rating: 4.8, review_count: 1 };
+    const reviews = [{ review_id: 'review-vi-1', rating: 5, author: 'Minh', text: 'Đường vào hơi khó nhưng cảnh rất đẹp.', lang: 'vi' }];
+    document.body.insertAdjacentHTML('beforeend', `<div id="translate-host">${window.__pi.render.detail({ place, reviews, report: null })}</div>`);
+    document.querySelector('#translate-host .detail-reviews').open = true;
+  });
+
+  await expect(page.locator('#translate-host .review-translation')).toHaveCount(0);
+  const button = page.locator('[data-review-translate="review-vi-1"]');
+  await expect(button).toBeVisible();
+  await button.click();
+  await expect(page.locator('#translate-host .review-translation')).toContainText('通往这里的路有点难走');
+  await expect(button).toContainText('已译');
+  expect(translateBodies).toEqual([{ review_id: 'review-vi-1', target_lang: 'zh' }]);
+});
+
+test('review translation can retry after a transient failure', async ({ page }) => {
+  let attempts = 0;
+  await page.route('**/api/reviews/translate', (route) => {
+    attempts += 1;
+    if (attempts === 1) {
+      return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ detail: 'temporary outage' }) });
+    }
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        review_id: 'review-en-1',
+        target_lang: 'zh',
+        source_lang: 'en',
+        text: '老板很热情，价格也透明。',
+        cached: false,
+        model: 'test-model',
+        provider: 'test-provider',
+        created_at: Date.now() / 1000,
+      }),
+    });
+  });
+  await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  await page.evaluate(() => {
+    const place = { place_id: 'translate-retry-test', name: 'Translate Retry Test', rating: 4.8, review_count: 1 };
+    const reviews = [{ review_id: 'review-en-1', rating: 5, author: 'Grace', text: 'Helpful owner and transparent prices.', lang: 'en' }];
+    document.body.insertAdjacentHTML('beforeend', `<div id="translate-retry-host">${window.__pi.render.detail({ place, reviews, report: null })}</div>`);
+    document.querySelector('#translate-retry-host .detail-reviews').open = true;
+  });
+
+  const button = page.locator('[data-review-translate="review-en-1"]');
+  await button.click();
+  await expect(page.locator('#translate-retry-host .review-translation.is-error')).toContainText('temporary outage');
+  await button.click();
+  await expect(page.locator('#translate-retry-host .review-translation')).toContainText('老板很热情');
+  await expect(page.locator('#translate-retry-host .review-translation.is-error')).toHaveCount(0);
+  await expect(button).toContainText('已译');
+  expect(attempts).toBe(2);
+});
+
 test('tabs are deep-linkable and keyboard navigable', async ({ page }) => {
   await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
   await expect(page.locator('#panel-library')).toBeVisible();

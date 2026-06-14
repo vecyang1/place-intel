@@ -7,6 +7,7 @@ All rows keep the raw source payload in *_json columns so nothing is lost.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
@@ -63,6 +64,16 @@ CREATE TABLE IF NOT EXISTS review_vectors (
     review_id     TEXT PRIMARY KEY REFERENCES reviews(review_id),
     dims          INTEGER NOT NULL,
     vector        BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS review_translations (
+    review_id     TEXT NOT NULL REFERENCES reviews(review_id),
+    target_lang   TEXT NOT NULL,
+    source_hash   TEXT NOT NULL,
+    source_lang   TEXT,
+    translation   TEXT NOT NULL,
+    model         TEXT,
+    created_at    REAL NOT NULL,
+    PRIMARY KEY (review_id, target_lang)
 );
 CREATE TABLE IF NOT EXISTS reports (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -241,6 +252,41 @@ def get_reviews(conn: sqlite3.Connection, place_id: str) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT * FROM reviews WHERE place_id=? ORDER BY review_date DESC", (place_id,)
     ).fetchall()
+
+
+def get_review(conn: sqlite3.Connection, review_id: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM reviews WHERE review_id=?", (review_id,)).fetchone()
+
+
+def review_source_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def cached_review_translation(
+    conn: sqlite3.Connection, review_id: str, target_lang: str, source_hash: str,
+) -> sqlite3.Row | None:
+    return conn.execute(
+        """SELECT * FROM review_translations
+           WHERE review_id=? AND target_lang=? AND source_hash=?""",
+        (review_id, target_lang, source_hash),
+    ).fetchone()
+
+
+def save_review_translation(
+    conn: sqlite3.Connection, review_id: str, target_lang: str, source_hash: str,
+    source_lang: str | None, translation: str, model: str,
+) -> None:
+    conn.execute(
+        """INSERT INTO review_translations
+           (review_id, target_lang, source_hash, source_lang, translation, model, created_at)
+           VALUES (?,?,?,?,?,?,?)
+           ON CONFLICT(review_id, target_lang) DO UPDATE SET
+             source_hash=excluded.source_hash, source_lang=excluded.source_lang,
+             translation=excluded.translation, model=excluded.model,
+             created_at=excluded.created_at""",
+        (review_id, target_lang, source_hash, source_lang, translation, model, time.time()),
+    )
+    conn.commit()
 
 
 def reviews_missing_vectors(conn: sqlite3.Connection, limit: int = 2000) -> list[sqlite3.Row]:
@@ -542,6 +588,9 @@ def delete_place(conn: sqlite3.Connection, place_id: str) -> int:
     cur = conn.execute("SELECT 1 FROM places WHERE place_id=?", (place_id,)).fetchone()
     if not cur:
         return 0
+    conn.execute(
+        "DELETE FROM review_translations WHERE review_id IN "
+        "(SELECT review_id FROM reviews WHERE place_id=?)", (place_id,))
     conn.execute(
         "DELETE FROM review_vectors WHERE review_id IN "
         "(SELECT review_id FROM reviews WHERE place_id=?)", (place_id,))

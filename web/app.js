@@ -89,29 +89,12 @@ const STAGES = {
 };
 const TAB_NAMES = ['scout', 'shop', 'library', 'ask'];
 const tabFromHash = () => (TAB_NAMES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'scout');
-const state = {
-  tab: 'scout',
-  profiles: [],
-  places: [],
-  searches: [],
-  libraryLoaded: false,
-  jobs: { scout: null, shop: null },
-  detail: null,
-  detailReturnFocus: null,
-  meta: null, // {version, reason: {model, provider}, embed: {model, provider}}
-};
-function loadingHtml(msg) {
-  return `<p class="loading">${esc(msg)} <span class="dots">●●●</span></p>`;
-}
-function errorHtml(msg) {
-  return `<div class="error-box"><span class="error-label">出错 error</span>${esc(msg)}</div>`;
-}
-function emptyHtml(msg, gotoTab, gotoLabel) {
-  const btn = gotoTab
-    ? `<button type="button" class="btn-ghost" data-goto="${esc(gotoTab)}">${esc(gotoLabel || '去侦察 →')}</button>`
-    : '';
-  return `<div class="empty">${esc(msg)}${btn}</div>`;
-}
+const state = { tab: 'scout', profiles: [], places: [], searches: [], libraryLoaded: false,
+  jobs: { scout: null, shop: null }, detail: null, detailReturnFocus: null,
+  meta: null }; // {version, reason: {model, provider}, embed: {model, provider}}
+function loadingHtml(msg) { return `<p class="loading">${esc(msg)} <span class="dots">●●●</span></p>`; }
+function errorHtml(msg) { return `<div class="error-box"><span class="error-label">出错 error</span>${esc(msg)}</div>`; }
+function emptyHtml(msg, gotoTab, gotoLabel) { const btn = gotoTab ? `<button type="button" class="btn-ghost" data-goto="${esc(gotoTab)}">${esc(gotoLabel || '去侦察 →')}</button>` : ''; return `<div class="empty">${esc(msg)}${btn}</div>`; }
 function renderPlanCard(plan) {
   if (!plan) return '';
   const queries = (plan.queries || [])
@@ -289,8 +272,10 @@ function renderReviewCard(r) {
   const lang = detectReviewLang(reviewBody(r));
   const dateStr = typeof r.review_date === 'number' ? relTime(r.review_date) : (r.review_date || '');
   const m = langMeta(lang);
+  const target = lang === 'zh' ? 'en' : 'zh';
+  const tx = r.review_id && r.text ? `<button type="button" class="review-translate" data-review-translate="${esc(r.review_id)}" data-review-translate-target="${target}">译文 ${target === 'zh' ? '中文' : 'EN'}</button>` : '';
   return `<article class="review" data-review-lang="${esc(lang)}"><header class="review-meta">
-      <span class="review-stars">${esc(stars(r.rating))}</span><span class="review-author">${esc(r.author || '匿名')}</span><span class="review-lang">${esc(m[0])}</span>${dateStr ? `<span class="review-date">${esc(dateStr)}</span>` : ''}</header>
+      <span class="review-stars">${esc(stars(r.rating))}</span><span class="review-author">${esc(r.author || '匿名')}</span><span class="review-lang">${esc(m[0])}</span>${dateStr ? `<span class="review-date">${esc(dateStr)}</span>` : ''}${tx}</header>
     ${r.text ? `<p class="review-text">${esc(r.text)}</p>` : ''}
     ${r.owner_response ? `<div class="owner-reply"><span class="owner-label">店家回复</span><p>${esc(r.owner_response)}</p></div>` : ''}
   </article>`;
@@ -646,6 +631,8 @@ function bindGlobal() {
     }
     const langFilter = e.target.closest('[data-review-lang-filter]');
     if (langFilter) return filterReviewLanguage(langFilter);
+    const tx = e.target.closest('[data-review-translate]');
+    if (tx) return translateReview(tx);
     const del = e.target.closest('[data-delete-place]');
     if (del) return deletePlace(del.dataset.deletePlace, del.dataset.placeName);
     const open = e.target.closest('[data-open-place]');
@@ -687,6 +674,19 @@ function filterReviewLanguage(btn) {
   }
   const label = $('.review-filter-count', panel);
   if (label) label.textContent = code === 'all' ? `显示全部 ${cards.length}` : `显示 ${shown} / ${cards.length}`;
+}
+async function translateReview(btn) {
+  const card = btn.closest('.review'), target = btn.dataset.reviewTranslateTarget || 'zh', label = `译文 ${target === 'zh' ? '中文' : 'EN'}`, existing = $('.review-translation:not(.is-error)', card);
+  if (existing) { existing.hidden = !existing.hidden; btn.textContent = existing.hidden ? label : '已译'; return; } $('.review-translation.is-error', card)?.remove();
+  btn.disabled = true; btn.textContent = '翻译中…';
+  try {
+    const r = await apiPost('/api/reviews/translate', { review_id: btn.dataset.reviewTranslate, target_lang: target });
+    card.insertAdjacentHTML('beforeend', `<div class="review-translation"><span>译文 ${esc(r.target_lang)}${r.cached ? ' · cached' : ''}</span><p>${esc(r.text)}</p></div>`);
+    btn.textContent = '已译';
+  } catch (err) {
+    card.insertAdjacentHTML('beforeend', `<div class="review-translation is-error">${esc(`翻译失败：${err.message}`)}</div>`);
+    btn.textContent = label;
+  } finally { btn.disabled = false; }
 }
 async function deletePlace(placeId, name) {
   if (!window.confirm(`把「${name || placeId}」连同它缓存的评价、报告、问答一起移除？\n（下次搜到它会重新抓取）`)) return;
