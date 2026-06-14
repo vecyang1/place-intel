@@ -75,6 +75,60 @@ test('tabs are deep-linkable and keyboard navigable', async ({ page }) => {
   await expect(page).toHaveURL(/#ask$/);
 });
 
+test('ask tab shows previous questions and re-asks from history chips', async ({ page }) => {
+  const qaRows = [{
+    id: 1,
+    question: '押金怎么收？',
+    answer: '旧答案',
+    place_id: null,
+    created_at: Date.now() / 1000,
+  }, {
+    id: 2,
+    question: '这家能现场修琴吗？',
+    answer: '旧单店答案',
+    place_id: 'place-1',
+    place_name: "D'Class Guitar",
+    created_at: Date.now() / 1000,
+  }];
+  await page.route('**/api/qa**', (route) => {
+    const url = new URL(route.request().url());
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(url.searchParams.get('scope') === 'all' ? qaRows : [qaRows[0]]),
+    });
+  });
+  const askBodies = [];
+  await page.route('**/api/ask', async (route) => {
+    askBodies.push(route.request().postDataJSON());
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        answer: '押金通常需要现场确认。',
+        cached: true,
+        matched: '押金怎么收？',
+        created_at: Date.now() / 1000,
+        model: 'test-model',
+        provider: 'test-provider',
+      }),
+    });
+  });
+
+  await page.goto('http://127.0.0.1:9618/#ask', { waitUntil: 'networkidle' });
+
+  await expect(page.locator('#ask-history')).toContainText('问过 asked');
+  const chip = page.getByRole('button', { name: '押金怎么收？' });
+  await expect(chip).toBeVisible();
+  await chip.click();
+  await expect(page.locator('#ask-question')).toHaveValue('押金怎么收？');
+  await expect(page.locator('#ask-answer')).toContainText('押金通常需要现场确认');
+
+  const shopChip = page.getByRole('button', { name: /这家能现场修琴吗/ });
+  await expect(shopChip).toContainText("D'Class Guitar");
+  await shopChip.click();
+  await expect(page.locator('#ask-question')).toHaveValue('这家能现场修琴吗？');
+  expect(askBodies.at(-1)).toMatchObject({ question: '这家能现场修琴吗？', place_id: 'place-1' });
+});
+
 test('shop dossier focuses close control and restores opener focus', async ({ page }) => {
   await page.route('**/api/places/focus-test', (route) => route.fulfill({
     contentType: 'application/json',

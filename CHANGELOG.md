@@ -1,5 +1,32 @@
 # Changelog — place-intel
 
+## v0.4.11 — 2026-06-14 — all-scope Ask history display
+- The top-level **提问 Ask** history now shows previously asked single-shop
+  questions as well as global questions, with the shop name appended to each
+  scoped chip.
+- Clicking a shop-scoped history chip from the Ask tab re-asks with the original
+  `place_id`, preserving the exact-scope QA cache rule instead of treating a
+  single-shop answer as global evidence.
+- Added `GET /api/qa?scope=all` as a display-only history mode. The default
+  `/api/qa` response remains global-only, and `/api/qa?place_id=...` remains
+  per-shop exact-scope.
+- Added server and Playwright regressions for all-scope history display and
+  scoped re-ask behavior.
+
+## v0.4.10 — 2026-06-13 — report reasoning retry
+- Report generation now retries transient reasoning-model failures before giving
+  up: rate limits, 5xx provider errors, connection failures, and timeouts get
+  three exponential-backoff attempts.
+- The retry wrapper covers both single-pass report generation and map-reduce
+  evidence chunk mining, so large-review dossiers no longer fail on one temporary
+  model hiccup.
+- Report-stage progress now surfaces automatic retry activity in CLI/Web events
+  while preserving the existing fail-after-final-attempt behavior for real errors.
+- Added deterministic unit regressions with a flaky fake reasoning client.
+- Added API and Playwright regressions proving previously asked questions are
+  viewable from `/api/qa`, rendered on the Ask tab, and re-askable from chips.
+- Closed the `/api/qa` SQLite connection after each history read.
+
 ## v0.4.9 — 2026-06-12 — browser chrome theming
 - Added light/dark `theme-color` metadata so mobile and desktop browser chrome
   matches the app surface instead of falling back to default colors.

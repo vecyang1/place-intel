@@ -22,6 +22,7 @@ class CacheContractTest(unittest.TestCase):
             row = cache.get_place(conn, "place-list-category")
             self.assertIsNotNone(row)
             self.assertEqual(row["category"], "Cafe · Coffee shop")
+            conn.close()
 
     def test_activity_risk_flags_popular_place_with_stale_reviews(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -52,6 +53,7 @@ class CacheContractTest(unittest.TestCase):
             self.assertEqual(risk["kind"], "stale_review_activity")
             self.assertEqual(risk["severity"], "high")
             self.assertEqual(risk["days_since_newest_review"], 365)
+            conn.close()
 
     def test_activity_risk_ignores_recent_or_low_volume_places(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -79,6 +81,7 @@ class CacheContractTest(unittest.TestCase):
             now_ts = cache._review_date_ts("2026-01-01")
             self.assertIsNone(cache.activity_risk(conn, "recent-popular", now_ts=now_ts))
             self.assertIsNone(cache.activity_risk(conn, "stale-small", now_ts=now_ts))
+            conn.close()
 
 
 if __name__ == "__main__":

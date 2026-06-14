@@ -54,6 +54,7 @@ class AnalyzeActivityRiskTest(unittest.TestCase):
             self.assertIn("ACTIVITY RISK SIGNAL: HIGH", user)
             self.assertIn("Activity risk tag", md)
             self.assertIn("Stale Popular Cafe", md)
+            conn.close()
 
 
 if __name__ == "__main__":

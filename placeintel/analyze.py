@@ -32,6 +32,9 @@ DIGEST_WORKERS = 3
 NEWEST_RAW_IN_REDUCE = 30
 MAX_REVIEW_CHARS = 800
 LOW_STAR_THRESHOLD = 2  # low-star reviews are always included — red-flag fuel
+MAX_REASON_TRIES = 3
+BACKOFF_BASE_SECONDS = 2.0
+TRANSIENT_HTTP_CODES = frozenset({429, 500, 502, 503, 504})
 
 
 @lru_cache(maxsize=1)
@@ -68,6 +71,45 @@ def _activity_risk_note(risk: dict | None) -> str:
         f"{risk.get('severity', 'medium').upper()} {risk.get('label', 'activity risk')} — "
         f"{risk.get('reason', '')}"
     ).strip()
+
+
+def _status_code(exc: Exception) -> int | None:
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    if code is None and getattr(exc, "response", None) is not None:
+        code = getattr(exc.response, "status_code", None)
+    try:
+        return int(code)
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_transient(exc: Exception) -> bool:
+    """True for rate limits, server errors, and connection-level failures."""
+    code = _status_code(exc)
+    if code is not None and (code in TRANSIENT_HTTP_CODES or code >= 500):
+        return True
+    return isinstance(exc, (ConnectionError, TimeoutError, OSError))
+
+
+def _with_reason_retry(call, *, label: str,
+                       on_retry: Callable[[str], None] | None = None):
+    """Run a reasoning API call with exponential backoff on transient failures."""
+    for attempt in range(1, MAX_REASON_TRIES + 1):
+        try:
+            return call()
+        except Exception as exc:
+            if not _is_transient(exc) or attempt == MAX_REASON_TRIES:
+                raise
+            delay = BACKOFF_BASE_SECONDS * 2 ** (attempt - 1)
+            msg = (
+                f"{label} transient error (attempt {attempt}/{MAX_REASON_TRIES}), "
+                f"retrying in {delay:.1f}s: {exc}"
+            )
+            log.warning(msg)
+            if on_retry:
+                on_retry(f"{label} 临时失败，第 {attempt}/{MAX_REASON_TRIES} 次后重试…")
+            time.sleep(delay)
+    raise RuntimeError("unreachable")
 
 
 def _build_prompt(place: sqlite3.Row, body: str, coverage: str, profile: dict,
@@ -123,7 +165,8 @@ walk_in_brief / verdict spec:
 
 
 def _digest_chunk(place_name: str, chunk: list[sqlite3.Row], idx: int, total: int,
-                  report_lang: str, evidence_lang: str) -> str:
+                  report_lang: str, evidence_lang: str,
+                  on_retry: Callable[[str], None] | None = None) -> str:
     """Map pass: mine one chunk of reviews into a dense, citable evidence digest."""
     body = "\n".join(_format_review(r) for r in chunk)
     system = (
@@ -136,11 +179,11 @@ def _digest_chunk(place_name: str, chunk: list[sqlite3.Row], idx: int, total: in
         f"header. {_evidence_rule(report_lang, evidence_lang)} "
         "Dense bullets only — no conclusions, no fluff, no headers."
     )
-    response = _client().models.generate_content(
+    response = _with_reason_retry(lambda: _client().models.generate_content(
         model=config.reason_model(),
         contents=body,
         config=types.GenerateContentConfig(system_instruction=system, temperature=0.1),
-    )
+    ), label=f"report digest chunk {idx}/{total}", on_retry=on_retry)
     return response.text or ""
 
 
@@ -213,10 +256,17 @@ def analyze_place(conn: sqlite3.Connection, place_id: str, profile: dict,
         chunks = [reviews[i:i + MAP_CHUNK] for i in range(0, len(reviews), MAP_CHUNK)]
         progress(f"评价较多（{len(reviews)} 条），分 {len(chunks)} 块全量深读，一条不漏…")
         _client()  # pre-warm before fanning out threads
+
+        def chunk_retry_progress(chunk_no: int) -> Callable[[str], None]:
+            return lambda _msg: progress(
+                f"证据块 {chunk_no}/{len(chunks)} 推理服务临时失败，正在自动重试…"
+            )
+
         with ThreadPoolExecutor(max_workers=DIGEST_WORKERS) as pool:
             digests = list(pool.map(
                 lambda item: _digest_chunk(place["name"], item[1], item[0] + 1,
-                                           len(chunks), report_lang, evidence_lang),
+                                           len(chunks), report_lang, evidence_lang,
+                                           on_retry=chunk_retry_progress(item[0] + 1)),
                 enumerate(chunks),
             ))
         progress(f"{len(chunks)} 块证据挖掘完成，正在综合成报告…")
@@ -239,11 +289,12 @@ def analyze_place(conn: sqlite3.Connection, place_id: str, profile: dict,
     model = model or config.reason_model()
     log.info("analyzing %s: %d reviews → %s", place["name"], len(reviews), model)
 
-    response = _client().models.generate_content(
+    response = _with_reason_retry(lambda: _client().models.generate_content(
         model=model,
         contents=user,
         config=types.GenerateContentConfig(system_instruction=system, temperature=0.2),
-    )
+    ), label="report generation",
+        on_retry=lambda _m: progress("推理服务临时失败，正在自动重试生成报告…"))
     report = _parse_json(response.text)
     if activity_risk:
         report["activity_risk"] = activity_risk

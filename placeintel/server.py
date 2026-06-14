@@ -145,10 +145,16 @@ def ask(req: AskRequest) -> dict:
 
 
 @app.get("/api/qa")
-def qa_history(place_id: str | None = None) -> JSONResponse:
+def qa_history(place_id: str | None = None, scope: str = "exact") -> JSONResponse:
     conn = cache.connect()
-    rows = cache.recent_qa(conn, place_id)
-    return JSONResponse([dict(r) for r in rows])
+    try:
+        if scope == "all" and not place_id:
+            rows = cache.recent_qa_all(conn)
+        else:
+            rows = cache.recent_qa(conn, place_id)
+        return JSONResponse([dict(r) for r in rows])
+    finally:
+        conn.close()
 
 
 @app.delete("/api/places/{place_id}")

@@ -616,8 +616,10 @@ function renderQaChips(rows) {
   if (!rows || !rows.length) return '';
   const chips = rows.map((r) => {
     const label = r.question.length > 42 ? `${r.question.slice(0, 42)}…` : r.question;
+    const place = r.place_id ? (r.place_name || '单店') : '';
     return `<button type="button" class="chip chip-link" data-ask-again="${esc(r.question)}"
-      title="${esc(relTime(r.created_at))} · 点击重问（命中缓存则免费秒回）">${esc(label)}</button>`;
+      ${place ? `data-ask-place="${esc(r.place_id)}"` : ''}
+      title="${esc(place ? `${place} · ` : '')}${esc(relTime(r.created_at))} · 点击重问（命中缓存则免费秒回）">${esc(label)}${place ? ` · ${esc(place)}` : ''}</button>`;
   }).join('');
   return `<div class="qa-chips"><span class="qa-chips-label">问过 asked</span>${chips}</div>`;
 }
@@ -627,7 +629,7 @@ async function loadQaHistory(placeId) {
     : $('#ask-history');
   if (!target) return;
   try {
-    const rows = await apiGet(`/api/qa${placeId ? `?place_id=${encodeURIComponent(placeId)}` : ''}`);
+    const rows = await apiGet(placeId ? `/api/qa?place_id=${encodeURIComponent(placeId)}` : '/api/qa?scope=all');
     target.innerHTML = renderQaChips(rows);
   } catch { /* history is optional decoration */ }
 }
@@ -645,15 +647,16 @@ function bindGlobal() {
     }
     const again = e.target.closest('[data-ask-again]');
     if (again) {
+      const place = again.dataset.askPlace || null;
       const scope = again.closest('.qa-history');
       if (scope) { // scoped re-ask inside the dossier
         const out = scope.parentElement.querySelector('.ask-shop-answer');
         const input = scope.parentElement.querySelector('.ask-shop-input');
         if (input) input.value = again.dataset.askAgain;
-        return runAsk(again.dataset.askAgain, scope.dataset.qaScope, out, false);
+        return runAsk(again.dataset.askAgain, place || scope.dataset.qaScope, out, false);
       }
       $('#ask-question').value = again.dataset.askAgain;
-      return runAsk(again.dataset.askAgain, null, $('#ask-answer'), false);
+      return runAsk(again.dataset.askAgain, place, $('#ask-answer'), false);
     }
     const del = e.target.closest('[data-delete-place]');
     if (del) return deletePlace(del.dataset.deletePlace, del.dataset.placeName);
@@ -770,11 +773,8 @@ function init() {
 }
 init();
 
-window.__pi = {
-  state,
-  esc, mdToHtml, relTime, stars, fmtClock, safeUrl,
+window.__pi = { state, esc, mdToHtml, relTime, stars, fmtClock, safeUrl,
   render: { event: renderEvent, planCard: renderPlanCard, verdicts: renderVerdicts, result: renderResult,
     report: renderReportArticle, libraryGrid: renderLibraryGrid, shopCard: renderShopCard,
     searchRow: renderSearchRow, detail: renderDetail, review: renderReviewCard, hours: renderHours },
-  openDetail, closeDetail, switchTab, loadLibrary, startJob,
-};
+  openDetail, closeDetail, switchTab, loadLibrary, startJob };

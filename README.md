@@ -38,7 +38,8 @@ cp .env.example .env             # then add at least one Gemini key
 The web app has four views: **侦察 Scout** (free text + live progress timeline showing
 the AI's plan, filter verdicts, and every pipeline stage), **单店 Shop** (one name/URL →
 focused dossier), **资料库 Library** (cached shops + past searches → shop dossier with
-report, scoped ask, review browser), **提问 Ask** (cross-shop RAG).
+report, scoped ask, review browser), **提问 Ask** (cross-shop RAG + all previous
+questions, including shop-scoped ones labeled by shop).
 
 ## Verify locally
 

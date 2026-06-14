@@ -610,3 +610,14 @@ def recent_qa(conn: sqlite3.Connection, place_id: str | None = None,
         f"SELECT id, question, answer, place_id, created_at FROM qa {where} "
         "ORDER BY created_at DESC LIMIT ?", params,
     ).fetchall()
+
+
+def recent_qa_all(conn: sqlite3.Connection, limit: int = 12) -> list[sqlite3.Row]:
+    """Recent Q&A across scopes for display only; cache lookup remains exact-scope."""
+    return conn.execute(
+        """SELECT qa.id, qa.question, qa.answer, qa.place_id, qa.created_at,
+                  p.name AS place_name
+           FROM qa LEFT JOIN places p ON p.place_id = qa.place_id
+           ORDER BY qa.created_at DESC LIMIT ?""",
+        (limit,),
+    ).fetchall()
