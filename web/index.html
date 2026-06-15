@@ -133,28 +133,28 @@
         <button type="button" class="btn-ghost" id="library-reload" data-i18n="refresh.short">刷新 ↻</button>
       </div>
       <div class="library-tools">
-        <input id="library-search" name="library_search" type="search" autocomplete="off" placeholder="例：guitar / hiking / Hoi An…">
-        <select id="library-sort" name="library_sort" aria-label="资料库排序">
-          <option value="smart">智能排序 smart</option>
-          <option value="fresh">最近更新 fresh</option>
-          <option value="cached">缓存评价多 cached</option>
-          <option value="rating">评分高 rating</option>
+        <input id="library-search" name="library_search" type="search" autocomplete="off" placeholder="例：吉他 / 徒步 / 会安…" data-i18n-placeholder="ph.library">
+        <select id="library-sort" name="library_sort" aria-label="资料库排序" data-i18n-aria="aria.library.sort">
+          <option value="smart" data-i18n="filter.sort.smart">智能排序</option>
+          <option value="fresh" data-i18n="filter.sort.fresh">最近更新</option>
+          <option value="cached" data-i18n="filter.sort.cached">缓存评价多</option>
+          <option value="rating" data-i18n="filter.sort.rating">评分高</option>
         </select>
-        <select id="library-category" name="library_category" aria-label="按类别筛选"><option value="">全部类别 category</option></select>
-        <select id="library-freshness" name="library_freshness" aria-label="按新鲜度筛选">
-          <option value="">全部新鲜度 freshness</option><option value="recent">近期更新 recent</option><option value="stale">可能过期 stale</option>
+        <select id="library-category" name="library_category" aria-label="按类别筛选" data-i18n-aria="aria.library.category"><option value="" data-i18n="filter.category.all">全部类别</option></select>
+        <select id="library-freshness" name="library_freshness" aria-label="按新鲜度筛选" data-i18n-aria="aria.library.freshness">
+          <option value="" data-i18n="filter.freshness.all">全部新鲜度</option><option value="recent" data-i18n="filter.freshness.recent">近期更新</option><option value="stale" data-i18n="filter.freshness.stale">可能过期</option>
         </select>
-        <select id="library-risk" name="library_risk" aria-label="按风险筛选">
-          <option value="">全部风险 risk</option><option value="risk">只看需核实</option><option value="ok">隐藏风险项</option>
+        <select id="library-risk" name="library_risk" aria-label="按风险筛选" data-i18n-aria="aria.library.risk">
+          <option value="" data-i18n="filter.risk.all">全部风险</option><option value="risk" data-i18n="filter.risk.risk">只看需核实</option><option value="ok" data-i18n="filter.risk.ok">隐藏风险项</option>
         </select>
-        <select id="library-language" name="library_language" aria-label="按评价语言筛选">
-          <option value="">全部语言 language</option><option value="zh">中文 zh</option><option value="en">English en</option><option value="vi">Tiếng Việt vi</option><option value="ko">한국어 ko</option><option value="other">其他 other</option>
+        <select id="library-language" name="library_language" aria-label="按评价语言筛选" data-i18n-aria="aria.library.language">
+          <option value="" data-i18n="filter.language.all">全部语言</option><option value="zh" data-i18n="filter.language.zh">中文</option><option value="en" data-i18n="filter.language.en">英语</option><option value="vi" data-i18n="filter.language.vi">越南语</option><option value="ko" data-i18n="filter.language.ko">韩语</option><option value="other" data-i18n="filter.language.other">其他</option>
         </select>
-        <select id="library-cached" name="library_cached" aria-label="按缓存评价数筛选">
-          <option value="">全部缓存 cached</option><option value="50">50+ 已缓存</option><option value="100">100+ 已缓存</option><option value="300">300+ 已缓存</option>
+        <select id="library-cached" name="library_cached" aria-label="按缓存评价数筛选" data-i18n-aria="aria.library.cached">
+          <option value="" data-i18n="filter.cached.all">全部缓存</option><option value="50" data-i18n="filter.cached.50">50+ 已缓存</option><option value="100" data-i18n="filter.cached.100">100+ 已缓存</option><option value="300" data-i18n="filter.cached.300">300+ 已缓存</option>
         </select>
-        <select id="library-report" name="library_report" aria-label="按报告筛选">
-          <option value="">全部报告 profile</option><option value="with-report">有报告</option><option value="no-report">无报告</option>
+        <select id="library-report" name="library_report" aria-label="按报告筛选" data-i18n-aria="aria.library.report">
+          <option value="" data-i18n="filter.report.all">全部报告</option><option value="with-report" data-i18n="filter.report.with">有报告</option><option value="no-report" data-i18n="filter.report.no">无报告</option>
         </select>
       </div>
       <div id="library-status"></div>

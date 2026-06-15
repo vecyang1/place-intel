@@ -97,9 +97,9 @@ test('system panel exposes safe settings and health without leaking secrets', as
   await expect(panel).toContainText('System Status');
   await expect(panel).toContainText('reason-model');
   await expect(panel).toContainText('translate-model');
-  await expect(panel).toContainText('默认回答 zh');
-  await expect(panel).toContainText('证据 original');
-  await expect(panel).toContainText('缓存 TTL 9 天');
+  await expect(panel).toContainText('default answer zh');
+  await expect(panel).toContainText('evidence original');
+  await expect(panel).toContainText('cache TTL 9 days');
   await expect(panel).toContainText('data dir configured');
   await expect(panel).toContainText('Provider status');
   await expect(panel.locator('[href="/api/health"]')).toHaveCount(1);
@@ -107,6 +107,29 @@ test('system panel exposes safe settings and health without leaking secrets', as
   await expect(panel.locator('#system-danger')).toContainText('Dangerous settings');
   await expect(panel).not.toContainText('AIza');
   await expect(panel).not.toContainText('sk-');
+});
+
+test('chosen Chinese UI language localizes system panel chrome', async ({ page }) => {
+  await preferChineseBeforeLoad(page);
+  await page.route('**/api/config', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      language: { app_defaults: { ui_language: 'auto', answer_language: 'auto', report_language: 'auto', translation_target: 'auto' } },
+      settings: { reason_model: 'reason-model', translation_model: 'translate-model', default_answer_language: 'zh', default_report_language: 'zh', evidence_language: 'report', cache_ttl_days: 14 },
+      runtime: { data_dir: { configured: true, path_visible: false }, port: 9618 },
+      providers: { reason: { model: 'reason-model', provider: 'VectorEngine' }, translate: { model: 'translate-model', provider: 'VectorEngine' }, embed: { model: 'embed-model', provider: 'Google 官方' } },
+      health: { cheap_url: '/api/health', deep_url: '/api/health/deep' },
+      feature_status: { reasoning: { available: true }, embedding: { available: true }, translation: { available: true } },
+    }),
+  }));
+  await page.route('**/api/health', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true }) }));
+
+  await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  await page.locator('#system-toggle').click();
+
+  const panelText = await page.locator('#system-panel').textContent();
+  expect(panelText).toContain('系统状态');
+  expect(panelText).not.toMatch(/\b(System Status|Language|Reports|Reviews|Provider status|Setup state|Dangerous settings|Save language)\b/);
 });
 
 test('language adaptation localizes English shell and sends answer language hints', async ({ page }) => {
@@ -152,6 +175,42 @@ test('language adaptation localizes English shell and sends answer language hint
   await page.locator('#ask-submit').click();
 
   expect(askBody).toMatchObject({ question: 'Which shop is patient?', report_lang: 'en-US', language_hint: 'en-US' });
+});
+
+test('chosen Chinese UI language does not show paired English chrome labels', async ({ page }) => {
+  await preferChineseBeforeLoad(page);
+  await page.route('**/api/places', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+
+  await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
+
+  const chromeText = await page.evaluate(() => Array.from(document.querySelectorAll(
+    'nav.tabs, #panel-library .section-head, .library-tools, #library-status',
+  )).map((el) => el.textContent).join(' '));
+  expect(chromeText).toContain('资料库');
+  expect(chromeText).not.toMatch(/\b(Scout|Shop|Library|Ask|category|freshness|risk|language|cached|profile|smart)\b/);
+});
+
+test('chosen English UI language does not show Chinese chrome labels', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+    localStorage.setItem('placeintel.languagePreference', JSON.stringify({
+      ui_language: 'en',
+      answer_language: 'en',
+      report_language: 'en',
+      translation_target: 'en',
+    }));
+  });
+  await page.route('**/api/places', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+
+  await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
+
+  const chromeText = await page.evaluate(() => Array.from(document.querySelectorAll(
+    'nav.tabs, #panel-library .section-head, .library-tools, #library-status, #history-status',
+  )).map((el) => el.textContent).join(' '));
+  expect(chromeText).toContain('Library');
+  expect(chromeText).not.toMatch(/[\u3400-\u9fff]/);
 });
 
 test('unsupported browser locale uses English UI while keeping output target', async ({ page }) => {
@@ -279,7 +338,7 @@ test('ask answer renders separated listing and review evidence', async ({ page }
   await expect(page.locator('#ask-answer .answer-evidence')).toContainText("D'Class Guitar");
   await expect(page.locator('#ask-answer .answer-evidence')).toContainText('★2');
   await expect(page.locator('#ask-answer .answer-evidence')).toContainText('2026-06-01');
-  await expect(page.locator('#ask-answer .answer-evidence')).toContainText('原文:ko');
+  await expect(page.locator('#ask-answer .answer-evidence')).toContainText('source:ko');
   await expect(page.locator('#ask-answer .answer-evidence')).toContainText('49/9 Nguyen Tat Thanh');
 });
 
@@ -451,7 +510,7 @@ test('library search filters cached shops and caps the initial list', async ({ p
   await page.locator('#library-search').fill('guitar');
   await expect(page.locator('#library-grid .shop-card')).toHaveCount(1);
   await expect(page.locator('#library-grid')).toContainText("D'Class Guitar");
-  await expect(page.locator('#library-status')).toContainText('显示 1 / 15');
+  await expect(page.locator('#library-status')).toContainText('Showing 1 / 15');
 });
 
 test('source photos render lazily in library, dossier, and compare without page overflow', async ({ page }) => {
@@ -668,7 +727,7 @@ test('library compare board reads cached dossiers without generating reports', a
   await expect(board).toContainText('Compare Board');
   await expect(board).toContainText("D'Class Guitar");
   await expect(board).toContainText('Quiet Lantern Tour');
-  await expect(board).toContainText('149 条在列');
+  await expect(board).toContainText('149 listed');
   await expect(board).toContainText('149 cached');
   await expect(board).toContainText('rental');
   await expect(board).toContainText('Go, but confirm deposit first.');
@@ -751,7 +810,7 @@ test('dossier delete closes modal and rerenders library from API state', async (
 
   expect(deleted).toBe(true);
   await expect(page.locator('#detail-overlay')).toBeHidden();
-  await expect(page.locator('#library-status')).toContainText('资料库是空的');
+  await expect(page.locator('#library-status')).toContainText('Library is empty');
 });
 
 test('activity risk renders as a cautious visible tag', async ({ page }) => {
@@ -880,7 +939,7 @@ test('shop dossier opens with a decision brief before long evidence', async ({ p
 
   expect(state.briefText).toContain('go-with-caution');
   expect(state.briefText).toContain('近期偏静');
-  expect(state.briefText).toContain('更新于');
+  expect(state.briefText).toContain('Updated');
   expect(state.briefText).toContain('Address is near Nguyen Tat Thanh');
   expect(state.briefText).toContain('Ask the daily rental price first.');
   expect(state.briefText).toContain('Confirm deposit before leaving ID.');
@@ -895,6 +954,7 @@ test('shop dossier opens with a decision brief before long evidence', async ({ p
 });
 
 test('shop dossier segments reviews by language and filters raw comments', async ({ page }) => {
+  await preferChineseBeforeLoad(page);
   await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
   await page.evaluate(() => {
     const place = {
@@ -942,9 +1002,9 @@ test('shop dossier segments reviews by language and filters raw comments', async
 
   await page.locator('.language-insights > summary').click();
   await expect(page.locator('[data-review-lang-card="zh"]')).toContainText('中文');
-  await expect(page.locator('[data-review-lang-card="en"]')).toContainText('English');
-  await expect(page.locator('[data-review-lang-card="vi"]')).toContainText('Tiếng Việt');
-  await expect(page.locator('[data-review-lang-card="ko"]')).toContainText('Korean');
+  await expect(page.locator('[data-review-lang-card="en"]')).toContainText('英语');
+  await expect(page.locator('[data-review-lang-card="vi"]')).toContainText('越南语');
+  await expect(page.locator('[data-review-lang-card="ko"]')).toContainText('韩语');
   await expect(page.locator('.language-lens')).toContainText('价格');
   await expect(page.locator('.language-lens')).toContainText('到达');
 
@@ -1168,7 +1228,7 @@ test('review translation can retry after a transient failure', async ({ page }) 
   await button.click();
   await expect(page.locator('#translate-retry-host .review-translation')).toContainText('老板很热情');
   await expect(page.locator('#translate-retry-host .review-translation.is-error')).toHaveCount(0);
-  await expect(button).toContainText('已译');
+  await expect(button).toContainText('Translated');
   expect(attempts).toBe(2);
 });
 
@@ -1237,7 +1297,7 @@ test('ask tab shows previous questions and re-asks from history chips', async ({
 
   await page.goto('http://127.0.0.1:9618/#ask', { waitUntil: 'networkidle' });
 
-  await expect(page.locator('#ask-history')).toContainText('问过 asked');
+  await expect(page.locator('#ask-history')).toContainText('Asked');
   const chip = page.getByRole('button', { name: '押金怎么收？' });
   await expect(chip).toBeVisible();
   await chip.click();

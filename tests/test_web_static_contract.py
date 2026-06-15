@@ -144,8 +144,8 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("问缓存", html)
         self.assertRegex(css, r"\.tabs\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)", re.S)
         self.assertRegex(css, r"\.tab::after\s*\{[^}]*left:\s*50%", re.S)
-        self.assertIn("Ask 只问已有缓存证据", dynamic_copy)
-        self.assertIn("Scout 会搜索/刷新 Google Maps 和评价证据", dynamic_copy)
+        self.assertIn("问缓存只问已有证据", dynamic_copy)
+        self.assertIn("侦察会搜索或刷新地图与评价证据", dynamic_copy)
 
     def test_locale_catalog_owns_core_ui_language_copy(self) -> None:
         html = (WEB / "index.html").read_text(encoding="utf-8")

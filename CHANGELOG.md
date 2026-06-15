@@ -1,5 +1,15 @@
 # Changelog — place-intel
 
+## v0.4.43 — 2026-06-16 — selected-language UI chrome
+- Chinese UI mode now renders app chrome in Chinese only instead of paired
+  Chinese/English glossary labels across tabs, Library filters, System,
+  dossiers, Ask evidence, Compare, translations, and source-photo controls.
+- English UI mode now keeps the same surfaces English-only, including dynamic
+  empty states, history labels, language-lens filters, and cached-answer notes.
+- Added Playwright regressions for both selected-language directions plus the
+  System panel so future UI copy changes do not reintroduce mixed-language
+  labels.
+
 ## v0.4.42 — 2026-06-15 — eager photo gallery preload
 - Source-photo lightboxes now preload the rest of the active gallery as soon as
   the viewer opens or a card thumbnail expands into the full place gallery, so
