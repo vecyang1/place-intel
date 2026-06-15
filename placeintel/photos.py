@@ -11,7 +11,7 @@ import sqlite3
 from urllib.parse import urlsplit, urlunsplit
 
 PHOTO_LIST_LIMIT = 1
-PHOTO_DETAIL_LIMIT = 6
+PHOTO_DETAIL_LIMIT = 12
 PHOTO_REVIEW_SCAN_LIMIT = 120
 PHOTO_REVIEW_IMAGE_LIMIT = 12
 _IMAGE_KEYS = ("image", "original", "thumbnail", "thumb_url", "photo", "src", "url", "link")

@@ -527,6 +527,7 @@ textarea.query-input { min-height: 6em; }
 .photo-lightbox-zoom:disabled, .photo-lightbox-nav:disabled { opacity: 0.38; cursor: not-allowed; }
 .photo-lightbox-zoom-label { min-width: 3.4rem; text-align: center; font-family: var(--mono); font-size: 0.72rem; color: rgba(255,255,255,0.82); }
 .photo-lightbox-frame figcaption { font-family: var(--mono); font-size: 0.72rem; color: rgba(255,255,255,0.78); text-align: center; }
+.photo-lightbox-source { max-width: 100%; justify-self: center; font-family: var(--mono); font-size: 0.68rem; color: rgba(255,255,255,0.82); word-break: break-all; text-align: center; }
 .activity-risk {
   color: var(--danger);
   background: color-mix(in oklab, var(--danger) 10%, transparent);

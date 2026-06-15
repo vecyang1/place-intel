@@ -1,5 +1,12 @@
 # Changelog — place-intel
 
+## v0.4.39 — 2026-06-15 — source URL photo gallery extension
+- The source-photo lightbox now quotes the exact original image URL in the
+  viewer, with an explicit clickable source link for user inspection.
+- Dossier source-photo strips now render up to 12 URL-only images, keeping the
+  no-binary-cache storage policy while making richer Google/source photo sets
+  browsable with the existing arrows and keyboard navigation.
+
 ## v0.4.38 — 2026-06-15 — scrollable photo gallery lightbox
 - Added previous/next controls and keyboard ArrowLeft/ArrowRight navigation to
   the source-photo lightbox so multi-photo Google/source sets can be reviewed
