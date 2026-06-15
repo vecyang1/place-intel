@@ -373,6 +373,7 @@ test('source photos render lazily in library, dossier, and compare without page 
       place: { ...places[0], phone: '+84 90 000 0000' },
       photos: [
         { url: 'https://images.example/photo-place.jpg', thumb_url: 'https://images.example/photo-place-thumb.jpg', source: 'scraper-pro', kind: 'review', review_id: 'r1', author: 'Ana', rating: 5, date: '2026-06-01' },
+        { url: 'https://images.example/photo-place-2.jpg', thumb_url: 'https://images.example/photo-place-2-thumb.jpg', source: 'scraper-pro', kind: 'review', review_id: 'r2', author: 'Bo', rating: 4, date: '2026-06-02' },
       ],
       reviews: [{ review_id: 'r1', author: 'Ana', rating: 5, review_date: '2026-06-01', text: 'Nice storefront.' }],
       report: { profile: 'generic', created_at: now, md: '# Report', json: { verdict: 'Looks real.', walk_in_brief: ['Use photo to verify storefront.'] } },
@@ -401,7 +402,7 @@ test('source photos render lazily in library, dossier, and compare without page 
 
   await page.locator('[data-open-place="photo-place"]').first().click();
   await expect(page.locator('#detail-overlay')).toBeVisible();
-  await expect(page.locator('#detail-body .photo-strip img.source-photo-img')).toHaveAttribute('loading', 'lazy');
+  await expect(page.locator('#detail-body .photo-strip img.source-photo-img').first()).toHaveAttribute('loading', 'lazy');
   await expect(page.locator('#detail-body .photo-strip')).toContainText('review photo');
   const pagesBefore = page.context().pages().length;
   const popupPromise = page.waitForEvent('popup', { timeout: 500 }).catch(() => null);
@@ -415,12 +416,22 @@ test('source photos render lazily in library, dossier, and compare without page 
   const alpha = Number((/rgba?\([^,]+,[^,]+,[^,]+,\s*([0-9.]+)\)/.exec(backdropColor) || [])[1] || 1);
   expect(alpha).toBeGreaterThanOrEqual(0.82);
   await expect(page.locator('#photo-lightbox-zoom-out')).toBeVisible();
+  await expect(page.locator('#photo-lightbox-prev')).toBeVisible();
+  await expect(page.locator('#photo-lightbox-next')).toBeVisible();
   await expect(page.locator('#photo-lightbox-zoom-label')).toHaveText('100%');
   await page.locator('#photo-lightbox-zoom-in').click();
   await expect(page.locator('#photo-lightbox-zoom-label')).toHaveText('125%');
-  await expect(page.locator('#photo-lightbox-img')).toHaveCSS('transform', /matrix\(1\.25/);
+  const zoomedOverflow = await page.locator('.photo-lightbox-stage').evaluate((el) => el.scrollWidth - el.clientWidth);
+  expect(zoomedOverflow).toBeGreaterThan(0);
   await page.locator('#photo-lightbox-zoom-out').click();
   await expect(page.locator('#photo-lightbox-zoom-label')).toHaveText('100%');
+  await page.mouse.wheel(0, -180);
+  await expect(page.locator('#photo-lightbox-zoom-label')).toHaveText('125%');
+  await page.locator('#photo-lightbox-next').click();
+  await expect(page.locator('#photo-lightbox-img')).toHaveAttribute('src', 'https://images.example/photo-place-2.jpg');
+  await expect(page.locator('#photo-lightbox-caption')).toContainText('Bo');
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('#photo-lightbox-img')).toHaveAttribute('src', 'https://images.example/photo-place.jpg');
   expect(page.context().pages()).toHaveLength(pagesBefore);
   await page.keyboard.press('Escape');
   await expect(page.locator('#photo-lightbox')).toBeHidden();

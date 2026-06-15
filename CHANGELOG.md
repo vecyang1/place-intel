@@ -1,5 +1,14 @@
 # Changelog — place-intel
 
+## v0.4.38 — 2026-06-15 — scrollable photo gallery lightbox
+- Added previous/next controls and keyboard ArrowLeft/ArrowRight navigation to
+  the source-photo lightbox so multi-photo Google/source sets can be reviewed
+  without closing the dossier.
+- Added mouse/trackpad wheel zoom inside the lightbox. Zoom now grows a real
+  scrollable canvas instead of transform-scaling an unscrollable image.
+- Kept the URL-only photo policy: the gallery uses existing source URLs and
+  still does not download or store image binaries.
+
 ## v0.4.37 — 2026-06-15 — darker zoomable photo lightbox
 - Darkened and polished the source-photo lightbox so clicked Google/source
   photos read as an intentional in-app viewer instead of a loose overlay.
