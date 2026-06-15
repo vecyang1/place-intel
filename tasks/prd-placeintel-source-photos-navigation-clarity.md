@@ -1,11 +1,11 @@
 # PRD: placeintel Source Photos and Navigation Clarity
 
-Status: 📋 Draft
+Status: ✅ Complete
 Last Updated: 2026-06-15
 Deployment Profile: hybrid
 Deploy Targets: local FastAPI web app on `127.0.0.1:9618`, protected VPS/systemd lane when deployed
 Parent PRD: `tasks/prd-placeintel-world-class-ui-ux.md`
-Mode: PRD-only. Do not implement from this document until the user starts a build goal.
+Mode: Built and verified in `v0.4.35`.
 
 ## Research and Context Snapshot
 
@@ -70,14 +70,14 @@ As a user, I want place photos to come from Google Maps/review source material s
 
 Acceptance Criteria:
 
-- [ ] `/api/places` returns at most one lightweight `thumbnail` object per cached place when a source photo URL is available.
-- [ ] `/api/places/{place_id}` returns a bounded `photos[]` array with source URL metadata and no binary image data.
-- [ ] Review image URLs from existing `reviews.images_json` are exposed only through a safe backend resolver; frontend does not parse raw JSON columns.
-- [ ] The source contract includes `url`, `source`, `kind`, optional `review_id`, optional `author`, optional `rating`, optional `date`, and optional `attribution`.
-- [ ] No photo files are downloaded or written to `data/` during the default path.
-- [ ] `docs/API.md` documents the new fields and their no-binary guarantee.
-- [ ] Typecheck/lint passes.
-- [ ] Visual verification via dev-browser or preview skill.
+- [x] `/api/places` returns at most one lightweight `thumbnail` object per cached place when a source photo URL is available.
+- [x] `/api/places/{place_id}` returns a bounded `photos[]` array with source URL metadata and no binary image data.
+- [x] Review image URLs from existing `reviews.images_json` are exposed only through a safe backend resolver; frontend does not parse raw JSON columns.
+- [x] The source contract includes `url`, `source`, `kind`, optional `review_id`, optional `author`, optional `rating`, optional `date`, and optional `attribution`.
+- [x] No photo files are downloaded or written to `data/` during the default path.
+- [x] `docs/API.md` documents the new fields and their no-binary guarantee.
+- [x] Typecheck/lint passes.
+- [x] Visual verification via dev-browser or preview skill.
 
 ### US-002: Photo Strip in Dossier, Library, and Compare
 
@@ -85,14 +85,14 @@ As a user browsing cached places, I want small source thumbnails in the right pl
 
 Acceptance Criteria:
 
-- [ ] Dossier header shows a horizontal source-photo strip above or directly below the decision brief when `photos[]` exists.
-- [ ] Library cards show one thumbnail only when a lightweight `thumbnail` exists; cards without photos keep their current readable layout.
-- [ ] Compare cards show the same one thumbnail only if it does not push key facts below the fold on mobile.
-- [ ] Every image uses a stable 4:3 or 1:1 aspect-ratio box, `object-fit: cover`, `loading="lazy"`, and a broken-image fallback.
-- [ ] Clicking a photo opens the source URL or Google Maps place URL in a new tab with `rel="noopener noreferrer"`.
-- [ ] The UI labels the media as "source photo" or "review photo" and never presents it as an AI-generated image.
-- [ ] Typecheck/lint passes.
-- [ ] Visual verification via dev-browser or preview skill.
+- [x] Dossier header shows a horizontal source-photo strip above or directly below the decision brief when `photos[]` exists.
+- [x] Library cards show one thumbnail only when a lightweight `thumbnail` exists; cards without photos keep their current readable layout.
+- [x] Compare cards show the same one thumbnail only if it does not push key facts below the fold on mobile.
+- [x] Every image uses a stable 4:3 or 1:1 aspect-ratio box, `object-fit: cover`, `loading="lazy"`, and a broken-image fallback.
+- [x] Clicking a photo opens the source URL or Google Maps place URL in a new tab with `rel="noopener noreferrer"`.
+- [x] The UI labels the media as "source photo" or "review photo" and never presents it as an AI-generated image.
+- [x] Typecheck/lint passes.
+- [x] Visual verification via dev-browser or preview skill.
 
 ### US-003: Aligned Accessible Top Tabs
 
@@ -100,13 +100,13 @@ As a user, I want the Scout/Shop/Library/Ask tabs to look intentionally aligned 
 
 Acceptance Criteria:
 
-- [ ] Top tabs use equal or measured tracks at desktop widths so labels and active underline align visually.
-- [ ] On narrow mobile widths, tabs remain horizontally scroll-safe or compact to a stable 4-column layout without clipped labels.
-- [ ] Existing IDs, roles, `aria-selected`, roving `tabindex`, Arrow/Home/End keyboard behavior, and `#scout/#shop/#library/#ask` hash contract remain intact.
-- [ ] Active underline width is consistent and centered within each tab track.
-- [ ] Playwright proves tab navigation by click, keyboard, and direct hash load.
-- [ ] Typecheck/lint passes.
-- [ ] Visual verification via dev-browser or preview skill.
+- [x] Top tabs use equal or measured tracks at desktop widths so labels and active underline align visually.
+- [x] On narrow mobile widths, tabs remain horizontally scroll-safe or compact to a stable 4-column layout without clipped labels.
+- [x] Existing IDs, roles, `aria-selected`, roving `tabindex`, Arrow/Home/End keyboard behavior, and `#scout/#shop/#library/#ask` hash contract remain intact.
+- [x] Active underline width is consistent and centered within each tab track.
+- [x] Playwright proves tab navigation by click, keyboard, and direct hash load.
+- [x] Typecheck/lint passes.
+- [x] Visual verification via dev-browser or preview skill.
 
 ### US-004: Clear Scout vs Ask Vocabulary
 
@@ -114,14 +114,14 @@ As a non-coder user, I want to know whether I am searching Google Maps or asking
 
 Acceptance Criteria:
 
-- [ ] Scout is labeled/copy-described as the path that searches/refreshes Google Maps evidence: "侦察新店 Scout" or equivalent.
-- [ ] Ask is labeled/copy-described as the path that queries existing cache: "问缓存 Ask" or equivalent.
-- [ ] The Command Center chips each have a short visible helper line or compact sublabel; do not rely only on hidden tooltip text.
-- [ ] Ask empty-cache state says to run Scout or Shop first, and does not imply it can search the web.
-- [ ] Scout mode reason says it may search Maps, filter candidates, scrape reviews, and generate reports.
-- [ ] Top-level Ask history keeps mixed display navigation while exact-scope cache safety remains unchanged.
-- [ ] Typecheck/lint passes.
-- [ ] Visual verification via dev-browser or preview skill.
+- [x] Scout is labeled/copy-described as the path that searches/refreshes Google Maps evidence: "侦察新店 Scout" or equivalent.
+- [x] Ask is labeled/copy-described as the path that queries existing cache: "问缓存 Ask" or equivalent.
+- [x] The Command Center chips each have a short visible helper line or compact sublabel; do not rely only on hidden tooltip text.
+- [x] Ask empty-cache state says to run Scout or Shop first, and does not imply it can search the web.
+- [x] Scout mode reason says it may search Maps, filter candidates, scrape reviews, and generate reports.
+- [x] Top-level Ask history keeps mixed display navigation while exact-scope cache safety remains unchanged.
+- [x] Typecheck/lint passes.
+- [x] Visual verification via dev-browser or preview skill.
 
 ### US-005: Lightweight Implementation Guardrail
 
@@ -129,13 +129,13 @@ As the project owner, I want this UI feature to stay small so that placeintel re
 
 Acceptance Criteria:
 
-- [ ] Implementation begins by running `wc -l web/index.html web/app.css web/app.js` and recording counts in `progress.md`.
-- [ ] If `web/app.css` or `web/app.js` would exceed current tests, implementation first compacts duplicated CSS/JS or proposes a no-build module split PRD before adding features.
-- [ ] Default thumbnail cache size is `0 MB`; enabling a future cache requires an explicit setting and cap.
-- [ ] Backups do not include photo binaries or arbitrary image cache directories.
-- [ ] Existing `placeintel backup` allow-list remains unchanged unless a separate backup PRD approves photo-cache handling.
-- [ ] Typecheck/lint passes.
-- [ ] Visual verification via dev-browser or preview skill.
+- [x] Implementation begins by running `wc -l web/index.html web/app.css web/app.js` and recording counts in `progress.md`.
+- [x] If `web/app.css` or `web/app.js` would exceed current tests, implementation first compacts duplicated CSS/JS or proposes a no-build module split PRD before adding features.
+- [x] Default thumbnail cache size is `0 MB`; enabling a future cache requires an explicit setting and cap.
+- [x] Backups do not include photo binaries or arbitrary image cache directories.
+- [x] Existing `placeintel backup` allow-list remains unchanged unless a separate backup PRD approves photo-cache handling.
+- [x] Typecheck/lint passes.
+- [x] Visual verification via dev-browser or preview skill.
 
 ### US-006: Verification and Release Hygiene
 
@@ -143,13 +143,13 @@ As a future agent, I want exact tests and docs to prove this feature so that it 
 
 Acceptance Criteria:
 
-- [ ] Add Python tests for photo URL extraction, caps, and API payload shape.
-- [ ] Add static web tests for tab structure, copy vocabulary, lazy image attributes, and line budgets.
-- [ ] Add Playwright tests for desktop/mobile photo rendering, tab alignment, Ask empty-cache copy, and no console errors.
-- [ ] Run `.venv/bin/python -m unittest discover -s tests -p 'test_*.py'`.
-- [ ] Run `npx playwright test tests/ui-audit.spec.js` against a fresh `placeintel-web` runtime.
-- [ ] Run `.venv/bin/placeintel doctor --json`, `.venv/bin/placeintel deploy-smoke --base-url http://127.0.0.1:9618 --format json`, `node --check web/app.js`, `git diff --check`, and the web line-budget test.
-- [ ] Update `docs/API.md`, `progress.md`, `CHANGELOG.md`, and this PRD as build status changes.
+- [x] Add Python tests for photo URL extraction, caps, and API payload shape.
+- [x] Add static web tests for tab structure, copy vocabulary, lazy image attributes, and line budgets.
+- [x] Add Playwright tests for desktop/mobile photo rendering, tab alignment, Ask empty-cache copy, and no console errors.
+- [x] Run `.venv/bin/python -m unittest discover -s tests -p 'test_*.py'`.
+- [x] Run `npx playwright test tests/ui-audit.spec.js` against a fresh `placeintel-web` runtime.
+- [x] Run `.venv/bin/placeintel doctor --json`, `.venv/bin/placeintel deploy-smoke --base-url http://127.0.0.1:9618 --format json`, `node --check web/app.js`, `git diff --check`, and the web line-budget test.
+- [x] Update `docs/API.md`, `progress.md`, `CHANGELOG.md`, and this PRD as build status changes.
 
 ## 4. Functional Requirements
 
@@ -514,4 +514,5 @@ After implementation and restart:
 
 | Date | Version | Summary | Author |
 | --- | --- | --- | --- |
+| 2026-06-15 | v1.0 | Built URL-only source photos, aligned navigation tabs, Scout/Ask vocabulary, tests, docs, and visual proof. | Codex |
 | 2026-06-15 | v0.1 | Draft PRD for source photos, tab alignment, and Scout/Ask clarity. | Codex |

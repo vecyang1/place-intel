@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import __version__, cache, config, doctor, pipeline, profiles
+from . import __version__, cache, config, doctor, photos, pipeline, profiles
 
 log = logging.getLogger(__name__)
 app = FastAPI(title="placeintel", version=__version__)
@@ -312,6 +312,7 @@ def places() -> JSONResponse:
             item["favorite"] = bool(item.get("favorite"))
             item["refresh_enabled"] = bool(item.get("refresh_enabled"))
             item["activity_risk"] = cache.activity_risk(conn, row["place_id"])
+            item["thumbnail"] = photos.resolve_place_photos(conn, row["place_id"], list_mode=True)
             out.append(item)
     finally:
         conn.close()
@@ -342,6 +343,7 @@ def place_detail(place_id: str) -> dict:
         place_payload.update(cache.favorite_meta(conn, place_id))
         return {
             "place": place_payload,
+            "photos": photos.resolve_place_photos(conn, place_id),
             "reviews": [dict(r) for r in reviews],
             "report": ({"md": report["report_md"], "json": json.loads(report["report_json"]),
                         "profile": report["profile"], "model": report["model"],

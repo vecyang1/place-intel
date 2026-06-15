@@ -133,6 +133,31 @@ class WebStaticContractTest(unittest.TestCase):
         js = (WEB / "app.js").read_text(encoding="utf-8")
         self.assertIn("state.jobs[kind] !== job", js)
 
+    def test_top_tabs_use_aligned_tracks_and_clear_mode_vocabulary(self) -> None:
+        html = (WEB / "index.html").read_text(encoding="utf-8")
+        css = (WEB / "app.css").read_text(encoding="utf-8")
+        js = (WEB / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("侦察新店", html)
+        self.assertIn("问缓存", html)
+        self.assertRegex(css, r"\.tabs\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)", re.S)
+        self.assertRegex(css, r"\.tab::after\s*\{[^}]*left:\s*50%", re.S)
+        self.assertIn("Ask 只问已有缓存证据", js)
+        self.assertIn("Scout 会搜索/刷新 Google Maps 和评价证据", js)
+
+    def test_photo_ui_uses_lazy_source_images_and_safe_links(self) -> None:
+        css = (WEB / "app.css").read_text(encoding="utf-8")
+        js = (WEB / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("photoSourcesHtml", js)
+        self.assertIn('loading="lazy"', js)
+        self.assertIn('decoding="async"', js)
+        self.assertIn('rel="noopener noreferrer"', js)
+        self.assertIn("source photo", js)
+        self.assertIn("review photo", js)
+        self.assertRegex(css, r"\.source-photo\s*\{[^}]*aspect-ratio:\s*4\s*/\s*3", re.S)
+        self.assertIn("object-fit: cover", css)
+
 
 if __name__ == "__main__":
     unittest.main()

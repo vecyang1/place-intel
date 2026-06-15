@@ -171,6 +171,52 @@ class ServerContractTest(unittest.TestCase):
         self.assertEqual(detail.status_code, 200)
         self.assertTrue(detail.json()["place"]["favorite"])
 
+    def test_places_api_exposes_bounded_photo_metadata_without_binaries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "placeintel.db"
+            with mock.patch.object(config, "DB_PATH", db_path):
+                conn = cache.connect()
+                cache.upsert_place(
+                    conn,
+                    cache.Place(
+                        place_id="photo-place",
+                        name="Photo Place",
+                        maps_url="https://maps.google.com/?cid=456",
+                    ),
+                )
+                cache.upsert_reviews(
+                    conn,
+                    [cache.Review(
+                        review_id="review-photo",
+                        place_id="photo-place",
+                        author="Ana",
+                        rating=4,
+                        review_date="2026-06-03",
+                        text="Visible storefront photo.",
+                        images=["https://lh3.googleusercontent.com/photo=w400"],
+                        source="scraper-pro",
+                    )],
+                )
+                conn.close()
+
+                client = TestClient(server.app)
+                places = client.get("/api/places")
+                detail = client.get("/api/places/photo-place")
+
+        self.assertEqual(places.status_code, 200)
+        card = places.json()[0]
+        self.assertEqual(card["thumbnail"]["url"], "https://lh3.googleusercontent.com/photo=w400")
+        self.assertEqual(card["thumbnail"]["kind"], "review")
+        self.assertNotIn("images_json", str(card))
+
+        self.assertEqual(detail.status_code, 200)
+        payload = detail.json()
+        self.assertEqual(payload["photos"][0]["url"], "https://lh3.googleusercontent.com/photo=w400")
+        self.assertEqual(payload["photos"][0]["review_id"], "review-photo")
+        self.assertLessEqual(len(payload["photos"]), 6)
+        self.assertNotIn("images_json", str(payload))
+        self.assertNotIn("data:image", str(payload))
+
     def test_favorite_toggle_unknown_place_returns_404(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "placeintel.db"

@@ -1,5 +1,14 @@
 # Changelog — place-intel
 
+## v0.4.35 — 2026-06-15 — source photos and navigation clarity
+- Added a URL-only photo resolver for cached places, exposing bounded
+  `thumbnail` and `photos[]` metadata without downloading image binaries or
+  changing backup scope.
+- Library cards, dossiers, and Compare cards now render lazy source/review
+  photos with stable fallback tiles and safe source links.
+- Aligned the top tabs into equal tracks and clarified Scout/Shop/Library/Ask
+  labels so Ask reads as cached-evidence Q&A, not a new Google Maps search.
+
 ## v0.4.34 — 2026-06-15 — agent CLI global hardening
 - Added root-level agent options before subcommands:
   `--format text|json|ndjson`, `--quiet`, `--no-color`, and `--timeout`.

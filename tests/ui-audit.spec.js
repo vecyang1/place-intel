@@ -344,6 +344,63 @@ test('library search filters cached shops and caps the initial list', async ({ p
   await expect(page.locator('#library-status')).toContainText('显示 1 / 15');
 });
 
+test('source photos render lazily in library, dossier, and compare without page overflow', async ({ page }) => {
+  const now = Date.now() / 1000;
+  const places = [
+    {
+      place_id: 'photo-place', name: 'Photo Place Cafe', category: 'Cafe',
+      rating: 4.8, review_count: 91, cached_reviews: 20, address: 'Hoi An',
+      last_refreshed: now,
+      thumbnail: { url: 'https://images.example/photo-place.jpg', thumb_url: 'https://images.example/photo-place-thumb.jpg', source: 'scraper-pro', kind: 'review', review_id: 'r1', author: 'Ana', rating: 5, date: '2026-06-01' },
+    },
+    {
+      place_id: 'second-photo', name: 'Second Photo Shop', category: 'Shop',
+      rating: 4.4, review_count: 55, cached_reviews: 12, address: 'Da Nang',
+      last_refreshed: now,
+      thumbnail: { url: 'https://images.example/second.jpg', source: 'serpapi', kind: 'review', review_id: 'r2' },
+    },
+  ];
+  await page.route('**/api/places', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(places) }));
+  await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/places/photo-place', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      place: { ...places[0], phone: '+84 90 000 0000' },
+      photos: [
+        { url: 'https://images.example/photo-place.jpg', thumb_url: 'https://images.example/photo-place-thumb.jpg', source: 'scraper-pro', kind: 'review', review_id: 'r1', author: 'Ana', rating: 5, date: '2026-06-01' },
+      ],
+      reviews: [{ review_id: 'r1', author: 'Ana', rating: 5, review_date: '2026-06-01', text: 'Nice storefront.' }],
+      report: { profile: 'generic', created_at: now, md: '# Report', json: { verdict: 'Looks real.', walk_in_brief: ['Use photo to verify storefront.'] } },
+    }),
+  }));
+  await page.route('**/api/places/second-photo', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ place: places[1], photos: [places[1].thumbnail], reviews: [], report: null }),
+  }));
+
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
+
+  const cardImg = page.locator('#library-grid .shop-card').filter({ hasText: 'Photo Place Cafe' }).locator('img.source-photo-img');
+  await expect(cardImg).toHaveAttribute('loading', 'lazy');
+  await expect(cardImg).toHaveAttribute('decoding', 'async');
+  await expect(cardImg).toHaveAttribute('src', 'https://images.example/photo-place-thumb.jpg');
+  await expect(page.locator('#library-grid')).toContainText('review photo');
+
+  await page.locator('[data-library-compare="photo-place"]').click();
+  await page.locator('[data-library-compare="second-photo"]').click();
+  await expect(page.locator('#library-compare .compare-board img.source-photo-img')).toHaveCount(2);
+
+  await page.locator('[data-open-place="photo-place"]').first().click();
+  await expect(page.locator('#detail-overlay')).toBeVisible();
+  await expect(page.locator('#detail-body .photo-strip img.source-photo-img')).toHaveAttribute('loading', 'lazy');
+  await expect(page.locator('#detail-body .photo-strip')).toContainText('review photo');
+  await expect(page.locator('#detail-body .photo-strip a')).toHaveAttribute('target', '_blank');
+
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+});
+
 test('library workspace filters decision signals and opens compare', async ({ page }) => {
   const now = Date.now() / 1000;
   const places = [
@@ -968,6 +1025,16 @@ test('tabs are deep-linkable and keyboard navigable', async ({ page }) => {
   await expect(page.locator('#tab-library')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#tab-library')).toHaveAttribute('tabindex', '0');
   await expect(page.locator('#tab-scout')).toHaveAttribute('tabindex', '-1');
+  await expect(page.locator('#tab-scout')).toContainText('侦察新店');
+  await expect(page.locator('#tab-ask')).toContainText('问缓存');
+
+  const tabMetrics = await page.evaluate(() => Array.from(document.querySelectorAll('.tab')).map((tab) => {
+    const rect = tab.getBoundingClientRect();
+    const after = getComputedStyle(tab, '::after');
+    return { width: Math.round(rect.width), afterLeft: Number.parseFloat(after.left), afterTransformOrigin: after.transformOrigin };
+  }));
+  expect(new Set(tabMetrics.map((x) => x.width)).size).toBe(1);
+  expect(tabMetrics.every((x) => Math.abs(x.afterLeft - x.width / 2) <= 1)).toBe(true);
 
   await page.locator('#tab-library').focus();
   await page.keyboard.press('ArrowRight');

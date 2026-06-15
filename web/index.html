@@ -22,10 +22,10 @@
   </header>
 
   <nav class="tabs" role="tablist" aria-label="主导航">
-    <button type="button" class="tab is-active" id="tab-scout" role="tab" aria-selected="true" aria-controls="panel-scout" tabindex="0" data-tab="scout">侦察 <span class="tab-en">Scout</span></button>
-    <button type="button" class="tab" id="tab-shop" role="tab" aria-selected="false" aria-controls="panel-shop" tabindex="-1" data-tab="shop">单店 <span class="tab-en">Shop</span></button>
+    <button type="button" class="tab is-active" id="tab-scout" role="tab" aria-selected="true" aria-controls="panel-scout" tabindex="0" data-tab="scout">侦察新店 <span class="tab-en">Scout</span></button>
+    <button type="button" class="tab" id="tab-shop" role="tab" aria-selected="false" aria-controls="panel-shop" tabindex="-1" data-tab="shop">单店深挖 <span class="tab-en">Shop</span></button>
     <button type="button" class="tab" id="tab-library" role="tab" aria-selected="false" aria-controls="panel-library" tabindex="-1" data-tab="library">资料库 <span class="tab-en">Library</span></button>
-    <button type="button" class="tab" id="tab-ask" role="tab" aria-selected="false" aria-controls="panel-ask" tabindex="-1" data-tab="ask">提问 <span class="tab-en">Ask</span></button>
+    <button type="button" class="tab" id="tab-ask" role="tab" aria-selected="false" aria-controls="panel-ask" tabindex="-1" data-tab="ask">问缓存 <span class="tab-en">Ask</span></button>
   </nav>
 
   <main id="main" tabindex="-1">
@@ -43,9 +43,9 @@
           <input id="scout-near" name="near" type="text" autocomplete="off" placeholder="例：Hoi An, Vietnam…">
         </div>
         <div class="command-mode" id="command-mode" role="group" aria-label="推荐工作模式">
-          <button type="button" class="chip" data-command-mode="scout" aria-pressed="true">侦察 Scout</button>
-          <button type="button" class="chip" data-command-mode="shop" aria-pressed="false">单店 Shop</button>
-          <button type="button" class="chip" data-command-mode="ask" aria-pressed="false">提问 Ask</button>
+          <button type="button" class="chip" data-command-mode="scout" aria-pressed="true">侦察新店 Scout<span class="chip-help">搜 Maps + 抓评价</span></button>
+          <button type="button" class="chip" data-command-mode="shop" aria-pressed="false">单店深挖 Shop<span class="chip-help">已知店名/链接</span></button>
+          <button type="button" class="chip" data-command-mode="ask" aria-pressed="false">问缓存 Ask<span class="chip-help">只问已有证据</span></button>
         </div>
         <p class="mode-reason" id="command-reason" aria-live="polite">输入需求、店名或 Maps 链接，会自动推荐路径。</p>
         <details class="advanced" id="scout-advanced">
@@ -175,8 +175,8 @@
           <textarea id="ask-question" name="question" class="query-input" rows="2" required
             placeholder="例：哪家老师最有耐心？哪家有坑？…"></textarea>
         </div>
-        <button type="submit" class="btn-primary" id="ask-submit">提问 Ask →</button>
-        <p class="form-hint">答案只来自已缓存的评价原文和店铺元数据，不上网瞎编。想问某一家店，去资料库点进店铺详情。问过的问题会缓存——同样的问题、评价没更新时直接秒回。</p>
+        <button type="submit" class="btn-primary" id="ask-submit">问缓存 Ask →</button>
+        <p class="form-hint">Ask 只问已有缓存证据，不搜索 Google Maps。要找新地方或刷新评价，先跑 Scout/Shop。</p>
       </form>
       <div id="ask-history"></div>
       <div id="ask-answer"></div>

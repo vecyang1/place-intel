@@ -256,7 +256,7 @@ Variants:
 ### `GET /api/places`
 
 Returns cached place cards with activity risk, cache counts, favorite metadata,
-and latest report summary fields.
+latest report summary fields, and at most one source thumbnail per place.
 
 Report/list fields:
 
@@ -264,6 +264,8 @@ Report/list fields:
 - `report_count`: number of saved reports for the place.
 - `latest_report_at`: unix timestamp for the newest saved report, or null.
 - `latest_report_profile`: profile name for the newest saved report, or null.
+- `thumbnail`: a bounded photo metadata object, or null. The list endpoint
+  exposes at most one thumbnail per place and never includes image bytes.
 
 Favorite fields:
 
@@ -273,6 +275,16 @@ Favorite fields:
 - `refresh_interval_days`: integer or null; default favorite interval is 14.
 - `max_reviews`: integer or null; per-refresh cap, clamped by the CLI guardrail.
 - `last_refresh_at`: unix timestamp or null.
+
+Photo metadata fields:
+
+- `url`: HTTP(S) source URL used when the user opens the photo.
+- `thumb_url`: HTTP(S) image URL used for the thumbnail; falls back to `url`.
+- `source`: source label such as `scraper-pro`, `serpapi`, or `gosom`.
+- `kind`: `review` or `place`.
+- `place_id`: owning cached place ID.
+- `review_id`, `author`, `rating`, `date`, `attribution`: optional source
+  context when the photo came from a review or provider metadata.
 
 ### `GET /api/places/{place_id}`
 
@@ -287,12 +299,30 @@ Returns one dossier payload:
     "favorite": false,
     "refresh_enabled": false
   },
+  "photos": [
+    {
+      "url": "https://example.com/source.jpg",
+      "thumb_url": "https://example.com/source.jpg",
+      "source": "scraper-pro",
+      "kind": "review",
+      "place_id": "id",
+      "review_id": "review-id",
+      "author": "review author",
+      "rating": 5,
+      "date": "2026-06-01",
+      "attribution": "review author"
+    }
+  ],
   "reviews": [],
   "report": {"md": "...", "json": {}, "profile": "generic", "model": "model", "created_at": 1781440000.0}
 }
 ```
 
-Raw review text remains original scraped text.
+`photos[]` is opportunistic source metadata derived by the backend photo
+resolver from existing review image URLs and provider thumbnail fields. It is
+bounded, deduped, HTTP(S)-only, and contains no raw provider JSON, keys,
+cookies, local paths, or binary image data. Raw review text remains original
+scraped text.
 
 ### `POST /api/places/{place_id}/favorite`
 
