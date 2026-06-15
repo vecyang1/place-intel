@@ -1,5 +1,12 @@
 # Changelog — place-intel
 
+## v0.4.42 — 2026-06-15 — eager photo gallery preload
+- Source-photo lightboxes now preload the rest of the active gallery as soon as
+  the viewer opens or a card thumbnail expands into the full place gallery, so
+  next/previous arrow navigation is warm before the user clicks.
+- Preloading is browser-memory only through URL-backed `Image()` objects. The
+  project still stores no image binaries and adds no photo cache to disk.
+
 ## v0.4.41 — 2026-06-15 — card photo gallery lazy expansion
 - Library and Compare card photo clicks now lazy-load the existing
   `/api/places/{place_id}` photo metadata before building the lightbox gallery,
