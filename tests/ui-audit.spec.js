@@ -375,7 +375,7 @@ test('scout tab shows past scouts below the form to avoid duplicate work', async
       source: 'cache',
       created_at: Date.now() / 1000 - 3600,
       places: [
-        { place_id: 'dclass', name: "D'Class Guitar Hội An", relevant: true },
+        { place_id: 'dclass', name: "D'Class Guitar Hội An", relevant: true, report_count: 2 },
         ...Array.from({ length: 9 }, (_, i) => ({ place_id: `kept-${i}`, name: `Candidate ${i + 1}`, relevant: true })),
         { place_id: 'taxi', name: 'HoiAnGO E-Taxi', relevant: false, reason: 'not a guitar shop' },
       ],
@@ -390,6 +390,8 @@ test('scout tab shows past scouts below the form to avoid duplicate work', async
   await expect(page.locator('#scout-past-list')).toContainText('Hoi An guitar rental');
   await expect(page.locator('#scout-past-list .search-meta')).toContainText('AI 排除 1 家');
   await expect(page.locator('#scout-past-list [data-open-place="dclass"]')).toContainText("D'Class Guitar");
+  await expect(page.locator('#scout-past-list [data-open-place="dclass"]')).toHaveClass(/has-report/);
+  await expect(page.locator('#scout-past-list [data-open-place="dclass"]')).toHaveAttribute('title', /报告 ×2/);
   await expect(page.locator('#scout-past-list .search-places .chip')).toHaveCount(9);
   await expect(page.locator('#scout-past-list .chip-more')).toContainText('+2 家');
   await expect(page.locator('#scout-past-list [data-open-place="taxi"]')).toHaveCount(0);
@@ -811,6 +813,46 @@ test('dossier delete closes modal and rerenders library from API state', async (
   expect(deleted).toBe(true);
   await expect(page.locator('#detail-overlay')).toBeHidden();
   await expect(page.locator('#library-status')).toContainText('Library is empty');
+});
+
+test('no-report dossier can start a focused report job from inside the modal', async ({ page }) => {
+  const now = Date.now() / 1000;
+  let shopBody = null;
+  const place = {
+    place_id: 'needs-report', name: 'Trail Needs Report', category: 'Hiking area',
+    rating: 4.5, review_count: 88, cached_reviews: 32, address: 'Da Nang',
+    last_refreshed: now, favorite: false, refresh_enabled: false,
+  };
+  await preferChineseBeforeLoad(page);
+  await page.route('**/api/places', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify([place]) }));
+  await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/places/needs-report', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ place, reviews: [{ review_id: 'r1', rating: 4, text: 'Good trail.' }], report: null }),
+  }));
+  await page.route('**/api/shop', (route) => {
+    shopBody = route.request().postDataJSON();
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ job_id: 'detail-report-job' }) });
+  });
+  await page.route('**/api/jobs/detail-report-job/events*', (route) => route.fulfill({ status: 204, body: '' }));
+  await page.route('**/api/jobs/detail-report-job', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      status: 'done',
+      events: [{ id: 1, t: now, stage: 'done', msg: '完成：1 份报告' }],
+      result: { query: 'Trail Needs Report', mode: 'single', places: [place], reports: [{ place_id: 'needs-report', name: 'Trail Needs Report', md: '# Report' }], errors: [] },
+    }),
+  }));
+
+  await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
+  await page.locator('[data-open-place="needs-report"]').click();
+  await expect(page.locator('[data-generate-report="needs-report"]')).toBeVisible();
+  await page.locator('[data-generate-report="needs-report"]').click();
+
+  expect(shopBody).toMatchObject({ target: 'Trail Needs Report', refresh: false });
+  await expect(page.locator('#detail-overlay')).toBeHidden();
+  await expect(page.locator('#panel-shop')).toBeVisible();
+  await expect(page.locator('#shop-results')).toContainText('Trail Needs Report');
 });
 
 test('activity risk renders as a cautious visible tag', async ({ page }) => {

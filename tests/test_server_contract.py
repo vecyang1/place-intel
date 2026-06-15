@@ -232,6 +232,37 @@ class ServerContractTest(unittest.TestCase):
         self.assertEqual(detail.status_code, 200)
         self.assertTrue(detail.json()["place"]["favorite"])
 
+    def test_searches_api_marks_places_that_already_have_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "placeintel.db"
+            with mock.patch.object(config, "DB_PATH", db_path):
+                conn = cache.connect()
+                cache.upsert_place(conn, cache.Place(
+                    place_id="with-report",
+                    name="Trail With Report",
+                    source="test",
+                ))
+                cache.upsert_place(conn, cache.Place(
+                    place_id="without-report",
+                    name="Trail Without Report",
+                    source="test",
+                ))
+                conn.execute(
+                    """INSERT INTO reports (place_id, profile, model, report_json, report_md,
+                       review_count, created_at) VALUES (?,?,?,?,?,?,?)""",
+                    ("with-report", "generic", "test-model", "{}", "# Existing", 1, 100.0),
+                )
+                cache.save_search(conn, "hiking", "Da Nang", ["with-report", "without-report"], "cache")
+                conn.close()
+
+                response = TestClient(server.app).get("/api/searches")
+
+        self.assertEqual(response.status_code, 200)
+        places = response.json()[0]["places"]
+        by_id = {place["place_id"]: place for place in places}
+        self.assertEqual(by_id["with-report"]["report_count"], 1)
+        self.assertEqual(by_id["without-report"]["report_count"], 0)
+
     def test_places_api_exposes_bounded_photo_metadata_without_binaries(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "placeintel.db"

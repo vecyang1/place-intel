@@ -377,28 +377,35 @@ def place_detail(place_id: str) -> dict:
 @app.get("/api/searches")
 def searches() -> JSONResponse:
     conn = cache.connect()
-    rows = conn.execute(
-        "SELECT id, query, location, place_ids_json, verdicts_json, source, created_at "
-        "FROM searches ORDER BY created_at DESC LIMIT 50"
-    ).fetchall()
-    names = {r["place_id"]: r["name"]
-             for r in conn.execute("SELECT place_id, name FROM places").fetchall()}
-    out = []
-    for row in rows:
-        ids = json.loads(row["place_ids_json"] or "[]")
-        verdicts = json.loads(row["verdicts_json"]) if row["verdicts_json"] else []
-        by_id = {v["place_id"]: v for v in verdicts if isinstance(v, dict)}
-        out.append({
-            "id": row["id"], "query": row["query"], "location": row["location"],
-            "source": row["source"], "created_at": row["created_at"],
-            "places": [
-                {"place_id": pid, "name": names[pid],
-                 "relevant": by_id.get(pid, {}).get("relevant"),  # None = unjudged
-                 "reason": by_id.get(pid, {}).get("reason")}
-                for pid in ids if pid in names  # deleted places drop out of history
-            ],
-        })
-    return JSONResponse(out)
+    try:
+        rows = conn.execute(
+            "SELECT id, query, location, place_ids_json, verdicts_json, source, created_at "
+            "FROM searches ORDER BY created_at DESC LIMIT 50"
+        ).fetchall()
+        names = {r["place_id"]: r["name"]
+                 for r in conn.execute("SELECT place_id, name FROM places").fetchall()}
+        report_counts = {r["place_id"]: r["count"] for r in conn.execute(
+            "SELECT place_id, COUNT(*) AS count FROM reports GROUP BY place_id"
+        ).fetchall()}
+        out = []
+        for row in rows:
+            ids = json.loads(row["place_ids_json"] or "[]")
+            verdicts = json.loads(row["verdicts_json"]) if row["verdicts_json"] else []
+            by_id = {v["place_id"]: v for v in verdicts if isinstance(v, dict)}
+            out.append({
+                "id": row["id"], "query": row["query"], "location": row["location"],
+                "source": row["source"], "created_at": row["created_at"],
+                "places": [
+                    {"place_id": pid, "name": names[pid],
+                     "report_count": int(report_counts.get(pid, 0)),
+                     "relevant": by_id.get(pid, {}).get("relevant"),  # None = unjudged
+                     "reason": by_id.get(pid, {}).get("reason")}
+                    for pid in ids if pid in names  # deleted places drop out of history
+                ],
+            })
+        return JSONResponse(out)
+    finally:
+        conn.close()
 
 
 @app.get("/api/reports")

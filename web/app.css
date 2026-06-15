@@ -472,6 +472,7 @@ textarea.query-input { min-height: 6em; }
 .chip-more { color: var(--ink-40); border-color: var(--line-soft); }
 .chip-link { cursor: pointer; transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
 .chip-link:hover { border-color: var(--accent); color: var(--accent); }
+.chip-link.has-report { font-weight: 800; border-color: color-mix(in oklab, var(--accent) 64%, var(--line)); color: var(--ink); }
 
 /* ============ detail overlay ============ */
 .detail-overlay { position: fixed; inset: 0; z-index: 50; }

@@ -177,7 +177,7 @@ function renderSearchRow(s) {
   const kept = places.filter((p) => p.relevant !== false);
   const more = kept.length > SEARCH_ROW_CHIP_LIMIT ? `<span class="chip chip-more">+${kept.length - SEARCH_ROW_CHIP_LIMIT} 家</span>` : '';
   const chips = kept.slice(0, SEARCH_ROW_CHIP_LIMIT)
-    .map((p) => `<button type="button" class="chip chip-link" data-open-place="${esc(p.place_id)}">${esc(p.name)}</button>`)
+    .map((p) => `<button type="button" class="chip chip-link${p.report_count ? ' has-report' : ''}" data-open-place="${esc(p.place_id)}"${p.report_count ? ` title="${esc(`${ui('报告', 'report')} ×${fmtInt(p.report_count)}`)}"` : ''}>${esc(p.name)}</button>`)
     .join('') + more;
   return `<li class="search-row">
     <div class="search-main">
@@ -273,7 +273,7 @@ function renderDetail(data) {
     ${rep
     ? `<div class="report-meta-line">最新报告${rep.profile ? ` · ${esc(rep.profile)}` : ''}${rep.model ? ` · <span class="model-tag">${esc(rep.model)}</span>` : ''} · ${esc(relTime(rep.created_at))}</div>
        <article class="report"><div class="report-body">${mdToHtml(rep.md)}</div></article>`
-    : '<div class="empty small">这家店还没有报告 — 去「单店」跑一份深挖。</div>'}
+    : `<div class="empty small">${ui('这家店还没有报告。', 'This place has no report yet.')} <button type="button" class="btn-ghost" data-generate-report="${esc(p.place_id)}" data-place-name="${esc(p.name || '')}" data-place-address="${esc(p.address || '')}">${ui('生成报告', 'Generate report')} →</button></div>`}
   </section>
   <details class="detail-reviews">
     <summary>评价原文 reviews · ${reviews.length} 条</summary>
@@ -586,7 +586,12 @@ async function loadQaHistory(placeId) {
     target.innerHTML = renderQaChips(rows);
   } catch { /* history is optional decoration */ }
 }
-
+function generateReportFromDetail(btn) {
+  const target = btn.dataset.placeName || state.detail?.place?.name || btn.dataset.generateReport, near = btn.dataset.placeAddress || state.detail?.place?.address || '';
+  closeDetail(); switchTab('shop'); $('#shop-target').value = target; if (near) $('#shop-near').value = near;
+  const body = { target, max_reviews: clampInt($('#shop-maxr').value, 20, 5000, 300), refresh: false, ...langPayload('report') };
+  if (near) body.near = near; if ($('#shop-profile').value) body.profile = $('#shop-profile').value; return startJob('shop', '/api/shop', body);
+}
 function bindGlobal() {
   document.addEventListener('click', (e) => {
     const tab = e.target.closest('[data-tab]');
@@ -619,6 +624,7 @@ function bindGlobal() {
     if (tx) return translateReview(tx);
     const fav = e.target.closest('[data-favorite-place]');
     if (fav) return toggleFavorite(fav);
+    const genReport = e.target.closest('[data-generate-report]'); if (genReport) return generateReportFromDetail(genReport);
     const cmp = e.target.closest('[data-compare-place]');
     if (cmp) return toggleCompare(cmp);
     if (e.target.closest('[data-library-compare-clear]')) { state.libraryCompare = []; return renderLibrary(); }

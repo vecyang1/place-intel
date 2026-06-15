@@ -1,5 +1,15 @@
 # Changelog — place-intel
 
+## v0.4.44 — 2026-06-16 — report-aware scout history
+- Past Scout rows now carry per-place `report_count` from `/api/searches`, so
+  places that already have generated reports can be visually emphasized in the
+  Scout history chips.
+- Dossiers without a report now show an in-modal "Generate report" action that
+  starts the existing single-shop job for that cached place instead of sending
+  the user to retype it in Shop manually.
+- Added backend and Playwright regressions for report-marked search history and
+  no-report dossier report generation.
+
 ## v0.4.43 — 2026-06-16 — selected-language UI chrome
 - Chinese UI mode now renders app chrome in Chinese only instead of paired
   Chinese/English glossary labels across tabs, Library filters, System,
