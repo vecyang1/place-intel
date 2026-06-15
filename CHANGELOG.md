@@ -1,5 +1,13 @@
 # Changelog — place-intel
 
+## v0.4.41 — 2026-06-15 — card photo gallery lazy expansion
+- Library and Compare card photo clicks now lazy-load the existing
+  `/api/places/{place_id}` photo metadata before building the lightbox gallery,
+  so a card thumbnail can browse the same multi-photo set as the dossier.
+- Kept the photo storage policy lightweight: the app still uses source URLs
+  only, downloads no image binaries, and falls back to the clicked thumbnail if
+  a detail-photo lookup fails.
+
 ## v0.4.40 — 2026-06-15 — language adaptation
 - Added a shared language owner for safe BCP-47-like output tags, UI defaults,
   translation targets, and language-settings validation.
