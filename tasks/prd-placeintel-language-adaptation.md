@@ -1,6 +1,6 @@
 # PRD: placeintel Language Adaptation System
 
-Status: 📋 Draft
+Status: ✅ Implemented in v0.4.40
 Last Updated: 2026-06-15
 Deployment Profile: hybrid
 Deploy Targets: local FastAPI web app on `127.0.0.1:9618`, protected VPS/systemd lane when deployed
@@ -8,7 +8,7 @@ Parent PRDs:
 - `tasks/prd-placeintel-production-grade-master.md`
 - `tasks/prd-placeintel-world-class-ui-ux.md`
 - `tasks/prd-placeintel-agent-cli-api.md`
-Mode: PRD only. Implementation has not started in this document.
+Mode: Implemented. Keep this PRD as the owner record for the language contract.
 
 ## 0. Clarification Assumptions
 
@@ -26,10 +26,10 @@ The user asked to write PRD(s) to make the app adapt to any language user becaus
 
 ## Research and Context Snapshot
 
-Existing project facts:
+Existing project facts at planning time:
 
 - Stack is Python/FastAPI + SQLite + a no-build web shell served from `web/`.
-- Current static line counts before this PRD work: `web/index.html` 232, `web/app.css` 793, `web/app.js` 779. Language work cannot be added safely without compaction or an approved static module split.
+- Current static line counts before this PRD work: `web/index.html` 232, `web/app.css` 793, `web/app.js` 779. Language work could not be added safely without compaction or an approved static module split.
 - The app already accepts any-language Scout input through `planner.py`, but output defaults are uneven: `AskRequest.report_lang = "zh"`, `/api/config` returns `"default_answer_language": "zh"`, `pipeline.ask()` defaults to `"zh"`, CLI `ask/report` default to `"zh"`, and review translation target defaults to `zh`.
 - The web UI has hardcoded Chinese plus English fragments in `web/index.html` and `web/app.js`, including relative-time strings, stage labels, empty states, error states, system-status copy, cached-answer copy, review translation labels, and language-lens labels.
 - Current review translation is intentionally display-layer only: `POST /api/reviews/translate` writes `review_translations`, never overwrites `reviews.text`, and uses the cheap translation role.
@@ -37,6 +37,30 @@ Existing project facts:
 - Current `LANG_META` and `detectReviewLang()` are client-side heuristics that describe language cohorts, not country. The existing product rule forbids inventing reviewer country from text language.
 - GitNexus is current at commit `1f43d30`. `renderDetail` is HIGH risk because it affects `openDetail`, `bindGlobal`, and `init`. `/api/ask`, `pipeline.ask`, `/api/reviews/translate`, `pipeline.translate_review`, and `/api/config` are graph LOW risk but product-critical.
 - `ui-ux-pro-max` is not installed in this environment. This PRD anchors design to the existing placeintel design system, not a new visual direction.
+
+## Implementation Status — v0.4.40
+
+Implemented on 2026-06-15:
+
+- Backend language owner: `placeintel/language.py` now normalizes safe
+  BCP-47-like tags, resolves output-language precedence, validates settings,
+  exposes supported UI locales, and owns translation-target instructions.
+- API/CLI contract: Scout, Shop, Ask, reports, `/api/config`, and
+  `/api/settings/language` now use optional language overrides plus shared
+  defaults instead of hardcoded Chinese. Ask cache rows include `answer_lang`;
+  reports include `report_lang` and `evidence_lang`.
+- Review translation: `/api/reviews/translate` accepts safe targets beyond
+  `zh/en` while keeping raw `reviews.text` original and using the cheap
+  translation model.
+- Web contract: `web/i18n.js` owns English/Chinese locale packs, browser
+  language detection, local preference migration, `Intl` formatting, and request
+  payload language hints. The no-build app is now an approved bounded static
+  split: `index.html`, `app.css`, `app.js`, and `i18n.js`.
+- Settings/System: the System panel exposes UI, Ask/report, and review
+  translation language controls, with browser-only save plus optional app-wide
+  default persistence.
+- Regression proof: focused unit/static/API/CLI language contracts are green,
+  and the full verification loop is recorded in `progress.md` for v0.4.40.
 
 Stack research:
 

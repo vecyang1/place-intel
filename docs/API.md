@@ -95,11 +95,16 @@ Request:
   "profile": "rental",
   "top": 3,
   "max_reviews": 300,
-  "report_lang": "zh",
+  "report_lang": "vi",
+  "language_hint": "vi-VN",
   "refresh": false,
   "no_ai": false
 }
 ```
+
+`report_lang` is optional. When omitted, output language resolves through:
+explicit request > saved app default > browser `language_hint` > planner/input
+language > English.
 
 Response:
 
@@ -114,7 +119,14 @@ Starts a single-place deep dive. `target` may be a plain name or Google Maps URL
 Request:
 
 ```json
-{"target": "D'Class Guitar", "near": "Hoi An", "max_reviews": 300, "refresh": false}
+{
+  "target": "D'Class Guitar",
+  "near": "Hoi An",
+  "max_reviews": 300,
+  "report_lang": "en",
+  "language_hint": "en-US",
+  "refresh": false
+}
 ```
 
 Response:
@@ -153,7 +165,9 @@ Done:
   "places": [],
   "filtered": [],
   "reports": [],
-  "errors": []
+  "errors": [],
+  "report_lang": "en",
+  "language_source": "browser"
 }
 ```
 
@@ -207,7 +221,13 @@ Ask a global or place-scoped question over cached listing and review evidence.
 Request:
 
 ```json
-{"question": "哪家有耐心的老师?", "place_id": null, "report_lang": "zh", "fresh": false}
+{
+  "question": "Which teacher is most patient?",
+  "place_id": null,
+  "report_lang": null,
+  "language_hint": "en-US",
+  "fresh": false
+}
 ```
 
 Response:
@@ -219,6 +239,8 @@ Response:
   "created_at": 1781459000.0,
   "model": "gemini-3-flash-preview",
   "provider": "VectorEngine",
+  "report_lang": "en",
+  "language_source": "browser",
   "cache_scope": {"kind": "place", "place_id": "place-1", "label": "D'Class Guitar"},
   "evidence_fresh_after": 1781451000.0,
   "evidence": [
@@ -236,10 +258,10 @@ Response:
   when available, source language, and vector score.
 
 Cached responses may return `evidence: []` because the saved QA row stores the
-answer, not a frozen copy of prior evidence. The `cache_scope` and
-`evidence_fresh_after` fields explain why reuse is safe: cache lookup is still
-exact-scope, and cached answers are valid only while no newer reviews exist in
-that same scope.
+answer, not a frozen copy of prior evidence. The `cache_scope`,
+`report_lang`, and `evidence_fresh_after` fields explain why reuse is safe:
+cache lookup is exact-scope, exact-language, and cached answers are valid only
+while no newer reviews exist in that same scope.
 
 ### `GET /api/qa`
 
@@ -250,6 +272,10 @@ Variants:
 - `GET /api/qa?place_id=<place_id>`: exact place-scoped history.
 - `GET /api/qa?scope=all`: display-only mixed history with `place_name` where
   available. This must not relax exact-scope cache reuse.
+
+History rows include `answer_lang` when known; clicking a history chip should
+re-ask with the original scope and current language preference instead of
+assuming all cached answers are interchangeable.
 
 ## Places and Reports
 
@@ -264,6 +290,7 @@ Report/list fields:
 - `report_count`: number of saved reports for the place.
 - `latest_report_at`: unix timestamp for the newest saved report, or null.
 - `latest_report_profile`: profile name for the newest saved report, or null.
+- `latest_report_lang`: language tag for the newest saved report, or null.
 - `thumbnail`: a bounded photo metadata object, or null. The list endpoint
   exposes at most one thumbnail per place and never includes image bytes.
 
@@ -314,7 +341,15 @@ Returns one dossier payload:
     }
   ],
   "reviews": [],
-  "report": {"md": "...", "json": {}, "profile": "generic", "model": "model", "created_at": 1781440000.0}
+  "report": {
+    "md": "...",
+    "json": {},
+    "profile": "generic",
+    "model": "model",
+    "report_lang": "en",
+    "evidence_lang": "report",
+    "created_at": 1781440000.0
+  }
 }
 ```
 
@@ -368,11 +403,12 @@ Recent searches, including filtered verdicts for display.
 
 ### `GET /api/reports`
 
-Recent reports.
+Recent reports. Rows include `report_lang` and `evidence_lang`.
 
 ### `GET /api/reports/{report_id}`
 
-One report body and structured JSON.
+One report body and structured JSON, including `report_lang` and
+`evidence_lang`.
 
 ## Profiles, Models, and Settings
 
@@ -394,13 +430,33 @@ Example response:
 
 ```json
 {
-  "version": "0.4.33",
+  "version": "0.4.40",
   "settings": {
     "reason_model": "gemini-3-flash-preview",
     "translation_model": "gemini-3.1-flash-lite",
-    "default_answer_language": "zh",
+    "ui_language": "auto",
+    "default_answer_language": "auto",
+    "default_report_language": "auto",
+    "translation_target": "auto",
     "evidence_language": "report",
     "cache_ttl_days": 14
+  },
+  "language": {
+    "ui_language": "en",
+    "answer_language": "en",
+    "report_language": "en",
+    "translation_target": "en",
+    "evidence_language": "report",
+    "source": "default",
+    "fallback_language": "en",
+    "supported_ui_locales": ["en", "zh"],
+    "common_languages": {"en": "English", "zh": "Simplified Chinese"},
+    "app_defaults": {
+      "ui_language": "auto",
+      "answer_language": "auto",
+      "report_language": "auto",
+      "translation_target": "auto"
+    }
   },
   "runtime": {
     "port": 9618,
@@ -427,6 +483,37 @@ Example response:
 `feature_status.*.available` is feature-specific: missing reasoning credentials
 must not block read-only Library access, and missing embedding credentials must
 not hide already-cached dossier evidence.
+
+### `POST /api/settings/language`
+
+Validates and optionally persists non-secret language defaults. With
+`make_default:false`, the endpoint returns the resolved language contract without
+writing settings; the browser can still keep local-only preferences in
+localStorage.
+
+Request:
+
+```json
+{
+  "ui_language": "en",
+  "default_answer_language": "fr-FR",
+  "default_report_language": "fr-FR",
+  "translation_target": "fr-FR",
+  "evidence_language": "report",
+  "make_default": true
+}
+```
+
+Response:
+
+```json
+{"ok": true, "saved": {"default_answer_language": "fr-FR"}, "language": {}}
+```
+
+`ui_language` may be `auto`, `en`, or `zh` in the first locale-pack release.
+Ask/report/translation targets accept safe BCP-47-like tags such as `vi`,
+`fr-FR`, or `pt-BR`. Blank, path-like, script-like, overlong, or control-character
+values are rejected.
 
 ### `GET /api/models`
 
@@ -467,7 +554,7 @@ Display-layer translation only. It must never overwrite `reviews.text`.
 Request:
 
 ```json
-{"review_id": "review-1", "target_lang": "zh"}
+{"review_id": "review-1", "target_lang": "fr-FR"}
 ```
 
 Response:
@@ -475,7 +562,7 @@ Response:
 ```json
 {
   "review_id": "review-1",
-  "target_lang": "zh",
+  "target_lang": "fr-FR",
   "source_lang": "vi",
   "text": "translated display text",
   "cached": false,
@@ -484,3 +571,9 @@ Response:
   "created_at": 1781440000.0
 }
 ```
+
+`target_lang` is optional in the web UI path; when omitted, the server uses the
+saved review translation target, then the active answer language, then English.
+The endpoint accepts safe BCP-47-like tags beyond `zh/en` and rejects blank,
+path-like, script-like, overlong, or control-character values before any model
+call.

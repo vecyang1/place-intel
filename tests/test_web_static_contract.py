@@ -10,7 +10,7 @@ WEB = ROOT / "web"
 
 class WebStaticContractTest(unittest.TestCase):
     def test_no_build_web_files_stay_under_project_budget(self) -> None:
-        for path in [WEB / "index.html", WEB / "app.css", WEB / "app.js"]:
+        for path in [WEB / "index.html", WEB / "app.css", WEB / "app.js", WEB / "i18n.js"]:
             with self.subTest(path=path.name):
                 line_count = len(path.read_text(encoding="utf-8").splitlines())
                 self.assertLess(
@@ -90,7 +90,7 @@ class WebStaticContractTest(unittest.TestCase):
             ("app.js", (WEB / "app.js").read_text(encoding="utf-8")),
         ]
         for source_name, source in sources:
-            for raw in re.findall(r'placeholder="([^"]+)"', source):
+            for raw in re.findall(r'(?<!-)placeholder="([^"]+)"', source):
                 placeholder = unescape(raw)
                 with self.subTest(source=source_name, placeholder=placeholder):
                     self.assertIn("例", placeholder)
@@ -137,13 +137,31 @@ class WebStaticContractTest(unittest.TestCase):
         html = (WEB / "index.html").read_text(encoding="utf-8")
         css = (WEB / "app.css").read_text(encoding="utf-8")
         js = (WEB / "app.js").read_text(encoding="utf-8")
+        i18n = (WEB / "i18n.js").read_text(encoding="utf-8")
+        dynamic_copy = js + i18n
 
         self.assertIn("侦察新店", html)
         self.assertIn("问缓存", html)
         self.assertRegex(css, r"\.tabs\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)", re.S)
         self.assertRegex(css, r"\.tab::after\s*\{[^}]*left:\s*50%", re.S)
-        self.assertIn("Ask 只问已有缓存证据", js)
-        self.assertIn("Scout 会搜索/刷新 Google Maps 和评价证据", js)
+        self.assertIn("Ask 只问已有缓存证据", dynamic_copy)
+        self.assertIn("Scout 会搜索/刷新 Google Maps 和评价证据", dynamic_copy)
+
+    def test_locale_catalog_owns_core_ui_language_copy(self) -> None:
+        html = (WEB / "index.html").read_text(encoding="utf-8")
+        js = (WEB / "app.js").read_text(encoding="utf-8")
+        i18n = (WEB / "i18n.js").read_text(encoding="utf-8")
+
+        self.assertIn('/static/i18n.js?v=__PLACEINTEL_VERSION__"', html)
+        self.assertIn("PI18N", i18n)
+        self.assertIn("supportedUiLocales", i18n)
+        self.assertIn("placeintel.languagePreference", i18n)
+        self.assertIn("applyStaticText", i18n)
+        self.assertIn("initLanguage", js)
+        self.assertIn("language_hint", js + i18n)
+        self.assertIn("report_lang", js + i18n)
+        self.assertIn("renderLanguageControls", js)
+        self.assertIn("data-i18n", html)
 
     def test_photo_ui_uses_lazy_source_images_and_safe_links(self) -> None:
         html = (WEB / "index.html").read_text(encoding="utf-8")

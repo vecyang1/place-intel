@@ -1,5 +1,26 @@
 import { test, expect } from '@playwright/test';
 
+async function preferChineseBeforeLoad(page) {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh'] });
+    localStorage.setItem('placeintel.languagePreference', JSON.stringify({
+      ui_language: 'zh',
+      answer_language: 'zh',
+      report_language: 'zh',
+      translation_target: 'zh',
+    }));
+    localStorage.setItem('placeintel.translationTarget', 'zh');
+  });
+}
+
+async function setRuntimeLanguage(page, prefs) {
+  await page.evaluate((nextPrefs) => {
+    window.PI18N.savePrefs(nextPrefs);
+    const lang = window.PI18N.init();
+    window.__pi.state.translationTarget = lang.translationTarget;
+  }, prefs);
+}
+
 test('home has no console errors, no horizontal overflow, and visible first action', async ({ page }) => {
   const messages = [];
   page.on('console', (msg) => messages.push(`${msg.type()}: ${msg.text()}`));
@@ -86,6 +107,94 @@ test('system panel exposes safe settings and health without leaking secrets', as
   await expect(panel.locator('#system-danger')).toContainText('Dangerous settings');
   await expect(panel).not.toContainText('AIza');
   await expect(panel).not.toContainText('sk-');
+});
+
+test('language adaptation localizes English shell and sends answer language hints', async ({ page }) => {
+  let askBody = null;
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+    localStorage.clear();
+  });
+  await page.route('**/api/config', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      language: {
+        ui_language: 'en',
+        answer_language: 'en',
+        report_language: 'en',
+        translation_target: 'en',
+        evidence_language: 'report',
+        source: 'default',
+        fallback_language: 'en',
+        supported_ui_locales: ['en', 'zh'],
+        app_defaults: { ui_language: 'auto', answer_language: 'auto', report_language: 'auto', translation_target: 'auto' },
+      },
+      settings: { reason_model: 'reason-model', translation_model: 'translate-model', default_answer_language: 'auto', default_report_language: 'auto', translation_target: 'auto', evidence_language: 'report', cache_ttl_days: 14 },
+      runtime: { data_dir: { configured: true, path_visible: false }, port: 9618 },
+      providers: { reason: { model: 'reason-model', provider: 'VectorEngine' }, translate: { model: 'translate-model', provider: 'VectorEngine' }, embed: { model: 'embed-model', provider: 'Google 官方' } },
+      health: { cheap_url: '/api/health', deep_url: '/api/health/deep' },
+      feature_status: { reasoning: { available: true }, embedding: { available: true }, translation: { available: true } },
+      danger_zone: { destructive_changes: false, message: 'Read-only in this panel.' },
+    }),
+  }));
+  await page.route('**/api/health', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true }) }));
+  await page.route('**/api/qa**', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/ask', (route) => {
+    askBody = route.request().postDataJSON();
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ answer: 'Use the cached evidence.', cached: false, model: 'm', provider: 'p', report_lang: 'en', evidence: [] }) });
+  });
+
+  await page.goto('http://127.0.0.1:9618/#ask', { waitUntil: 'networkidle' });
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(page.locator('#tab-scout')).toContainText('Scout');
+  await expect(page.locator('#ask-submit')).toContainText('Ask cache');
+  await page.locator('#ask-question').fill('Which shop is patient?');
+  await page.locator('#ask-submit').click();
+
+  expect(askBody).toMatchObject({ question: 'Which shop is patient?', report_lang: 'en-US', language_hint: 'en-US' });
+});
+
+test('unsupported browser locale uses English UI while keeping output target', async ({ page }) => {
+  let askBody = null;
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'languages', { get: () => ['fr-FR', 'fr'] });
+    localStorage.clear();
+  });
+  await page.route('**/api/config', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      language: {
+        ui_language: 'en',
+        answer_language: 'en',
+        report_language: 'en',
+        translation_target: 'en',
+        evidence_language: 'report',
+        source: 'default',
+        fallback_language: 'en',
+        supported_ui_locales: ['en', 'zh'],
+        app_defaults: { ui_language: 'auto', answer_language: 'auto', report_language: 'auto', translation_target: 'auto' },
+      },
+      settings: { reason_model: 'reason-model', translation_model: 'translate-model', default_answer_language: 'auto', default_report_language: 'auto', translation_target: 'auto', evidence_language: 'report', cache_ttl_days: 14 },
+      runtime: { data_dir: { configured: true, path_visible: false }, port: 9618 },
+      providers: { reason: {}, translate: {}, embed: {} },
+      health: { cheap_url: '/api/health', deep_url: '/api/health/deep' },
+      feature_status: { reasoning: { available: true }, embedding: { available: true }, translation: { available: true } },
+      danger_zone: { destructive_changes: false, message: 'Read-only in this panel.' },
+    }),
+  }));
+  await page.route('**/api/qa**', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/ask', (route) => {
+    askBody = route.request().postDataJSON();
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ answer: 'Réponse.', cached: false, model: 'm', provider: 'p', report_lang: 'fr-FR', evidence: [] }) });
+  });
+
+  await page.goto('http://127.0.0.1:9618/#ask', { waitUntil: 'networkidle' });
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(page.locator('#ask-submit')).toContainText('Ask cache');
+  await page.locator('#ask-question').fill('Quel magasin est patient ?');
+  await page.locator('#ask-submit').click();
+
+  expect(askBody).toMatchObject({ report_lang: 'fr-FR', language_hint: 'fr-FR' });
 });
 
 test('command center recommends shop for Maps links and starts Shop from the first input', async ({ page }) => {
@@ -197,6 +306,7 @@ test('command center reuses matching fresh scout history instead of submitting a
 });
 
 test('scout tab shows past scouts below the form to avoid duplicate work', async ({ page }) => {
+  await preferChineseBeforeLoad(page);
   await page.route('**/api/searches', (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify([{
@@ -879,6 +989,7 @@ test('review translate click translates all visible comments on demand', async (
     });
   });
   await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  await setRuntimeLanguage(page, { ui_language: 'zh', answer_language: 'zh', report_language: 'zh', translation_target: 'zh' });
   await page.evaluate(() => {
     const place = { place_id: 'translate-test', name: 'Translate Test', rating: 4.8, review_count: 2 };
     const reviews = [
@@ -914,6 +1025,7 @@ test('review translation respects combined rating and language filters', async (
     });
   });
   await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  await setRuntimeLanguage(page, { ui_language: 'zh', answer_language: 'zh', report_language: 'zh', translation_target: 'zh' });
   await page.evaluate(() => {
     const place = { place_id: 'filtered-translate-test', name: 'Filtered Translate Test', rating: 3.8, review_count: 3 };
     const reviews = [
@@ -953,8 +1065,8 @@ test('review translation target is configurable and remembered', async ({ page }
     });
   });
   await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  await setRuntimeLanguage(page, { ui_language: 'zh', answer_language: 'zh', report_language: 'zh', translation_target: 'zh' });
   await page.evaluate(() => {
-    localStorage.removeItem('placeintel.translationTarget');
     const place = { place_id: 'translate-target-test', name: 'Translate Target Test', rating: 4.8, review_count: 1 };
     const reviews = [{ review_id: 'review-vi-target', rating: 5, author: 'Minh', text: 'Đường vào hơi khó nhưng cảnh rất đẹp.', lang: 'vi' }];
     document.body.insertAdjacentHTML('beforeend', `<div id="translate-target-host">${window.__pi.render.detail({ place, reviews, report: null })}</div>`);
@@ -964,7 +1076,7 @@ test('review translation target is configurable and remembered', async ({ page }
   const target = page.locator('#translate-target-host .translation-target');
   await expect(target).toHaveValue('zh');
   await target.selectOption('en');
-  await expect(page.locator('#translate-target-host [data-review-translate="review-vi-target"]')).toContainText('EN');
+  await expect(page.locator('#translate-target-host [data-review-translate="review-vi-target"]')).toContainText('English');
   await expect(page.evaluate(() => localStorage.getItem('placeintel.translationTarget'))).resolves.toBe('en');
   await page.locator('#translate-target-host [data-review-translate="review-vi-target"]').click();
   await expect(page.locator('#translate-target-host .review-translation')).toContainText('The road is a little hard');
@@ -994,8 +1106,8 @@ test('review translation batch blocks duplicate clicks and stale target response
     });
   });
   await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  await setRuntimeLanguage(page, { ui_language: 'zh', answer_language: 'zh', report_language: 'zh', translation_target: 'zh' });
   await page.evaluate(() => {
-    localStorage.removeItem('placeintel.translationTarget');
     const place = { place_id: 'translate-race-test', name: 'Translate Race Test', rating: 4.8, review_count: 4 };
     const reviews = [1, 2, 3, 4].map((n) => ({ review_id: `review-race-${n}`, rating: 5, author: `Guest ${n}`, text: `Đường vào hơi khó nhưng cảnh rất đẹp ${n}.`, lang: 'vi' }));
     document.body.insertAdjacentHTML('beforeend', `<div id="translate-race-host">${window.__pi.render.detail({ place, reviews, report: null })}</div>`);
@@ -1014,7 +1126,7 @@ test('review translation batch blocks duplicate clicks and stale target response
   releaseZh();
   await page.waitForTimeout(100);
   await expect(page.locator('#translate-race-host .review-translation')).toHaveCount(0);
-  await expect(page.locator('#translate-race-host [data-review-translate="review-race-1"]')).toContainText('EN');
+  await expect(page.locator('#translate-race-host [data-review-translate="review-race-1"]')).toContainText('English');
   await page.locator('#translate-race-host [data-review-translate="review-race-1"]').click();
   await expect(page.locator('#translate-race-host .review-translation')).toHaveCount(4);
   expect(translateBodies.filter((body) => body.target_lang === 'zh')).toHaveLength(3);
@@ -1061,6 +1173,7 @@ test('review translation can retry after a transient failure', async ({ page }) 
 });
 
 test('tabs are deep-linkable and keyboard navigable', async ({ page }) => {
+  await preferChineseBeforeLoad(page);
   await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
   await expect(page.locator('#panel-library')).toBeVisible();
   await expect(page.locator('#tab-library')).toHaveAttribute('aria-selected', 'true');

@@ -85,7 +85,8 @@ Final result line:
 ```
 
 `data.result` mirrors the web job `result` object: `query`, `location`,
-`profile`, `mode`, `plan`, `places`, `filtered`, `reports`, and `errors`.
+`profile`, `mode`, `plan`, `places`, `filtered`, `reports`, `errors`,
+`report_lang`, and `language_source`.
 In JSON/NDJSON modes, human progress text is suppressed from stdout.
 
 ### `placeintel doctor --json`
@@ -169,6 +170,35 @@ warnings unless required.
 | `favorite <place_id>` | text, JSON | Marks or unmarks a cached place as a favorite. Refresh remains disabled unless `--refresh-enabled` is used. |
 | `favorites` | text, JSON | Lists favorited cached places; `--refresh-enabled` filters to refresh opt-ins. |
 | `refresh-favorites` | text, JSON, NDJSON | Defaults to dry-run. `--run --format ndjson` manually refreshes due opt-in favorites and streams normal pipeline events. |
+
+## Language Contract
+
+The CLI no longer forces Chinese by default. `scout`, `shop`, `ask`, and
+`report` accept `--report-lang <tag>` when an agent needs a specific output
+language. Omit it for the shared resolver:
+
+1. Explicit `--report-lang`.
+2. Saved app defaults in `data/settings.json`.
+3. Planner or input-language heuristic.
+4. English fallback.
+
+Examples:
+
+```bash
+.venv/bin/placeintel scout "guitar lesson" --near "Hoi An" --report-lang en --format ndjson
+.venv/bin/placeintel shop "D'Class Guitar" --near "Hoi An" --report-lang fr-FR --format json
+.venv/bin/placeintel ask "Which shop looks safest?" --report-lang en --format json
+.venv/bin/placeintel report "<place_id>" --report-lang vi --format json
+```
+
+Machine JSON keeps stable English field names. Ask success includes
+`report_lang` and `language_source`; report JSON includes `report_lang` and
+`evidence_lang`. QA cache reuse is exact-scope and exact-language, so a cached
+Vietnamese answer is not reused for an English request.
+
+Review/source evidence remains original. Quoted evidence is translated into the
+output language by default and tagged with the original language; use
+`--evidence-lang original` on `report` to preserve original quoted evidence.
 
 ## Agent Recipes
 

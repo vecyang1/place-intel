@@ -1,5 +1,18 @@
 # Changelog — place-intel
 
+## v0.4.40 — 2026-06-15 — language adaptation
+- Added a shared language owner for safe BCP-47-like output tags, UI defaults,
+  translation targets, and language-settings validation.
+- Ask, Scout, Shop, reports, CLI JSON, `/api/config`, and review translation no
+  longer force Chinese defaults. Ask cache entries are now language-specific, and
+  reports store `report_lang` plus `evidence_lang`.
+- Added `web/i18n.js` as the no-build locale catalog for English/Chinese UI
+  chrome, browser-language detection, `Intl` formatting, and request language
+  hints.
+- Added Settings/System controls for UI language, Ask/report output language,
+  review translation target, and optional app-wide defaults through
+  `/api/settings/language`.
+
 ## v0.4.39 — 2026-06-15 — source URL photo gallery extension
 - The source-photo lightbox now quotes the exact original image URL in the
   viewer, with an explicit clickable source link for user inspection.

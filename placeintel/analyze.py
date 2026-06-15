@@ -22,7 +22,7 @@ from typing import Callable
 from google import genai
 from google.genai import types
 
-from . import cache, config
+from . import cache, config, language
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ def _client() -> genai.Client:
 
 
 def _evidence_rule(report_lang: str, evidence_lang: str) -> str:
-    lang_name = "Chinese (中文)" if report_lang == "zh" else report_lang
+    lang_name = language.language_instruction(report_lang)
     if evidence_lang == "original":
         return (f"Write all analysis in {lang_name}, but keep quoted review evidence "
                 "in its original language.")
@@ -231,7 +231,7 @@ def render_markdown(report: dict, place: sqlite3.Row, profile_name: str,
 
 
 def analyze_place(conn: sqlite3.Connection, place_id: str, profile: dict,
-                  report_lang: str = "zh", model: str | None = None,
+                  report_lang: str = "en", model: str | None = None,
                   evidence_lang: str | None = None,
                   on_progress: Callable[[str], None] | None = None) -> tuple[dict, str]:
     """Run the reasoning pass for one place; saves and returns (report_json, markdown).
@@ -239,7 +239,8 @@ def analyze_place(conn: sqlite3.Connection, place_id: str, profile: dict,
     ≤MAX_REVIEWS_IN_PROMPT cached reviews → single pass over ALL of them.
     More → map-reduce: every chunk mined into a digest (nothing skipped), reduce
     pass writes the report from all digests + raw low-star + newest raw reviews."""
-    evidence_lang = evidence_lang or config.EVIDENCE_LANG
+    report_lang = language.resolve_output_language(explicit=report_lang).tag
+    evidence_lang = evidence_lang or config.evidence_language()
     progress = on_progress or (lambda msg: None)
     place = cache.get_place(conn, place_id)
     if not place:
@@ -299,5 +300,6 @@ def analyze_place(conn: sqlite3.Connection, place_id: str, profile: dict,
     if activity_risk:
         report["activity_risk"] = activity_risk
     md = render_markdown(report, place, profile["name"], len(reviews))
-    cache.save_report(conn, place_id, profile["name"], model, report, md, len(reviews))
+    cache.save_report(conn, place_id, profile["name"], model, report, md, len(reviews),
+                      report_lang=report_lang, evidence_lang=evidence_lang)
     return report, md

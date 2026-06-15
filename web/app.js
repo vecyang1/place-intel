@@ -4,22 +4,22 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 function esc(value) { return String(value ?? '').replace(/[&<>"']/g, (ch) => ESC_MAP[ch]); }
+const PI18N = window.PI18N;
+PI18N.init();
+function t(key, params) { return PI18N.t(key, params); }
+function initLanguage(config) { const s = PI18N.init(config); state.translationTarget = s.translationTarget; return s; }
+function langPayload(kind) { return PI18N.requestPayload(kind); }
 function toDate(v) {
   if (v == null || v === '') return null;
   const d = typeof v === 'number' && Number.isFinite(v) ? new Date(v > 1e12 ? v : v * 1000) : new Date(v);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 function relTime(v) {
-  const d = toDate(v);
-  if (!d) return '—';
-  const s = (Date.now() - d.getTime()) / 1000;
-  if (s < 0) return d.toLocaleDateString('zh-CN'); if (s < 60) return '刚刚';
-  if (s < 3600) return `${Math.floor(s / 60)}分钟前`; if (s < 86400) return `${Math.floor(s / 3600)}小时前`;
-  return s < 86400 * 30 ? `${Math.floor(s / 86400)}天前` : d.toLocaleDateString('zh-CN');
+  return PI18N.relTime(v, toDate);
 }
-function fmtClock(v) { const d = toDate(v); return d ? d.toTimeString().slice(0, 8) : ''; }
+function fmtClock(v) { return PI18N.fmtClock(v, toDate); }
 function stars(rating) { const n = Number(rating); return rating != null && Number.isFinite(n) ? `★ ${n.toFixed(1)}` : '★ —'; }
-function fmtInt(n) { return n == null ? '—' : String(n); }
+function fmtInt(n) { return PI18N.fmtInt(n); }
 function clampInt(v, min, max, dflt) { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : dflt; }
 function safeUrl(u) { return /^https?:\/\//i.test(String(u || '')) ? String(u) : null; }
 function mdInline(escaped) { return escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/(^|[\s(（，。、；：—])_([^_\n]+)_/g, '$1<em>$2</em>'); }
@@ -62,20 +62,18 @@ async function apiPost(path, body) {
 }
 async function apiDelete(path) { const res = await fetch(path, { method: 'DELETE', headers: { Accept: 'application/json' } }); if (!res.ok) throw new Error(`HTTP ${res.status} — DELETE ${path}`); return res.json(); }
 const POLL_MS = 2000, MAX_POLL_FAILS = 5;
-const TX_TARGET_KEY = 'placeintel.translationTarget';
-const txTarget = () => (['zh', 'en'].includes(localStorage.getItem(TX_TARGET_KEY)) ? localStorage.getItem(TX_TARGET_KEY) : 'zh');
-const txLabel = (target) => (target === 'en' ? 'EN' : '中文');
-const STAGES = { plan: { zh: 'AI规划', en: 'plan' }, search: { zh: '搜索', en: 'search' }, filter: { zh: 'AI筛选', en: 'filter' }, reviews: { zh: '抓评价', en: 'reviews' }, embed: { zh: '向量化', en: 'embed' }, report: { zh: '推理报告', en: 'report' }, done: { zh: '完成', en: 'done' } };
+const txTarget = () => PI18N.translationTarget();
+const txLabel = (target) => PI18N.labels[target] || target.toUpperCase();
 const TAB_NAMES = ['scout', 'shop', 'library', 'ask'];
 const tabFromHash = () => (TAB_NAMES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'scout');
 const SEARCH_ROW_CHIP_LIMIT = 8, LIBRARY_PAGE_SIZE = 12, LIBRARY_FILTERS = '#library-sort,#library-category,#library-freshness,#library-risk,#library-language,#library-cached,#library-report';
-const state = { tab: 'scout', profiles: [], places: [], libraryLoaded: false, libraryLimit: LIBRARY_PAGE_SIZE, libraryCompare: [], compareDetails: {}, compareLoading: false, jobs: { scout: null, shop: null }, detail: null, detailReturnFocus: null, photoReturnFocus: null, photoGallery: [], photoIndex: 0, photoZoom: 1, meta: null, translationTarget: txTarget(), searches: [], commandMode: 'scout', commandManual: false }; // meta={version, reason/translate/embed}
+const state = { tab: 'scout', profiles: [], places: [], libraryLoaded: false, libraryLimit: LIBRARY_PAGE_SIZE, libraryCompare: [], compareDetails: {}, compareLoading: false, jobs: { scout: null, shop: null }, detail: null, detailReturnFocus: null, photoReturnFocus: null, photoGallery: [], photoIndex: 0, photoZoom: 1, meta: null, config: null, translationTarget: txTarget(), searches: [], commandMode: 'scout', commandManual: false }; // meta={version, reason/translate/embed}
 function loadingHtml(msg) { return `<p class="loading">${esc(msg)} <span class="dots">●●●</span></p>`; }
 function errorHtml(msg) { return `<div class="error-box"><span class="error-label">出错 error</span>${esc(msg)}</div>`; }
 function emptyHtml(msg, gotoTab, gotoLabel) { const btn = gotoTab ? `<button type="button" class="btn-ghost" data-goto="${esc(gotoTab)}">${esc(gotoLabel || '去侦察 →')}</button>` : ''; return `<div class="empty">${esc(msg)}${btn}</div>`; }
-const COMMAND_LABELS = { scout: '开始侦察新店 Scout →', shop: '单店深挖 Shop →', ask: '问缓存 Ask →' };
-function commandGuess(text) { const q = text.trim(); if (!q) return { mode: 'scout', reason: 'Scout 会搜索/刷新 Google Maps 和评价证据；Ask 只问已有缓存证据。' }; if (/google\.[^\s]*\/maps|\/maps\/place|maps\.app\.goo\.gl|goo\.gl\/maps/i.test(q)) return { mode: 'shop', reason: '检测到 Maps 链接，推荐单店深挖 Shop。' }; if ((/[?？]/.test(q) || /^(哪|谁|是否|有没有|can|does|do|which|what|where|how)\b/i.test(q)) && state.searches.length) return { mode: 'ask', reason: 'Ask 只问已有缓存证据，不会发现新的 Google Maps 地点。' }; if (q.length <= 60 && !/(找|租|学|推荐|附近|哪家|best|find|near|nearby|rental|lesson|lessons|restaurant|coffee|cafe)/i.test(q)) return { mode: 'shop', reason: '像具体店名，推荐单店深挖 Shop。' }; return { mode: 'scout', reason: 'Scout 会搜索/刷新 Google Maps 和评价证据，再抓评价、筛候选、生成报告。' }; }
-function setCommandMode(mode, manual = false, reason = '') { state.commandMode = COMMAND_LABELS[mode] ? mode : 'scout'; if (manual) state.commandManual = true; $$('[data-command-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.commandMode === state.commandMode))); const submit = $('#scout-submit'), why = $('#command-reason'); if (submit) submit.textContent = COMMAND_LABELS[state.commandMode]; if (why) why.textContent = reason || `手动选择 ${state.commandMode.toUpperCase()}。`; }
+function commandLabels() { return { scout: t('button.scout'), shop: t('button.shop'), ask: t('button.ask') }; }
+function commandGuess(text) { const q = text.trim(); if (!q) return { mode: 'scout', reason: t('reason.empty') }; if (/google\.[^\s]*\/maps|\/maps\/place|maps\.app\.goo\.gl|goo\.gl\/maps/i.test(q)) return { mode: 'shop', reason: 'Maps link detected. Shop is the fastest path.' }; if ((/[?？]/.test(q) || /^(哪|谁|是否|有没有|can|does|do|which|what|where|how)\b/i.test(q)) && state.searches.length) return { mode: 'ask', reason: 'Ask uses cached evidence and will not discover new Google Maps places.' }; if (q.length <= 60 && !/(找|租|学|推荐|附近|哪家|best|find|near|nearby|rental|lesson|lessons|restaurant|coffee|cafe)/i.test(q)) return { mode: 'shop', reason: 'This looks like a specific shop name. Shop is recommended.' }; return { mode: 'scout', reason: 'Scout searches or refreshes Google Maps and review evidence before generating a report.' }; }
+function setCommandMode(mode, manual = false, reason = '') { const labels = commandLabels(); state.commandMode = labels[mode] ? mode : 'scout'; if (manual) state.commandManual = true; $$('[data-command-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.commandMode === state.commandMode))); const submit = $('#scout-submit'), why = $('#command-reason'); if (submit) submit.textContent = labels[state.commandMode]; if (why) why.textContent = reason || `Selected ${state.commandMode.toUpperCase()}.`; }
 function refreshCommandMode() { const q = $('#scout-query')?.value || ''; if (!q.trim()) state.commandManual = false; if (!state.commandManual) { const g = commandGuess(q); setCommandMode(g.mode, false, g.reason); } }
 function matchingScout(query, near) { const q = query.trim().toLowerCase(), n = near.trim().toLowerCase(), fresh = Date.now() / 1000 - 14 * 86400; return state.searches.find((s) => String(s.query || '').trim().toLowerCase() === q && (!n || String(s.location || '').trim().toLowerCase() === n) && Number(s.created_at || 0) >= fresh); }
 function renderPlanCard(plan) {
@@ -90,12 +88,12 @@ function renderVerdicts(verdicts) {
   return `<ul class="verdicts">${rows}</ul>`;
 }
 function renderEvent(ev) {
-  const meta = STAGES[ev.stage] || { zh: ev.stage || '…', en: '' };
+  const meta = PI18N.stageLabel(ev.stage);
   let extra = '';
   if (ev.stage === 'plan' && ev.data) extra = renderPlanCard(ev.data);
   if (ev.stage === 'filter' && ev.data) extra = renderVerdicts(ev.data.verdicts);
   const tone = /重试|retry/i.test(ev.msg || '') ? ' tl-retry' : /缓存|cache/i.test(ev.msg || '') ? ' tl-cache' : '';
-  return `<li class="tl-item tl-${esc(ev.stage || 'misc')}${ev.stage === 'done' ? ' tl-done' : ''}${tone}"><span class="tl-dot"></span><div class="tl-content"><div class="tl-meta"><span class="tl-stage">${esc(meta.zh)} ${esc(meta.en)}</span><time class="tl-time">${esc(fmtClock(ev.t))}</time></div>${ev.msg ? `<p class="tl-msg">${esc(ev.msg)}</p>` : ''}${extra}</div></li>`;
+  return `<li class="tl-item tl-${esc(ev.stage || 'misc')}${ev.stage === 'done' ? ' tl-done' : ''}${tone}"><span class="tl-dot"></span><div class="tl-content"><div class="tl-meta"><span class="tl-stage">${esc(meta)}</span><time class="tl-time">${esc(fmtClock(ev.t))}</time></div>${ev.msg ? `<p class="tl-msg">${esc(ev.msg)}</p>` : ''}${extra}</div></li>`;
 }
 function compareTrayHtml() { return '<div id="compare-tray" class="compare-tray" aria-live="polite">选择 2-5 家加入 Compare。</div>'; }
 function refreshCompareTray(scope) { const btns = $$('[data-compare-place][aria-pressed="true"]', scope), picks = btns.map((b) => ({ place_id: b.dataset.comparePlace, name: b.dataset.placeName, rating: b.dataset.placeRating, review_count: b.dataset.reviewCount, address: b.dataset.placeAddress, cached_reviews: b.dataset.cachedReviews })), tray = $('#compare-tray', scope); if (picks.length >= 2) loadCompareDetails(picks); if (tray) tray.innerHTML = picks.length ? `<span>Compare ${picks.length}/5</span>${picks.map((p) => `<span class="chip">${esc(p.name)}</span>`).join('')}${picks.length >= 2 ? renderCompareBoard(picks) : ''}` : '选择 2-5 家加入 Compare。'; }
@@ -201,34 +199,8 @@ function renderHours(hoursJson) {
   }
   return esc(String(hoursJson));
 }
-const LANG_META = { zh: ['中文', 'Chinese', 'Vec native / Chinese readers'], en: ['English', 'EN', 'Global travelers'], vi: ['Tiếng Việt', 'Vietnamese', 'Local Vietnamese voices'], ko: ['한국어', 'Korean', 'Korean visitors'], ja: ['日本語', 'Japanese', 'Japanese visitors'], th: ['ไทย', 'Thai', 'Thai visitors'], other: ['其他语言', 'Other', 'Mixed language'], unknown: ['无文字', 'No text', 'Rating-only'] };
-const LANG_ORDER = ['zh', 'en', 'vi', 'ko', 'ja', 'th', 'other', 'unknown'], RATING_FILTERS = [['all', '全部评分', 'All'], ['5', '5★', 'great'], ['4', '4★', 'ok'], ['low', '≤3★', '问题']];
-const VI_RE = /[ăâđêôơưáàảãạắằẳẵặấầẩẫậéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]|\b(và|không|nhưng|đẹp|đường|người|nên|khó|rất|chơi|biển|rác|nước|nơi|này|cửa hàng|phục vụ|chất lượng)\b/i;
-const THEME_RULES = [['price', '价格', 'price', /价格|价钱|公道|押金|贵|便宜|price|cost|cheap|expensive|deposit|phí|giá|tiền/i], ['service', '服务/态度', 'service', /服务|老板|态度|helpful|friendly|owner|staff|service|phục vụ|nhân viên|chủ|친절/i], ['quality', '质量/效果', 'quality', /质量|品质|效果|好用|guitar|instrument|quality|selection|đàn|chất lượng|악기/i], ['access', '到达/停车', 'access', /停车|到达|难找|滑|parking|road|access|enter|đường|vào|khó|trượt|leo|주차/i], ['repair', '维修/调琴', 'repair', /修|维修|调琴|调整|repair|setup|action|eq|fix|lắp|chỉnh/i], ['rental', '租赁', 'rental', /租|租赁|rental|rent|hire|thuê/i], ['availability', '选择/库存', 'availability', /选择|库存|现货|available|selection|stock|nhiều|lựa chọn/i], ['crowd', '人流/安静', 'crowd', /人多|排队|拥挤|安静|crowd|busy|quiet|overcrowded|đông|ồn ào/i], ['clean', '清洁/垃圾', 'cleanliness', /干净|垃圾|塑料|clean|trash|plastic|rác|chai nhựa/i], ['view', '景色/氛围', 'view', /漂亮|景色|氛围|view|beautiful|gorgeous|serene|đẹp|trong xanh|mát/i], ['food', '饮食', 'food/drink', /咖啡|椰子|吃|drink|coffee|coconut|food|cafe|nước/i]];
-function langMeta(code) { return LANG_META[code] || LANG_META.other; }
-function reviewBody(r) { return [r.text, r.owner_response].filter(Boolean).join(' '); }
-function detectReviewLang(text) {
-  const s = String(text || '').trim();
-  if (!s) return 'unknown';
-  const hit = [[/[\u3400-\u9fff]/, 'zh'], [/[\uac00-\ud7af]/, 'ko'], [/[\u3040-\u30ff]/, 'ja'], [/[\u0e00-\u0e7f]/, 'th'], [VI_RE, 'vi']].find(([re]) => re.test(s));
-  if (hit) return hit[1];
-  return /[a-z]/i.test(s) ? 'en' : 'other';
-}
-function reviewThemes(text) { const hits = THEME_RULES.filter((t) => t[3].test(text)).slice(0, 3); return hits.length ? hits : [['general', '整体体验', 'general']]; }
-function reviewRatingBand(rating) { const n = Number(rating); return Number.isFinite(n) && n > 0 ? (n >= 4.5 ? '5' : n >= 3.5 ? '4' : 'low') : 'none'; }
-function languageGroups(reviews) {
-  const groups = new Map();
-  for (const r of reviews) {
-    const body = reviewBody(r);
-    const code = detectReviewLang(body);
-    const g = groups.get(code) || { code, count: 0, sum: 0, themes: new Map(), sample: '' };
-    g.count += 1; g.sum += Number(r.rating) || 0;
-    if (!g.sample && body) g.sample = body.length > 120 ? `${body.slice(0, 120)}…` : body;
-    for (const t of reviewThemes(body)) g.themes.set(t[0], { row: t, count: (g.themes.get(t[0])?.count || 0) + 1 });
-    groups.set(code, g);
-  }
-  return Array.from(groups.values()).sort((a, b) => (LANG_ORDER.indexOf(a.code) - LANG_ORDER.indexOf(b.code)) || (b.count - a.count));
-}
+const RATING_FILTERS = PI18N.ratingFilters;
+const langMeta = PI18N.langMeta, reviewBody = PI18N.reviewBody, detectReviewLang = PI18N.detectReviewLang, reviewThemes = PI18N.reviewThemes, reviewRatingBand = PI18N.reviewRatingBand, languageGroups = PI18N.languageGroups;
 function renderLanguageLens(reviews) {
   if (!reviews.length) return '';
   const groups = languageGroups(reviews);
@@ -240,7 +212,7 @@ function renderLanguageLens(reviews) {
     const themes = Array.from(g.themes.values()).sort((a, b) => b.count - a.count).slice(0, 4).map((x) => `<span>${esc(x.row[1])}<small>${esc(x.row[2])} · ${x.count}</small></span>`).join('');
     return `<article class="language-card" data-review-lang-card="${esc(g.code)}"><h4>${esc(m[0])} <span>${esc(m[1])}</span></h4><p>${g.count} 条 · ★ ${avg} · ${esc(m[2])}</p><div class="language-themes">${themes}</div>${g.sample ? `<blockquote>${esc(g.sample)}</blockquote>` : ''}</article>`;
   }).join('');
-  const target = `<label class="translation-target-wrap">译成 <select class="translation-target" aria-label="译文目标语言"><option value="zh"${state.translationTarget === 'zh' ? ' selected' : ''}>中文 CN</option><option value="en"${state.translationTarget === 'en' ? ' selected' : ''}>English</option></select></label>`;
+  const target = `<label class="translation-target-wrap">Translate to <select class="translation-target" aria-label="translation target language">${PI18N.languageOptionsHtml(state.translationTarget)}</select></label>`;
   return `<section class="language-lens" aria-label="review language lens"><div class="language-lens-head"><div><h3>语言视角 <span>language lens</span></h3><p>language tab 保留给读原文；细分洞察可展开。</p></div><div class="language-actions">${target}<p class="review-filter-count" aria-live="polite">显示全部 ${reviews.length}</p></div></div><div class="language-filters">${filters}</div><div class="rating-filters">${ratingFilters}</div><details class="language-insights"><summary>展开语言洞察 <span>insight cards · ${groups.length}</span></summary><div class="language-grid">${cards}</div></details></section>`;
 }
 function renderReviewCard(r) {
@@ -496,11 +468,11 @@ function bindForms() {
     e.preventDefault();
     const query = $('#scout-query').value.trim();
     if (!query) return flashInvalid($('#scout-query'));
-    const body = { query, top: clampInt($('#scout-top').value, 1, 8, 3), max_reviews: clampInt($('#scout-maxr').value, 20, 5000, 300) };
+    const body = { query, top: clampInt($('#scout-top').value, 1, 8, 3), max_reviews: clampInt($('#scout-maxr').value, 20, 5000, 300), ...langPayload('report') };
     const near = $('#scout-near').value.trim();
     if (state.commandMode === 'ask') { switchTab('ask'); $('#ask-question').value = query; return runAsk(query, null, $('#ask-answer'), false); }
     if (state.commandMode === 'shop') {
-      const shopBody = { target: query, max_reviews: body.max_reviews };
+      const shopBody = { target: query, max_reviews: body.max_reviews, ...langPayload('report') };
       if (near) { shopBody.near = near; $('#shop-near').value = near; } if ($('#scout-profile').value) shopBody.profile = $('#scout-profile').value; if ($('#scout-refresh').checked) shopBody.refresh = true;
       $('#shop-target').value = query; switchTab('shop'); return startJob('shop', '/api/shop', shopBody);
     }
@@ -520,6 +492,7 @@ function bindForms() {
     const body = {
       target,
       max_reviews: clampInt($('#shop-maxr').value, 20, 5000, 300),
+      ...langPayload('report'),
     };
     const near = $('#shop-near').value.trim();
     if (near) body.near = near;
@@ -564,7 +537,7 @@ async function runAsk(q, placeId, out, fresh) {
   out.innerHTML = loadingHtml(fresh ? '强制重新推理中'
     : placeId ? '只检索这家店的评价 + 推理中' : '在整个缓存里检索 + 推理中');
   try {
-    const body = { question: q };
+    const body = { question: q, ...langPayload('answer') };
     if (placeId) body.place_id = placeId;
     if (fresh) body.fresh = true;
     const res = await apiPost('/api/ask', body);
@@ -644,6 +617,7 @@ function bindGlobal() {
     if (e.target.closest('[data-library-more]')) { state.libraryLimit += LIBRARY_PAGE_SIZE; return renderLibrary(); }
     if (e.target.closest('#library-reload')) return loadLibrary();
     if (e.target.closest('#system-toggle')) return toggleSystem();
+    if (e.target.closest('#language-save')) return saveLanguageSettings();
     if (e.target.closest('#model-switch')) return toggleModelPicker();
     if (e.target.closest('#model-save')) return saveModel();
   });
@@ -682,9 +656,9 @@ function filterReviewLanguage(btn) {
   if (label) label.textContent = code === 'all' && rating === 'all' ? `显示全部 ${cards.length}` : `显示 ${shown} / ${cards.length}`;
 }
 function setTranslationTarget(sel) {
-  const panel = sel.closest('.detail-reviews'), target = ['zh', 'en'].includes(sel.value) ? sel.value : 'zh';
+  const panel = sel.closest('.detail-reviews'), target = PI18N.normalizeTag(sel.value) || 'en';
   if (panel) { panel.dataset.txBatch = String(Number(panel.dataset.txBatch || 0) + 1); delete panel.dataset.txBusy; }
-  state.translationTarget = target; localStorage.setItem(TX_TARGET_KEY, target);
+  state.translationTarget = target; PI18N.savePrefs({ translation_target: target });
   $$('.translation-target', panel).forEach((x) => { x.value = target; }); $$('.review-translation', panel).forEach((x) => x.remove());
   $$('[data-review-translate]', panel).forEach((b) => { b.dataset.reviewTranslateTarget = target; b.textContent = `译文 ${txLabel(target)}`; b.disabled = false; });
 }
@@ -726,11 +700,15 @@ async function deletePlace(placeId, name) {
   }
 }
 async function loadProfiles() { try { const names = await apiGet('/api/profiles'); state.profiles = names; for (const sel of [$('#scout-profile'), $('#shop-profile')]) for (const n of names) sel.appendChild(new Option(n, n)); } catch { /* backend offline — selects keep "auto" only */ } }
-function renderSystemPanel(c, h) { const s = c.settings || {}, p = c.providers || {}, f = c.feature_status || {}, r = c.runtime?.data_dir || {}, link = c.health || {}; return `<h3>System Status</h3><p>推理 ${esc(s.reason_model)} · 译文 ${esc(s.translation_model)} · 默认回答 ${esc(s.default_answer_language)} · 证据 ${esc(s.evidence_language)} · 缓存 TTL ${esc(s.cache_ttl_days)} 天</p><p>data dir ${r.configured ? 'configured' : 'missing'} · path ${r.path_visible ? 'visible' : 'hidden'} · port ${esc(c.runtime?.port || '—')} · health ${h?.ok ? 'ok' : 'check'}</p><p>Provider status · reason ${esc(p.reason?.provider || 'unknown')} · translate ${esc(p.translate?.provider || 'unknown')} · embed ${esc(p.embed?.provider || 'unknown')}</p><p>Setup state · reasoning ${f.reasoning?.available ? 'ok' : 'setup required'} · embedding ${f.embedding?.available ? 'ok' : 'setup required'} · translation ${f.translation?.available ? 'ok' : 'setup required'}</p><p><a href="${esc(link.cheap_url || '/api/health')}">cheap health</a> · <a href="${esc(link.deep_url || '/api/health/deep')}">deep health</a></p><p id="system-danger"><strong>Dangerous settings</strong> — destructive cache/restore actions stay in CLI and require confirmation.</p>`; }
-async function toggleSystem() { const panel = $('#system-panel'); if (!panel) return; if (!panel.hidden) { panel.hidden = true; return; } panel.hidden = false; panel.innerHTML = loadingHtml('读取系统状态'); try { const [c, h] = await Promise.all([apiGet('/api/config'), apiGet('/api/health')]); panel.innerHTML = renderSystemPanel(c, h); } catch (err) { panel.innerHTML = errorHtml(`系统状态读取失败：${err.message}`); } }
+function renderLanguageControls(c) { const lang = PI18N.state(), app = c.language?.app_defaults || {}; return `<section class="language-settings"><h4>Language</h4><div class="advanced-grid"><label>UI <select id="ui-language">${PI18N.languageOptionsHtml(lang.prefs.ui_language || app.ui_language || 'auto', true)}</select></label><label>Ask <select id="answer-language">${PI18N.languageOptionsHtml(lang.prefs.answer_language || app.answer_language || 'auto', true)}</select></label><label>Reports <select id="report-language">${PI18N.languageOptionsHtml(lang.prefs.report_language || app.report_language || 'auto', true)}</select></label><label>Reviews <select id="translation-target-setting">${PI18N.languageOptionsHtml(lang.translationTarget)}</select></label></div><label class="check"><input type="checkbox" id="language-default"> make default for this app</label><button type="button" class="btn-model" id="language-save">Save language</button><span class="model-status" id="language-status" role="status">active: UI ${esc(lang.ui)} · Ask ${esc(lang.answer)} · Reports ${esc(lang.report)} · Reviews ${esc(lang.translationTarget)}</span></section>`; }
+function renderSystemPanel(c, h) { const s = c.settings || {}, p = c.providers || {}, f = c.feature_status || {}, r = c.runtime?.data_dir || {}, link = c.health || {}; return `<h3>System Status</h3>${renderLanguageControls(c)}<p>推理 ${esc(s.reason_model)} · 译文 ${esc(s.translation_model)} · 默认回答 ${esc(s.default_answer_language)} · 默认报告 ${esc(s.default_report_language || 'auto')} · 证据 ${esc(s.evidence_language)} · 缓存 TTL ${esc(s.cache_ttl_days)} 天</p><p>data dir ${r.configured ? 'configured' : 'missing'} · path ${r.path_visible ? 'visible' : 'hidden'} · port ${esc(c.runtime?.port || '—')} · health ${h?.ok ? 'ok' : 'check'}</p><p>Provider status · reason ${esc(p.reason?.provider || 'unknown')} · translate ${esc(p.translate?.provider || 'unknown')} · embed ${esc(p.embed?.provider || 'unknown')}</p><p>Setup state · reasoning ${f.reasoning?.available ? 'ok' : 'setup required'} · embedding ${f.embedding?.available ? 'ok' : 'setup required'} · translation ${f.translation?.available ? 'ok' : 'setup required'}</p><p><a href="${esc(link.cheap_url || '/api/health')}">cheap health</a> · <a href="${esc(link.deep_url || '/api/health/deep')}">deep health</a></p><p id="system-danger"><strong>Dangerous settings</strong> — destructive cache/restore actions stay in CLI and require confirmation.</p>`; }
+async function toggleSystem() { const panel = $('#system-panel'); if (!panel) return; if (!panel.hidden) { panel.hidden = true; return; } panel.hidden = false; panel.innerHTML = loadingHtml('读取系统状态'); try { const [c, h] = await Promise.all([apiGet('/api/config'), apiGet('/api/health')]); initLanguage(c); panel.innerHTML = renderSystemPanel(c, h); } catch (err) { panel.innerHTML = errorHtml(`系统状态读取失败：${err.message}`); } }
+async function saveLanguageSettings() { const prefs = { ui_language: $('#ui-language').value, answer_language: $('#answer-language').value, report_language: $('#report-language').value, translation_target: $('#translation-target-setting').value }; const status = $('#language-status'); PI18N.savePrefs(prefs); state.translationTarget = PI18N.translationTarget(); refreshCommandMode(); status.textContent = 'saved in this browser'; if ($('#language-default').checked) { try { await apiPost('/api/settings/language', { ui_language: prefs.ui_language, default_answer_language: prefs.answer_language, default_report_language: prefs.report_language, translation_target: prefs.translation_target, make_default: true }); status.textContent = 'saved in browser and app defaults'; await loadMeta(); } catch (err) { status.textContent = `not saved as app default: ${err.message}`; } } }
 async function loadMeta() {
   try {
-    const m = await apiGet('/api/meta');
+    const c = await apiGet('/api/config');
+    state.config = c; initLanguage(c);
+    const m = { version: c.version, ...(c.providers || {}) };
     state.meta = m;
     const el = $('#meta-line');
     if (el && m.reason) {
