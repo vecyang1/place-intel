@@ -146,16 +146,21 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertIn("Scout 会搜索/刷新 Google Maps 和评价证据", js)
 
     def test_photo_ui_uses_lazy_source_images_and_safe_links(self) -> None:
+        html = (WEB / "index.html").read_text(encoding="utf-8")
         css = (WEB / "app.css").read_text(encoding="utf-8")
         js = (WEB / "app.js").read_text(encoding="utf-8")
 
         self.assertIn("photoSourcesHtml", js)
+        self.assertIn("photo-lightbox", html)
+        self.assertIn("openPhotoLightbox", js)
+        self.assertIn("data-photo-url", js)
         self.assertIn('loading="lazy"', js)
         self.assertIn('decoding="async"', js)
-        self.assertIn('rel="noopener noreferrer"', js)
+        self.assertNotIn('target="_blank" rel="noopener noreferrer"><img class="source-photo-img"', js)
         self.assertIn("source photo", js)
         self.assertIn("review photo", js)
         self.assertRegex(css, r"\.source-photo\s*\{[^}]*aspect-ratio:\s*4\s*/\s*3", re.S)
+        self.assertIn("cursor: zoom-in", css)
         self.assertIn("object-fit: cover", css)
 
 

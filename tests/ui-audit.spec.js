@@ -359,6 +359,11 @@ test('source photos render lazily in library, dossier, and compare without page 
       last_refreshed: now,
       thumbnail: { url: 'https://images.example/second.jpg', source: 'serpapi', kind: 'review', review_id: 'r2' },
     },
+    ...Array.from({ length: 3 }, (_, i) => ({
+      place_id: `filler-${i}`, name: `Aligned Filler ${i + 1}`, category: 'Cafe',
+      rating: 4.2 - i * 0.1, review_count: 30 - i, cached_reviews: 8,
+      address: 'Hoi An', last_refreshed: now,
+    })),
   ];
   await page.route('**/api/places', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(places) }));
   await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
@@ -378,8 +383,11 @@ test('source photos render lazily in library, dossier, and compare without page 
     body: JSON.stringify({ place: places[1], photos: [places[1].thumbnail], reviews: [], report: null }),
   }));
 
-  await page.setViewportSize({ width: 390, height: 900 });
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
+
+  const cardWidths = await page.locator('#library-grid .shop-card').evaluateAll((cards) => cards.map((card) => Math.round(card.getBoundingClientRect().width)));
+  expect(Math.max(...cardWidths) - Math.min(...cardWidths)).toBeLessThanOrEqual(2);
 
   const cardImg = page.locator('#library-grid .shop-card').filter({ hasText: 'Photo Place Cafe' }).locator('img.source-photo-img');
   await expect(cardImg).toHaveAttribute('loading', 'lazy');
@@ -395,8 +403,20 @@ test('source photos render lazily in library, dossier, and compare without page 
   await expect(page.locator('#detail-overlay')).toBeVisible();
   await expect(page.locator('#detail-body .photo-strip img.source-photo-img')).toHaveAttribute('loading', 'lazy');
   await expect(page.locator('#detail-body .photo-strip')).toContainText('review photo');
-  await expect(page.locator('#detail-body .photo-strip a')).toHaveAttribute('target', '_blank');
+  const pagesBefore = page.context().pages().length;
+  const popupPromise = page.waitForEvent('popup', { timeout: 500 }).catch(() => null);
+  await page.locator('#detail-body .source-photo').first().click();
+  const popup = await popupPromise;
+  if (popup) await popup.close();
+  expect(popup).toBeNull();
+  await expect(page.locator('#photo-lightbox')).toBeVisible();
+  await expect(page.locator('#photo-lightbox-img')).toHaveAttribute('src', 'https://images.example/photo-place.jpg');
+  expect(page.context().pages()).toHaveLength(pagesBefore);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#photo-lightbox')).toBeHidden();
+  await expect(page.locator('#detail-overlay')).toBeVisible();
 
+  await page.setViewportSize({ width: 390, height: 900 });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
 });

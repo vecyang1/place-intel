@@ -1,5 +1,13 @@
 # Changelog — place-intel
 
+## v0.4.36 — 2026-06-15 — aligned photo cards and lightbox
+- Library cards no longer promote the first results into wider featured tiles;
+  cached shop cards now keep comparable widths and align cleanly across the grid.
+- Source/review photo tiles now open an in-app lightbox instead of launching a
+  new browser tab. Escape closes the image viewer and returns to the dossier.
+- Cards without source photos get a fixed placeholder slot, keeping Library and
+  Compare layouts stable while still avoiding any image binary cache.
+
 ## v0.4.35 — 2026-06-15 — source photos and navigation clarity
 - Added a URL-only photo resolver for cached places, exposing bounded
   `thumbnail` and `photos[]` metadata without downloading image binaries or
