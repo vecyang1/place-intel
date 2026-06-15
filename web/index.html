@@ -213,8 +213,11 @@
 <div class="photo-lightbox" id="photo-lightbox" role="dialog" aria-modal="true" aria-label="source photo" hidden>
   <div class="photo-lightbox-backdrop" data-photo-close="1"></div>
   <figure class="photo-lightbox-frame">
-    <button type="button" class="photo-lightbox-close" id="photo-lightbox-close" aria-label="关闭图片">×</button>
-    <img id="photo-lightbox-img" alt="">
+    <div class="photo-lightbox-toolbar" role="group" aria-label="图片缩放">
+      <button type="button" class="photo-lightbox-zoom" id="photo-lightbox-zoom-out" data-photo-zoom="-1" aria-label="缩小图片">−</button><span class="photo-lightbox-zoom-label" id="photo-lightbox-zoom-label" aria-live="polite">100%</span><button type="button" class="photo-lightbox-zoom" id="photo-lightbox-zoom-in" data-photo-zoom="1" aria-label="放大图片">+</button><button type="button" class="photo-lightbox-zoom" id="photo-lightbox-zoom-reset" data-photo-zoom="0" aria-label="重置图片缩放">100%</button>
+      <button type="button" class="photo-lightbox-close" id="photo-lightbox-close" aria-label="关闭图片">×</button>
+    </div>
+    <div class="photo-lightbox-stage"><img id="photo-lightbox-img" alt=""></div>
     <figcaption id="photo-lightbox-caption"></figcaption>
   </figure>
 </div>

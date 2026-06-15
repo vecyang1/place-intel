@@ -152,7 +152,11 @@ class WebStaticContractTest(unittest.TestCase):
 
         self.assertIn("photoSourcesHtml", js)
         self.assertIn("photo-lightbox", html)
+        self.assertIn("photo-lightbox-toolbar", html)
+        self.assertIn("photo-lightbox-zoom-in", html)
         self.assertIn("openPhotoLightbox", js)
+        self.assertIn("setPhotoZoom", js)
+        self.assertIn("data-photo-zoom", js + html)
         self.assertIn("data-photo-url", js)
         self.assertIn('loading="lazy"', js)
         self.assertIn('decoding="async"', js)
@@ -162,6 +166,8 @@ class WebStaticContractTest(unittest.TestCase):
         self.assertRegex(css, r"\.source-photo\s*\{[^}]*aspect-ratio:\s*4\s*/\s*3", re.S)
         self.assertIn("cursor: zoom-in", css)
         self.assertIn("object-fit: cover", css)
+        self.assertIn("background: rgba(0, 0, 0, 0.86)", css)
+        self.assertIn("overflow: auto", css)
 
 
 if __name__ == "__main__":

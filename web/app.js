@@ -69,7 +69,7 @@ const STAGES = { plan: { zh: 'AI规划', en: 'plan' }, search: { zh: '搜索', e
 const TAB_NAMES = ['scout', 'shop', 'library', 'ask'];
 const tabFromHash = () => (TAB_NAMES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'scout');
 const SEARCH_ROW_CHIP_LIMIT = 8, LIBRARY_PAGE_SIZE = 12, LIBRARY_FILTERS = '#library-sort,#library-category,#library-freshness,#library-risk,#library-language,#library-cached,#library-report';
-const state = { tab: 'scout', profiles: [], places: [], libraryLoaded: false, libraryLimit: LIBRARY_PAGE_SIZE, libraryCompare: [], compareDetails: {}, compareLoading: false, jobs: { scout: null, shop: null }, detail: null, detailReturnFocus: null, photoReturnFocus: null, meta: null, translationTarget: txTarget(), searches: [], commandMode: 'scout', commandManual: false }; // meta={version, reason/translate/embed}
+const state = { tab: 'scout', profiles: [], places: [], libraryLoaded: false, libraryLimit: LIBRARY_PAGE_SIZE, libraryCompare: [], compareDetails: {}, compareLoading: false, jobs: { scout: null, shop: null }, detail: null, detailReturnFocus: null, photoReturnFocus: null, photoZoom: 1, meta: null, translationTarget: txTarget(), searches: [], commandMode: 'scout', commandManual: false }; // meta={version, reason/translate/embed}
 function loadingHtml(msg) { return `<p class="loading">${esc(msg)} <span class="dots">●●●</span></p>`; }
 function errorHtml(msg) { return `<div class="error-box"><span class="error-label">出错 error</span>${esc(msg)}</div>`; }
 function emptyHtml(msg, gotoTab, gotoLabel) { const btn = gotoTab ? `<button type="button" class="btn-ghost" data-goto="${esc(gotoTab)}">${esc(gotoLabel || '去侦察 →')}</button>` : ''; return `<div class="empty">${esc(msg)}${btn}</div>`; }
@@ -457,7 +457,8 @@ function closeDetail() {
   state.detailReturnFocus = null;
   if (returnFocus && document.contains(returnFocus)) returnFocus.focus({ preventScroll: true });
 }
-function openPhotoLightbox(btn) { const url = safeUrl(btn.dataset.photoUrl), src = safeUrl(btn.dataset.photoSrc) || url; if (!url || !src) return; state.photoReturnFocus = btn; $('#photo-lightbox-img').src = url; $('#photo-lightbox-img').alt = btn.querySelector('img')?.alt || 'source photo'; $('#photo-lightbox-caption').textContent = btn.dataset.photoCaption || $('#photo-lightbox-img').alt; $('#photo-lightbox').hidden = false; document.body.classList.add('no-scroll'); $('#photo-lightbox-close').focus({ preventScroll: true }); } function closePhotoLightbox() { const box = $('#photo-lightbox'); if (box.hidden) return; box.hidden = true; $('#photo-lightbox-img').removeAttribute('src'); if ($('#detail-overlay').hidden) document.body.classList.remove('no-scroll'); const f = state.photoReturnFocus; state.photoReturnFocus = null; if (f && document.contains(f)) f.focus({ preventScroll: true }); }
+function setPhotoZoom(next) { const z = Math.max(0.5, Math.min(3, Math.round(next * 100) / 100)); state.photoZoom = z; $('#photo-lightbox-img').style.setProperty('--photo-zoom', z); $('.photo-lightbox-stage')?.classList.toggle('is-zoomed', z > 1); $('#photo-lightbox-zoom-label').textContent = `${Math.round(z * 100)}%`; $('#photo-lightbox-zoom-out').disabled = z <= 0.5; $('#photo-lightbox-zoom-in').disabled = z >= 3; } function openPhotoLightbox(btn) { const url = safeUrl(btn.dataset.photoUrl), src = safeUrl(btn.dataset.photoSrc) || url; if (!url || !src) return; state.photoReturnFocus = btn; $('#photo-lightbox-img').src = url; $('#photo-lightbox-img').alt = btn.querySelector('img')?.alt || 'source photo'; $('#photo-lightbox-caption').textContent = btn.dataset.photoCaption || $('#photo-lightbox-img').alt; $('#photo-lightbox').hidden = false; setPhotoZoom(1); document.body.classList.add('no-scroll'); $('#photo-lightbox-zoom-in').focus({ preventScroll: true }); }
+function closePhotoLightbox() { const box = $('#photo-lightbox'); if (box.hidden) return; box.hidden = true; $('#photo-lightbox-img').removeAttribute('src'); $('#photo-lightbox-img').removeAttribute('style'); $('.photo-lightbox-stage')?.classList.remove('is-zoomed'); if ($('#detail-overlay').hidden) document.body.classList.remove('no-scroll'); const f = state.photoReturnFocus; state.photoReturnFocus = null; if (f && document.contains(f)) f.focus({ preventScroll: true }); } function changePhotoZoom(btn) { const step = Number(btn.dataset.photoZoom || 0); setPhotoZoom(step ? state.photoZoom + step * 0.25 : 1); } function trapPhotoFocus(e) { const xs = $$('button:not([disabled])', $('#photo-lightbox')), first = xs[0], last = xs[xs.length - 1], active = document.activeElement; if (!xs.length) return; if (e.shiftKey && active === first) { e.preventDefault(); return last.focus({ preventScroll: true }); } if (!e.shiftKey && active === last) { e.preventDefault(); return first.focus({ preventScroll: true }); } }
 function trapDetailFocus(e) {
   const panel = $('.detail-panel');
   const xs = $$('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])', panel).filter((x) => x.offsetParent !== null || x === document.activeElement);
@@ -601,7 +602,7 @@ function bindGlobal() {
   document.addEventListener('click', (e) => {
     const tab = e.target.closest('[data-tab]');
     if (tab) return switchTab(tab.dataset.tab);
-    const photo = e.target.closest('[data-photo-url]'); if (photo) return openPhotoLightbox(photo); if (e.target.closest('[data-photo-close]') || e.target.closest('#photo-lightbox-close')) return closePhotoLightbox();
+    const photo = e.target.closest('[data-photo-url]'); if (photo) return openPhotoLightbox(photo); const zoom = e.target.closest('[data-photo-zoom]'); if (zoom) return changePhotoZoom(zoom); if (e.target.closest('[data-photo-close]') || e.target.closest('#photo-lightbox-close')) return closePhotoLightbox();
     const goto = e.target.closest('[data-goto]');
     if (goto) return switchTab(goto.dataset.goto);
     const retry = e.target.closest('[data-retry-job]'); if (retry) { const j = state.jobs[retry.dataset.retryJob]; if (j) return startJob(retry.dataset.retryJob, j.path, { ...j.body, refresh: false }); }
@@ -662,7 +663,7 @@ function bindGlobal() {
       $(`#tab-${TAB_NAMES[n]}`).focus();
       return;
     }
-    if (e.key === 'Tab' && !$('#photo-lightbox').hidden) { e.preventDefault(); return $('#photo-lightbox-close').focus({ preventScroll: true }); } if (e.key === 'Tab' && !$('#detail-overlay').hidden) trapDetailFocus(e);
+    if (e.key === 'Tab' && !$('#photo-lightbox').hidden) return trapPhotoFocus(e); if (!$('#photo-lightbox').hidden && ['+', '='].includes(e.key)) { e.preventDefault(); return setPhotoZoom(state.photoZoom + 0.25); } if (!$('#photo-lightbox').hidden && e.key === '-') { e.preventDefault(); return setPhotoZoom(state.photoZoom - 0.25); } if (e.key === 'Tab' && !$('#detail-overlay').hidden) trapDetailFocus(e);
     if (e.key === 'Escape' && !$('#photo-lightbox').hidden) return closePhotoLightbox(); if (e.key === 'Escape' && !$('#detail-overlay').hidden) closeDetail();
   });
 }

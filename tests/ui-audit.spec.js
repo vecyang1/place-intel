@@ -411,6 +411,16 @@ test('source photos render lazily in library, dossier, and compare without page 
   expect(popup).toBeNull();
   await expect(page.locator('#photo-lightbox')).toBeVisible();
   await expect(page.locator('#photo-lightbox-img')).toHaveAttribute('src', 'https://images.example/photo-place.jpg');
+  const backdropColor = await page.locator('.photo-lightbox-backdrop').evaluate((el) => getComputedStyle(el).backgroundColor);
+  const alpha = Number((/rgba?\([^,]+,[^,]+,[^,]+,\s*([0-9.]+)\)/.exec(backdropColor) || [])[1] || 1);
+  expect(alpha).toBeGreaterThanOrEqual(0.82);
+  await expect(page.locator('#photo-lightbox-zoom-out')).toBeVisible();
+  await expect(page.locator('#photo-lightbox-zoom-label')).toHaveText('100%');
+  await page.locator('#photo-lightbox-zoom-in').click();
+  await expect(page.locator('#photo-lightbox-zoom-label')).toHaveText('125%');
+  await expect(page.locator('#photo-lightbox-img')).toHaveCSS('transform', /matrix\(1\.25/);
+  await page.locator('#photo-lightbox-zoom-out').click();
+  await expect(page.locator('#photo-lightbox-zoom-label')).toHaveText('100%');
   expect(page.context().pages()).toHaveLength(pagesBefore);
   await page.keyboard.press('Escape');
   await expect(page.locator('#photo-lightbox')).toBeHidden();

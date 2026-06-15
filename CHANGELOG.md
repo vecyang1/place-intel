@@ -1,5 +1,13 @@
 # Changelog — place-intel
 
+## v0.4.37 — 2026-06-15 — darker zoomable photo lightbox
+- Darkened and polished the source-photo lightbox so clicked Google/source
+  photos read as an intentional in-app viewer instead of a loose overlay.
+- Added in-lightbox zoom controls with visible 100%/125% state, reset support,
+  keyboard +/- zoom, and focus trapping across the photo controls.
+- Preserved the URL-only photo policy: no image binaries are downloaded, cached,
+  or added to the backup surface.
+
 ## v0.4.36 — 2026-06-15 — aligned photo cards and lightbox
 - Library cards no longer promote the first results into wider featured tiles;
   cached shop cards now keep comparable widths and align cleanly across the grid.
