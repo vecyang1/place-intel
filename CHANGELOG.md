@@ -1,5 +1,23 @@
 # Changelog — place-intel
 
+## v0.4.46 — 2026-06-19 — photo-lightbox + language accessibility hardening
+Adversarial audit of the just-merged photo + language feature code (0 security issues —
+the scraped-photo URLs are correctly `safeUrl()` + `esc()` guarded). Fixed 6 a11y/UX
+defects, all in the new feature surface:
+- **Photo-lightbox focus trap** now includes the source-URL `<a>`, so Tab can't escape
+  the modal onto background controls, and the "view original" link is keyboard /
+  screen-reader reachable (was buttons-only).
+- The lightbox opens focus on the always-enabled close button (was the nav button, which
+  is disabled for single-photo galleries — leaving focus outside the just-opened modal).
+- Opening the lightbox from a dossier now sets the dossier `inert`, so the layered second
+  modal no longer leaves the first one exposed to the screen-reader virtual cursor.
+- The "no source photo" empty/broken-image label is localized via a CSS variable (was
+  hardcoded English and double-rendered over the localized empty label); the lightbox
+  toolbar aria-labels and the language save-status now follow the UI language switch.
+- **Contrast:** the active command-mode chip's help text was 3.89:1 — `opacity: 0.72`
+  dragged `--on-accent` below AA on the coral chip; `opacity: 1` on the active state
+  restores AA. Lighthouse accessibility back to 100.
+
 ## v0.4.45 — 2026-06-19 — merge: source photos + language switch ⊕ production hardening
 Reconciles two lines that diverged at v0.4.34: the **source-photo galleries + lightbox**
 and the **UI/answer/report language switch** (entries v0.4.35→v0.4.44 below) with a

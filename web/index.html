@@ -211,18 +211,18 @@
 </div>
 
 <!-- ============ PHOTO LIGHTBOX ============ -->
-<div class="photo-lightbox" id="photo-lightbox" role="dialog" aria-modal="true" aria-label="source photo" hidden>
+<div class="photo-lightbox" id="photo-lightbox" role="dialog" aria-modal="true" data-i18n-aria="aria.photo.dialog" aria-label="source photo" hidden>
   <div class="photo-lightbox-backdrop" data-photo-close="1"></div>
   <figure class="photo-lightbox-frame">
-    <div class="photo-lightbox-toolbar" role="group" aria-label="图片缩放">
+    <div class="photo-lightbox-toolbar" role="group" data-i18n-aria="aria.photo.zoom" aria-label="图片缩放">
       <span class="photo-lightbox-count" id="photo-lightbox-count" aria-live="polite">1/1</span>
-      <button type="button" class="photo-lightbox-zoom" id="photo-lightbox-zoom-out" data-photo-zoom="-1" aria-label="缩小图片">−</button><span class="photo-lightbox-zoom-label" id="photo-lightbox-zoom-label" aria-live="polite">100%</span><button type="button" class="photo-lightbox-zoom" id="photo-lightbox-zoom-in" data-photo-zoom="1" aria-label="放大图片">+</button><button type="button" class="photo-lightbox-zoom" id="photo-lightbox-zoom-reset" data-photo-zoom="0" aria-label="重置图片缩放">100%</button>
-      <button type="button" class="photo-lightbox-close" id="photo-lightbox-close" aria-label="关闭图片">×</button>
+      <button type="button" class="photo-lightbox-zoom" id="photo-lightbox-zoom-out" data-photo-zoom="-1" data-i18n-aria="aria.photo.zoomOut" aria-label="缩小图片">−</button><span class="photo-lightbox-zoom-label" id="photo-lightbox-zoom-label" aria-live="polite">100%</span><button type="button" class="photo-lightbox-zoom" id="photo-lightbox-zoom-in" data-photo-zoom="1" data-i18n-aria="aria.photo.zoomIn" aria-label="放大图片">+</button><button type="button" class="photo-lightbox-zoom" id="photo-lightbox-zoom-reset" data-photo-zoom="0" data-i18n-aria="aria.photo.zoomReset" aria-label="重置图片缩放">100%</button>
+      <button type="button" class="photo-lightbox-close" id="photo-lightbox-close" data-i18n-aria="aria.photo.close" aria-label="关闭图片">×</button>
     </div>
     <div class="photo-lightbox-stage">
-      <button type="button" class="photo-lightbox-nav photo-lightbox-prev" id="photo-lightbox-prev" data-photo-step="-1" aria-label="上一张图片">‹</button>
+      <button type="button" class="photo-lightbox-nav photo-lightbox-prev" id="photo-lightbox-prev" data-photo-step="-1" data-i18n-aria="aria.photo.prev" aria-label="上一张图片">‹</button>
       <div class="photo-lightbox-canvas"><img id="photo-lightbox-img" alt=""></div>
-      <button type="button" class="photo-lightbox-nav photo-lightbox-next" id="photo-lightbox-next" data-photo-step="1" aria-label="下一张图片">›</button>
+      <button type="button" class="photo-lightbox-nav photo-lightbox-next" id="photo-lightbox-next" data-photo-step="1" data-i18n-aria="aria.photo.next" aria-label="下一张图片">›</button>
     </div>
     <figcaption id="photo-lightbox-caption"></figcaption><a id="photo-lightbox-source" class="photo-lightbox-source" href="#" target="_blank" rel="noopener noreferrer"></a>
   </figure>

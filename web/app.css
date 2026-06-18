@@ -140,6 +140,7 @@ textarea.query-input { min-height: 6em; }
 .command-mode .chip { text-align: left; }
 .command-mode .chip[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .chip-help { display: block; margin-top: 0.08rem; font-size: 0.62rem; color: inherit; opacity: 0.72; }
+.command-mode .chip[aria-pressed="true"] .chip-help { opacity: 1; } /* 0.72 dropped --on-accent to 3.89:1 on the coral active chip */
 .mode-reason { margin: -0.25rem 0 0.75rem; font-size: 0.78rem; color: var(--ink-55); }
 
 .advanced { margin: 0.4rem 0 1.1rem; border-top: 1.5px dashed var(--line-soft); }
@@ -442,7 +443,7 @@ textarea.query-input { min-height: 6em; }
 .source-photo-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .photo-label { position: absolute; left: 0.35rem; bottom: 0.35rem; border-radius: 99px; background: color-mix(in oklab, var(--paper) 86%, transparent); padding: 0.08rem 0.4rem; font-family: var(--mono); font-size: 0.6rem; color: var(--ink-70); }
 .source-photo.is-broken img { display: none; }
-.source-photo.is-broken::before, .source-photo.is-empty::before { content: "no source photo"; display: grid; place-items: center; height: 100%; font-family: var(--mono); font-size: 0.68rem; }
+.source-photo.is-broken::before { content: var(--photo-no-source, "no source photo"); display: grid; place-items: center; height: 100%; font-family: var(--mono); font-size: 0.68rem; }
 .shop-rating { font-family: var(--mono); font-size: 0.84rem; color: var(--accent); font-weight: 600; }
 .badge {
   font-family: var(--mono);
