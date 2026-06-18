@@ -88,5 +88,39 @@ class PhotoContractTest(unittest.TestCase):
             self.assertNotIn("raw_json", item)
 
 
+    def test_batch_thumbnails_match_per_place_resolver(self) -> None:
+        # /api/places resolves thumbnails in one batch (resolve_place_thumbnails) instead of
+        # the per-place N+1; the batch MUST be identical to resolve_place_photos(list_mode=True).
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = cache.connect(Path(tmp) / "placeintel.db")
+            cache.upsert_place(conn, cache.Place(
+                place_id="p1", name="Has reviews", maps_url="https://maps.google.com/?cid=1",
+                raw={"photos": [{"image": "https://maps.example/raw1.jpg"}]}))
+            cache.upsert_place(conn, cache.Place(
+                place_id="p2", name="Raw only", maps_url="https://maps.google.com/?cid=2",
+                raw={"thumbnail": "https://maps.example/raw2.jpg"}))
+            cache.upsert_place(conn, cache.Place(
+                place_id="p3", name="No image", maps_url="https://maps.google.com/?cid=3",
+                raw={"url": "https://www.google.com/maps/place/No+Image"}))
+            cache.upsert_reviews(conn, [
+                cache.Review(review_id="r1", place_id="p1", author="A", rating=5, review_date="2026-06-02",
+                             images=["https://lh3.googleusercontent.com/newer=w400"], source="serpapi"),
+                cache.Review(review_id="r2", place_id="p1", author="B", rating=4, review_date="2026-06-01",
+                             images=["https://lh3.googleusercontent.com/pro=w400"], source="scraper-pro"),
+            ])
+            ids = ["p1", "p2", "p3", "missing"]
+            batch = photos.resolve_place_thumbnails(conn, ids)
+            per_place = {pid: photos.resolve_place_photos(conn, pid, list_mode=True) for pid in ids}
+            conn.close()
+        for pid in ids:
+            self.assertEqual(batch.get(pid), per_place[pid], f"batch != per-place for {pid}")
+        # scraper-pro wins over a newer serpapi review (ordering parity)
+        self.assertEqual(batch["p1"]["url"], "https://lh3.googleusercontent.com/pro=w400")
+        self.assertEqual(batch["p1"]["source"], "scraper-pro")
+        self.assertEqual(batch["p2"]["kind"], "place")           # raw fallback
+        self.assertIsNone(batch["p3"])                            # maps-place link is not an image
+        self.assertIsNone(batch.get("missing"))                  # unknown id -> None, not KeyError
+
+
 if __name__ == "__main__":
     unittest.main()

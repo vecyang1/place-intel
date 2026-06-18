@@ -145,3 +145,60 @@ def resolve_place_photos(conn: sqlite3.Connection, place_id: str, *, list_mode: 
     if list_mode:
         return photos[0] if photos else None
     return photos[:limit]
+
+
+def _first_image(entries, builder) -> dict | None:
+    """First image (one row's images_json or raw walk) via _append's url/thumb normalization + dedup."""
+    picked: list[dict] = []
+    for entry in entries:
+        _append(picked, set(), builder(entry), 1)
+        if picked:
+            return picked[0]
+    return None
+
+
+def resolve_place_thumbnails(conn: sqlite3.Connection, place_ids: list[str]) -> dict[str, dict | None]:
+    """Batch the list-mode thumbnail (one photo per place) for many places in a couple of
+    indexed queries instead of the per-place N+1. Mirrors resolve_place_photos(list_mode=True):
+    first review photo (scraper-pro/newest first, ≤PHOTO_REVIEW_SCAN_LIMIT rows scanned), else
+    first raw place photo, else None."""
+    ids = list(dict.fromkeys(place_ids))
+    out: dict[str, dict | None] = {pid: None for pid in ids}
+    if not ids:
+        return out
+    for i in range(0, len(ids), 400):  # chunk to stay under SQLite's bound-variable limit
+        chunk = ids[i:i + 400]
+        placeholders = ",".join("?" * len(chunk))
+        scanned: dict[str, int] = {}
+        for row in conn.execute(
+            f"""SELECT review_id, place_id, author, rating, review_date, images_json, source
+                FROM reviews WHERE place_id IN ({placeholders}) AND images_json IS NOT NULL
+                ORDER BY place_id, CASE source WHEN 'scraper-pro' THEN 0 ELSE 1 END,
+                         review_date DESC, scraped_at DESC""",
+            chunk,
+        ):
+            pid = row["place_id"]
+            if out[pid] is not None or scanned.get(pid, 0) >= PHOTO_REVIEW_SCAN_LIMIT:
+                continue
+            scanned[pid] = scanned.get(pid, 0) + 1
+            out[pid] = _first_image(_loads_json(row["images_json"], []), lambda entry, r=row: {
+                "url": _image_entry(entry)[0], "thumb_url": _image_entry(entry)[1],
+                "source": r["source"] or "review", "kind": "review", "place_id": r["place_id"],
+                "review_id": r["review_id"], "author": r["author"], "rating": r["rating"],
+                "date": r["review_date"], "attribution": None,
+            })
+    missing = [pid for pid in ids if out[pid] is None]
+    for i in range(0, len(missing), 400):
+        chunk = missing[i:i + 400]
+        placeholders = ",".join("?" * len(chunk))
+        for row in conn.execute(
+            f"SELECT place_id, raw_json, source FROM places WHERE place_id IN ({placeholders})", chunk,
+        ):
+            pid = row["place_id"]
+            out[pid] = _first_image(_walk_raw_images(_loads_json(row["raw_json"], {})), lambda entry, r=row: {
+                "url": _image_entry(entry, require_image_url=True)[0],
+                "thumb_url": _image_entry(entry, require_image_url=True)[1],
+                "source": r["source"], "kind": "place", "place_id": r["place_id"],
+                "review_id": None, "author": None, "rating": None, "date": None, "attribution": None,
+            })
+    return out

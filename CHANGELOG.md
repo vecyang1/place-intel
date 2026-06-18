@@ -1,5 +1,14 @@
 # Changelog — place-intel
 
+## v0.4.47 — 2026-06-19 — batch /api/places photo thumbnails (N+1 → 2 queries)
+The library list resolved a source-photo thumbnail per place — 1–2 indexed queries each,
+~218 for a 109-place cache. Replaced with `photos.resolve_place_thumbnails`, a single
+batched pass (one chunked review-image query + one raw-photo fallback query) that mirrors
+the per-place resolver exactly. Measured **218 → 2 queries (109× fewer)** on the live
+cache, **0 result mismatches** across all 109 places (+ a contract test). This was the
+last residual N+1 from the v0.4.45 photo-feature merge — the twin of the activity-risk
+batch already in the same loop.
+
 ## v0.4.46 — 2026-06-19 — photo-lightbox + language accessibility hardening
 Adversarial audit of the just-merged photo + language feature code (0 security issues —
 the scraped-photo URLs are correctly `safeUrl()` + `esc()` guarded). Fixed 6 a11y/UX

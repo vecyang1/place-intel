@@ -354,11 +354,12 @@ def places() -> JSONResponse:
             item = dict(row)
             item["favorite"] = bool(item.get("favorite"))
             item["refresh_enabled"] = bool(item.get("refresh_enabled"))
-            item["thumbnail"] = photos.resolve_place_photos(conn, row["place_id"], list_mode=True)
             out.append(item)
         risks = cache.activity_risks(conn, out)  # one review-date scan, not N+1
+        thumbs = photos.resolve_place_thumbnails(conn, [it["place_id"] for it in out])  # batched, not per-place N+1
         for item in out:
             item["activity_risk"] = risks.get(item["place_id"])
+            item["thumbnail"] = thumbs.get(item["place_id"])
     finally:
         conn.close()
     return JSONResponse(out)
