@@ -7,6 +7,10 @@ data/
 output/
 node_modules/
 
+# Playwright / test output
+test-results/
+playwright-report/
+
 # Vendored third-party scraper — cloned at setup time (see README)
 vendor/
 
