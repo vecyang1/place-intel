@@ -1,5 +1,28 @@
 # Changelog — place-intel
 
+## v0.4.35 — 2026-06-18 — production hardening: risk visibility, a11y, input bounds
+- **Fixed dead risk styling**: the `--danger` CSS variable was referenced by the
+  activity-risk banner and risk badges but never defined, so every "可能已停业/低活跃"
+  warning rendered as plain colorless text. Risk warnings now show in red; the
+  "未发现低活跃风险" reassurance gets a calm green `✓` treatment instead of masquerading
+  as an alert.
+- **WCAG AA contrast**: near-white text on the light coral fill (primary button,
+  active command pill, ask button) was only 2.78:1 in dark mode. Flipped
+  `--on-accent` to dark ink in dark mode → 6.3:1. Lighthouse accessibility 96 → 100.
+- **WCAG 2.2 target size**: standalone tappable chips now meet the 24px minimum.
+- **Dossier drawer** now closes when switching nav tabs (was lingering over the new
+  view); focus returns safely even if the opening element was removed.
+- **Mobile Library filters** pair into two columns instead of stacking all eight
+  controls full-width, so the first result is reachable with far less scrolling.
+- **API input bounds**: Scout/Shop/Ask/Settings/Favorite request models now enforce
+  length and numeric limits (`top` ≤ 8, `max_reviews` ≤ 5000, bounded query/text) at
+  the trust boundary — the front-end already clamped, but the API is the real edge.
+- **/api/places performance**: replaced the per-place activity-risk N+1 (3 queries ×
+  every place) with a single batch review-date scan, and capped the library query.
+- **Robustness**: SerpAPI non-JSON responses now raise a clear error instead of a raw
+  `JSONDecodeError`; empty LLM report responses raise an actionable message instead of
+  an `AttributeError`; web fetches now time out instead of hanging forever.
+
 ## v0.4.34 — 2026-06-15 — agent CLI global hardening
 - Added root-level agent options before subcommands:
   `--format text|json|ndjson`, `--quiet`, `--no-color`, and `--timeout`.

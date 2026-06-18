@@ -232,7 +232,15 @@ def _discover_serpapi(search_query: str, lang: str, api_key: str) -> list[Place]
     log.info("Querying SerpAPI google_maps for %r", search_query)
     response = requests.get(SERPAPI_URL, params=params, timeout=SERPAPI_TIMEOUT_S)
     response.raise_for_status()
-    payload = response.json()
+    try:
+        payload = response.json()
+    except ValueError as exc:  # malformed / non-JSON body (JSONDecodeError ⊂ ValueError)
+        raise RuntimeError(
+            f"SerpAPI returned a non-JSON response (HTTP {response.status_code}); "
+            f"body starts: {response.text[:120]!r}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"SerpAPI returned unexpected JSON type: {type(payload).__name__}")
     if payload.get("error"):
         raise RuntimeError(f"SerpAPI error: {payload['error']}")
 

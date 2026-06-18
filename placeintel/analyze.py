@@ -295,6 +295,8 @@ def analyze_place(conn: sqlite3.Connection, place_id: str, profile: dict,
         config=types.GenerateContentConfig(system_instruction=system, temperature=0.2),
     ), label="report generation",
         on_retry=lambda _m: progress("推理服务临时失败，正在自动重试生成报告…"))
+    if not (response.text or "").strip():  # empty candidate / safety block → clear error, not AttributeError
+        raise RuntimeError("推理服务返回了空响应（可能触发了内容安全限制）；请重试或更换模型。")
     report = _parse_json(response.text)
     if activity_risk:
         report["activity_risk"] = activity_risk

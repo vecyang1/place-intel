@@ -8,6 +8,7 @@
   --on-accent: oklch(99% 0.003 90);
   --accent-soft: oklch(92% 0.055 25);
   --ok: oklch(52% 0.11 155);
+  --danger: oklch(51% 0.22 22);
   --line: oklch(85% 0.01 270);
   --line-soft: oklch(90% 0.008 270);
   --card: color-mix(in oklab, var(--paper) 96%, var(--accent));
@@ -28,8 +29,11 @@
     --paper: oklch(20% 0.01 270);
     --ink: oklch(92% 0.005 90);
     --accent: oklch(70% 0.16 25);
+    /* the light coral fill needs dark ink on top for WCAG AA (white on it is only 2.8:1) */
+    --on-accent: oklch(21% 0.04 25);
     --accent-soft: oklch(28% 0.05 25);
     --ok: oklch(72% 0.1 155);
+    --danger: oklch(72% 0.19 22);
     --line: oklch(34% 0.01 270);
     --line-soft: oklch(28% 0.01 270);
     --card: color-mix(in oklab, var(--paper) 92%, var(--accent));
@@ -483,17 +487,14 @@ textarea.query-input { min-height: 6em; }
 .search-meta { font-family: var(--mono); font-size: 0.68rem; color: var(--ink-40); margin-left: auto; }
 .search-places { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.45rem; }
 .chip-more { color: var(--ink-40); border-color: var(--line-soft); }
+/* WCAG 2.2 (2.5.8): standalone tappable chips meet the 24px minimum target */
+.chip-link, .command-mode .chip { min-height: 24px; display: inline-flex; align-items: center; }
 .chip-link { cursor: pointer; transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
 .chip-link:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ============ detail overlay ============ */
 .detail-overlay { position: fixed; inset: 0; z-index: 50; }
-.detail-backdrop {
-  position: absolute;
-  inset: 0;
-  background: color-mix(in oklab, var(--ink) 35%, transparent);
-  animation: fade var(--dur) var(--ease) both;
-}
+.detail-backdrop { position: absolute; inset: 0; background: color-mix(in oklab, var(--ink) 35%, transparent); animation: fade var(--dur) var(--ease) both; }
 .detail-panel {
   position: absolute;
   top: 0; right: 0; bottom: 0;
@@ -533,6 +534,9 @@ textarea.query-input { min-height: 6em; }
   font-size: 0.84rem;
   line-height: 1.45;
 }
+/* "no risk found" is reassurance, not an alert — calm, non-red treatment */
+.activity-risk.is-clear { color: var(--ink-70); background: color-mix(in oklab, var(--ok) 9%, transparent); border-left-color: var(--ok); }
+.activity-risk.is-clear::before { content: "✓ "; color: var(--ok); font-weight: 700; }
 .detail-fresh { font-family: var(--mono); font-size: 0.7rem; color: var(--ink-40); }
 .facts { display: grid; gap: 0.4rem; margin-top: 1rem; border-top: 1px dashed var(--line); padding-top: 0.9rem; }
 .fact { display: grid; grid-template-columns: 5.5em 1fr; gap: 0.6rem; font-size: 0.88rem; }
@@ -675,18 +679,10 @@ textarea.query-input { min-height: 6em; }
   margin-bottom: 0.25rem;
 }
 .empty {
-  border: 1.5px dashed var(--line);
-  border-radius: var(--radius);
-  padding: 2.2rem 1.4rem;
-  text-align: center;
-  font-family: var(--mono);
-  font-size: 0.85rem;
-  color: var(--ink-55);
-  margin: 0.6rem 0 1rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.9rem;
+  border: 1.5px dashed var(--line); border-radius: var(--radius);
+  padding: 2.2rem 1.4rem; text-align: center; font-family: var(--mono);
+  font-size: 0.85rem; color: var(--ink-55); margin: 0.6rem 0 1rem;
+  display: flex; flex-direction: column; align-items: center; gap: 0.9rem;
 }
 .empty.small { padding: 1.2rem 1rem; margin: 0.6rem 0 0; }
 .noscript { padding: 2rem; text-align: center; font-family: var(--mono); }
@@ -717,7 +713,8 @@ textarea.query-input { min-height: 6em; }
 /* ============ responsive ============ */
 @media (max-width: 640px) {
   .shell { padding: 1.6rem 0.9rem 3rem; }
-  .library-tools { grid-template-columns: 1fr; }
+  .library-tools { grid-template-columns: 1fr 1fr; } /* pair the short selects instead of stacking all 8 */
+  .library-tools > #library-search { grid-column: 1 / -1; }
   .advanced-grid { grid-template-columns: 1fr 1fr; }
   .checks { grid-column: 1 / -1; }
   .detail-body { padding: 1.1rem 1rem 3rem; }

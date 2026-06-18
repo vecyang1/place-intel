@@ -724,41 +724,16 @@ def _review_date_ts(value, now_ts: float | None = None) -> float | None:
     return None
 
 
-def activity_risk(
-    conn: sqlite3.Connection,
-    place_id: str,
-    now_ts: float | None = None,
-    min_total_reviews: int = ACTIVITY_RISK_MIN_TOTAL_REVIEWS,
-    stale_days: int = ACTIVITY_RISK_STALE_DAYS,
-    high_days: int = ACTIVITY_RISK_HIGH_DAYS,
+def _classify_activity_risk(
+    total_reviews: int, cached_reviews: int, newest_ts: float | None, now_ts: float,
+    min_total_reviews: int, stale_days: int, high_days: int,
 ) -> dict | None:
-    """Flag popular places whose latest known review is stale enough to verify live status."""
-    place = get_place(conn, place_id)
-    if not place:
+    """Pure rule: a popular place whose newest known review is stale → risk dict, else None."""
+    if total_reviews < min_total_reviews or newest_ts is None:
         return None
-    cached_reviews = conn.execute(
-        "SELECT COUNT(*) AS n FROM reviews WHERE place_id=?", (place_id,)
-    ).fetchone()["n"]
-    total_reviews = max(int(place["review_count"] or 0), int(cached_reviews or 0))
-    if total_reviews < min_total_reviews:
-        return None
-
-    now_ts = now_ts or time.time()
-    rows = conn.execute(
-        "SELECT review_date FROM reviews WHERE place_id=? AND review_date IS NOT NULL",
-        (place_id,),
-    ).fetchall()
-    parsed_dates = [
-        ts for ts in (_review_date_ts(row["review_date"], now_ts) for row in rows)
-        if ts is not None
-    ]
-    if not parsed_dates:
-        return None
-    newest_ts = max(parsed_dates)
     days_since = max(0, int((now_ts - newest_ts) // 86400))
     if days_since < stale_days:
         return None
-
     newest_date = datetime.fromtimestamp(newest_ts, tz=timezone.utc).date().isoformat()
     severity = "high" if days_since >= high_days else "medium"
     label = "可能已停业/低活跃" if severity == "high" else "近期活跃度偏低"
@@ -776,6 +751,71 @@ def activity_risk(
         "days_since_newest_review": days_since,
         "stale_days": stale_days,
     }
+
+
+def _newest_review_ts(conn: sqlite3.Connection, place_id: str, now_ts: float) -> float | None:
+    rows = conn.execute(
+        "SELECT review_date FROM reviews WHERE place_id=? AND review_date IS NOT NULL",
+        (place_id,),
+    ).fetchall()
+    stamps = [t for t in (_review_date_ts(r["review_date"], now_ts) for r in rows) if t is not None]
+    return max(stamps) if stamps else None
+
+
+def activity_risk(
+    conn: sqlite3.Connection,
+    place_id: str,
+    now_ts: float | None = None,
+    min_total_reviews: int = ACTIVITY_RISK_MIN_TOTAL_REVIEWS,
+    stale_days: int = ACTIVITY_RISK_STALE_DAYS,
+    high_days: int = ACTIVITY_RISK_HIGH_DAYS,
+) -> dict | None:
+    """Flag popular places whose latest known review is stale enough to verify live status."""
+    place = get_place(conn, place_id)
+    if not place:
+        return None
+    cached_reviews = conn.execute(
+        "SELECT COUNT(*) AS n FROM reviews WHERE place_id=?", (place_id,)
+    ).fetchone()["n"]
+    total_reviews = max(int(place["review_count"] or 0), int(cached_reviews or 0))
+    now_ts = now_ts or time.time()
+    newest_ts = _newest_review_ts(conn, place_id, now_ts) if total_reviews >= min_total_reviews else None
+    return _classify_activity_risk(
+        total_reviews, cached_reviews, newest_ts, now_ts,
+        min_total_reviews, stale_days, high_days,
+    )
+
+
+def activity_risks(
+    conn: sqlite3.Connection,
+    places: list[dict],
+    now_ts: float | None = None,
+    min_total_reviews: int = ACTIVITY_RISK_MIN_TOTAL_REVIEWS,
+    stale_days: int = ACTIVITY_RISK_STALE_DAYS,
+    high_days: int = ACTIVITY_RISK_HIGH_DAYS,
+) -> dict[str, dict | None]:
+    """Batch activity_risk over many places with ONE review-date scan instead of the
+    3-queries-per-place N+1. Each place dict needs place_id, review_count, cached_reviews."""
+    now_ts = now_ts or time.time()
+    newest: dict[str, float] = {}
+    for row in conn.execute(
+        "SELECT place_id, review_date FROM reviews WHERE review_date IS NOT NULL"
+    ):
+        ts = _review_date_ts(row["review_date"], now_ts)
+        if ts is None:
+            continue
+        pid = row["place_id"]
+        if pid not in newest or ts > newest[pid]:
+            newest[pid] = ts
+    out: dict[str, dict | None] = {}
+    for p in places:
+        cached = int(p.get("cached_reviews") or 0)
+        total = max(int(p.get("review_count") or 0), cached)
+        out[p["place_id"]] = _classify_activity_risk(
+            total, cached, newest.get(p["place_id"]), now_ts,
+            min_total_reviews, stale_days, high_days,
+        )
+    return out
 
 
 def norm_name(s: str) -> str:

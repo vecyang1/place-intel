@@ -18,7 +18,7 @@ from dataclasses import asdict
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import __version__, cache, config, doctor, pipeline, profiles
 
@@ -28,6 +28,7 @@ app = FastAPI(title="placeintel", version=__version__)
 WEB_DIR = config.PROJECT_DIR / "web"
 DEFAULT_PORT = int(os.getenv("PLACEINTEL_PORT", "9618"))
 MAX_REVIEWS_IN_DETAIL = 500
+MAX_PLACES_IN_LIBRARY = 1000  # the library loads all rows for client-side filtering; cap growth
 
 
 @app.middleware("http")
@@ -38,47 +39,55 @@ async def no_cache_web_assets(request: Request, call_next):
     return response
 
 
+# Boundary validation: the web UI already clamps these, but the API is the real
+# trust boundary (and the documented VPS lane is multi-client). Reject oversized
+# or out-of-range input here so a bad request can't drive unbounded scraping or
+# provider spend. Limits mirror the front-end clamps.
+MAX_REVIEWS_CAP = 5000
+MAX_TOP = 8
+
+
 class ScoutRequest(BaseModel):
-    query: str
-    near: str | None = None
-    profile: str | None = None
-    top: int = 3
-    max_reviews: int = 300
-    report_lang: str | None = None
+    query: str = Field(min_length=1, max_length=600)
+    near: str | None = Field(default=None, max_length=200)
+    profile: str | None = Field(default=None, max_length=80)
+    top: int = Field(default=3, ge=1, le=MAX_TOP)
+    max_reviews: int = Field(default=300, ge=1, le=MAX_REVIEWS_CAP)
+    report_lang: str | None = Field(default=None, max_length=16)
     refresh: bool = False
     no_ai: bool = False
 
 
 class ShopRequest(BaseModel):
-    target: str
-    near: str | None = None
-    profile: str | None = None
-    max_reviews: int = 300
-    report_lang: str | None = None
+    target: str = Field(min_length=1, max_length=600)
+    near: str | None = Field(default=None, max_length=200)
+    profile: str | None = Field(default=None, max_length=80)
+    max_reviews: int = Field(default=300, ge=1, le=MAX_REVIEWS_CAP)
+    report_lang: str | None = Field(default=None, max_length=16)
     refresh: bool = False
 
 
 class AskRequest(BaseModel):
-    question: str
-    place_id: str | None = None
-    report_lang: str = "zh"
+    question: str = Field(min_length=1, max_length=1000)
+    place_id: str | None = Field(default=None, max_length=200)
+    report_lang: str = Field(default="zh", max_length=16)
     fresh: bool = False  # skip the QA answer cache
 
 
 class ReviewTranslateRequest(BaseModel):
-    review_id: str
-    target_lang: str = "zh"
+    review_id: str = Field(min_length=1, max_length=200)
+    target_lang: str = Field(default="zh", max_length=16)
 
 
 class SettingsRequest(BaseModel):
-    reason_model: str
+    reason_model: str = Field(min_length=1, max_length=120)
 
 
 class FavoriteRequest(BaseModel):
     favorite: bool = True
     refresh_enabled: bool | None = None
-    refresh_interval_days: int | None = None
-    max_reviews: int | None = None
+    refresh_interval_days: int | None = Field(default=None, ge=1, le=365)
+    max_reviews: int | None = Field(default=None, ge=1, le=MAX_REVIEWS_CAP)
 
 
 def _request_payload(req: BaseModel) -> dict:
@@ -304,15 +313,19 @@ def places() -> JSONResponse:
                LEFT JOIN reviews r ON r.place_id = p.place_id
                LEFT JOIN reports rep ON rep.place_id = p.place_id
                LEFT JOIN place_favorites f ON f.place_id = p.place_id
-               GROUP BY p.place_id ORDER BY p.last_refreshed DESC"""
+               GROUP BY p.place_id ORDER BY p.last_refreshed DESC
+               LIMIT ?""",
+            (MAX_PLACES_IN_LIBRARY,),
         ).fetchall()
         out = []
         for row in rows:
             item = dict(row)
             item["favorite"] = bool(item.get("favorite"))
             item["refresh_enabled"] = bool(item.get("refresh_enabled"))
-            item["activity_risk"] = cache.activity_risk(conn, row["place_id"])
             out.append(item)
+        risks = cache.activity_risks(conn, out)  # one review-date scan, not N+1
+        for item in out:
+            item["activity_risk"] = risks.get(item["place_id"])
     finally:
         conn.close()
     return JSONResponse(out)

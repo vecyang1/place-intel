@@ -46,13 +46,15 @@ function mdToHtml(md) {
   closeList();
   return out.join('');
 }
+const FETCH_TIMEOUT_MS = 120000; // generous: covers slow AI reasoning, still bails on a hung backend
+const fetchT = (path, opts = {}) => fetch(path, { ...opts, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
 async function apiGet(path) {
-  const res = await fetch(path, { headers: { Accept: 'application/json' } });
+  const res = await fetchT(path, { headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error(`HTTP ${res.status} — GET ${path}`);
   return res.json();
 }
 async function apiPost(path, body) {
-  const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
+  const res = await fetchT(path, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
   if (!res.ok) {
     let detail = '';
     try { detail = (await res.json()).detail || ''; } catch { /* not json */ }
@@ -60,7 +62,7 @@ async function apiPost(path, body) {
   }
   return res.json();
 }
-async function apiDelete(path) { const res = await fetch(path, { method: 'DELETE', headers: { Accept: 'application/json' } }); if (!res.ok) throw new Error(`HTTP ${res.status} — DELETE ${path}`); return res.json(); }
+async function apiDelete(path) { const res = await fetchT(path, { method: 'DELETE', headers: { Accept: 'application/json' } }); if (!res.ok) throw new Error(`HTTP ${res.status} — DELETE ${path}`); return res.json(); }
 const POLL_MS = 2000, MAX_POLL_FAILS = 5;
 const TX_TARGET_KEY = 'placeintel.translationTarget';
 const txTarget = () => (['zh', 'en'].includes(localStorage.getItem(TX_TARGET_KEY)) ? localStorage.getItem(TX_TARGET_KEY) : 'zh');
@@ -258,7 +260,7 @@ function repJson(rep) { try { return typeof rep?.json === 'string' ? JSON.parse(
 function renderDossierBrief(p, reviews, rep) {
   const j = repJson(rep), hard = (((j.dimensions || {}).hard_facts || {}).findings || []).map((f) => f.finding), facts = hard.concat([p.address && `地址 ${p.address}`, p.phone && `电话 ${p.phone}`, p.website && `网站 ${p.website}`]).filter(Boolean).slice(0, 3), bullets = (j.walk_in_brief || []).slice(0, 3);
   const risk = p.activity_risk ? `${p.activity_risk.label || '需核实'} · ${p.activity_risk.reason || ''}` : '未发现低活跃风险';
-  return `<section class="detail-section dossier-brief" aria-label="decision brief"><p class="detail-kicker">决策简报 decision brief</p><p><strong>${esc(j.verdict || '先看事实，再决定是否进店。')}</strong></p><p class="activity-risk">${esc(risk)}</p><p class="report-meta-line">更新于 ${esc(relTime(p.last_refreshed))}${rep?.created_at ? ` · 报告 ${esc(relTime(rep.created_at))}` : ''} · 已缓存 ${reviews.length} 条</p>${facts.length ? `<dl class="facts">${facts.map((f) => `<div class="fact"><dt>事实</dt><dd>${esc(f)}</dd></div>`).join('')}</dl>` : ''}${bullets.length ? `<ol>${bullets.map((b) => `<li>${esc(b)}</li>`).join('')}</ol>` : '<div class="empty small">还没有报告建议 — 可先看事实和原文评价。</div>'}</section>`;
+  return `<section class="detail-section dossier-brief" aria-label="decision brief"><p class="detail-kicker">决策简报 decision brief</p><p><strong>${esc(j.verdict || '先看事实，再决定是否进店。')}</strong></p><p class="activity-risk${p.activity_risk ? '' : ' is-clear'}">${esc(risk)}</p><p class="report-meta-line">更新于 ${esc(relTime(p.last_refreshed))}${rep?.created_at ? ` · 报告 ${esc(relTime(rep.created_at))}` : ''} · 已缓存 ${reviews.length} 条</p>${facts.length ? `<dl class="facts">${facts.map((f) => `<div class="fact"><dt>事实</dt><dd>${esc(f)}</dd></div>`).join('')}</dl>` : ''}${bullets.length ? `<ol>${bullets.map((b) => `<li>${esc(b)}</li>`).join('')}</ol>` : '<div class="empty small">还没有报告建议 — 可先看事实和原文评价。</div>'}</section>`;
 }
 function renderDetail(data) {
   const p = (data && data.place) || {};
@@ -454,6 +456,7 @@ function closeDetail() {
   const returnFocus = state.detailReturnFocus;
   state.detailReturnFocus = null;
   if (returnFocus && document.contains(returnFocus)) returnFocus.focus({ preventScroll: true });
+  else $(`#tab-${state.tab}`)?.focus({ preventScroll: true }); // trigger gone (e.g. deleted card) — keep focus in the document
 }
 function trapDetailFocus(e) {
   const panel = $('.detail-panel');
@@ -465,6 +468,7 @@ function trapDetailFocus(e) {
 }
 function switchTab(name, syncHash = true) {
   if (!TAB_NAMES.includes(name)) name = 'scout';
+  if (!$('#detail-overlay').hidden) closeDetail(); // a dossier drawer shouldn't linger over another tab
   state.tab = name;
   $$('.tab').forEach((t) => {
     const on = t.dataset.tab === name;
