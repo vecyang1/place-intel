@@ -1,5 +1,61 @@
 # Changelog — place-intel
 
+## v0.4.37 — 2026-06-19 — adversarial audit hardening (12 verified fixes)
+An adversarially-verified production audit (4 dimension reviewers, every finding
+re-checked by an independent skeptic against the source) surfaced 12 real defects.
+All fixed and verified; the riskiest were on the multi-client VPS lane.
+
+Security / reliability (HIGH):
+- **SerpAPI key no longer leaks**: `requests` embeds the full URL (incl. `api_key=…`)
+  in its exception text, which flowed into job events / error fields and out over the
+  `/api/jobs/{id}` + SSE endpoints. A 401 from a wrong/expired key was enough. Added
+  `config.redact_secrets()` and applied it at the SerpAPI raise sites
+  (`reviews.py`, `discover.py`) and at the job-error sink. `discover.py` now also
+  catches `RequestException` around `raise_for_status()` (previously uncaught).
+- **SSE no longer pins a worker thread per stream**: `/api/jobs/{id}/events` was a sync
+  generator that looped for the whole job and never noticed a client disconnect, so a
+  few closed tabs could exhaust the threadpool and hang every endpoint. Rewritten as an
+  async stream that checks `request.is_disconnected()`, polls the DB off the event loop,
+  and is bounded by an absolute max so a wedged job can't loop forever.
+- **DB connections no longer leak**: `/api/searches`, `/api/reports`,
+  `/api/reports/{id}` opened a SQLite connection with no `try/finally` (the 404 branch
+  leaked too) — wrapped to release on every path.
+- **Tab-switch SSE leak (v0.4.36 regression) closed**: a tab switch *during* the
+  in-flight `startJob` POST set `paused` before any stream existed, then `streamJob`
+  opened one anyway because it never read `paused`. Both sides now honor the flag —
+  `streamJob` won't open a stream while paused, and `resumeJobStream` clears `paused`
+  on return even mid-POST (`job.id` still null), so a tab round-trip *during*
+  submission can neither leak a hidden-tab stream nor freeze the job (a second-pass
+  adversarial audit caught the freeze case). Two contract tests guard both sides.
+
+Accessibility (MEDIUM/LOW):
+- Dossier overlay now sets the background `.shell` `inert` while open, so screen-reader
+  virtual-cursor users can't read through the modal into the page behind it.
+- Live regions added to the job timeline/results, library/history status, and Ask
+  answer so progress, completion, errors, and answers are announced to screen readers.
+- `.review-translate` and `.btn-refresh` raised to the 24px WCAG 2.2 (2.5.8) tap-target
+  minimum the rest of the UI already meets.
+
+Robustness / performance (MEDIUM):
+- `pipeline.ask()` (the Ask endpoint) wrapped in `try/finally` so a provider/network
+  error no longer leaks its DB connection.
+- SQLite now opens in **WAL** with a **15s busy-timeout** (was the 5s default, no WAL),
+  so overlapping scrape jobs and interactive writes stop hitting "database is locked".
+- `/api/places` no longer full-scans every review on each library load: the activity-risk
+  batch now scans only risk-eligible (popular) places via the `place_id` index. Output
+  is identical (verified: 109 places, 1 flagged, 0 mismatches vs the per-place path).
+
+## v0.4.36 — 2026-06-18 — live job streams pause on hidden tabs
+- **Released the tab-switch SSE leak**: a Scout/Shop job streaming over
+  `EventSource` kept its connection open after you navigated to another tab,
+  only closing when the job finished. `switchTab` now pauses a hidden tab's
+  live job — closing its `EventSource` (and clearing any poll timer) — and
+  resumes it on return, reopening the stream from `after=lastEventId` so the
+  server replays only missed events (no gaps, no duplicates). The poll-fallback
+  path is guarded by a `paused` flag so an in-flight poll can't re-arm a loop on
+  a backgrounded tab. Verified live: switching away closes the stream exactly
+  once and keeps the job alive; switching back re-attaches at the right offset.
+
 ## v0.4.35 — 2026-06-18 — production hardening: risk visibility, a11y, input bounds
 - **Fixed dead risk styling**: the `--danger` CSS variable was referenced by the
   activity-risk banner and risk badges but never defined, so every "可能已停业/低活跃"

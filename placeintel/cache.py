@@ -177,8 +177,13 @@ class Review:
 
 def connect(db_path: Path | None = None) -> sqlite3.Connection:
     config.ensure_dirs()
-    conn = sqlite3.connect(db_path or config.DB_PATH)
+    conn = sqlite3.connect(db_path or config.DB_PATH, timeout=15.0)
     conn.row_factory = sqlite3.Row
+    # WAL lets readers proceed while a writer is active; a 15s busy-timeout (vs the 5s
+    # default) lets a concurrent writer wait out a long review ingest instead of failing
+    # with "database is locked" under the multi-client / overlapping-job lane.
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=15000")
     conn.executescript(SCHEMA)
     _migrate(conn)
     return conn
@@ -797,16 +802,27 @@ def activity_risks(
     """Batch activity_risk over many places with ONE review-date scan instead of the
     3-queries-per-place N+1. Each place dict needs place_id, review_count, cached_reviews."""
     now_ts = now_ts or time.time()
+    # Only popular places (total >= min_total_reviews) can ever be flagged, so the newest
+    # review date is only needed for those. Scan just their reviews via idx_reviews_place
+    # instead of a full reviews-table scan + per-row date parse on every library load.
+    eligible = [
+        p["place_id"] for p in places
+        if max(int(p.get("review_count") or 0), int(p.get("cached_reviews") or 0)) >= min_total_reviews
+    ]
     newest: dict[str, float] = {}
-    for row in conn.execute(
-        "SELECT place_id, review_date FROM reviews WHERE review_date IS NOT NULL"
-    ):
-        ts = _review_date_ts(row["review_date"], now_ts)
-        if ts is None:
-            continue
-        pid = row["place_id"]
-        if pid not in newest or ts > newest[pid]:
-            newest[pid] = ts
+    for i in range(0, len(eligible), 500):  # chunk to stay under SQLite's bound-variable limit
+        chunk = eligible[i:i + 500]
+        placeholders = ",".join("?" * len(chunk))
+        for row in conn.execute(
+            f"SELECT place_id, review_date FROM reviews "
+            f"WHERE place_id IN ({placeholders}) AND review_date IS NOT NULL", chunk
+        ):
+            ts = _review_date_ts(row["review_date"], now_ts)
+            if ts is None:
+                continue
+            pid = row["place_id"]
+            if pid not in newest or ts > newest[pid]:
+                newest[pid] = ts
     out: dict[str, dict | None] = {}
     for p in places:
         cached = int(p.get("cached_reviews") or 0)

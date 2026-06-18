@@ -7,6 +7,7 @@ Single-user local tool — no auth, binds 127.0.0.1 only.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -115,7 +116,8 @@ def _new_job(kind: str, request: dict | None = None) -> tuple[str, callable]:
 def _finish_job(job_id: str, result=None, error: str | None = None) -> None:
     conn = cache.connect()
     try:
-        cache.finish_job(conn, job_id, result=asdict(result) if result is not None else None, error=error)
+        cache.finish_job(conn, job_id, result=asdict(result) if result is not None else None,
+                         error=config.redact_secrets(error))
     finally:
         conn.close()
 
@@ -194,8 +196,25 @@ def _sse_event(event: dict) -> str:
     return f"id: {event['id']}\ndata: {data}\n\n"
 
 
+SSE_MAX_POLLS = 1800  # ~30 min at 1s/poll: bounds a job wedged in 'running' so the stream can't loop forever
+
+
+def _poll_job_events(job_id: str, last_id: int) -> tuple[dict | None, list, int]:
+    """One blocking DB poll (run off the event loop via to_thread): returns (job, new events, advanced cursor)."""
+    conn = cache.connect()
+    try:
+        job = cache.get_job(conn, job_id)
+        events = cache.job_events_after(conn, job_id, last_id) if job else []
+    finally:
+        conn.close()
+    for event in events:
+        last_id = max(last_id, int(event["id"]))
+    return job, events, last_id
+
+
 @app.get("/api/jobs/{job_id}/events")
-def job_events(
+async def job_events(
+    request: Request,
     job_id: str, after: int = 0,
     last_event_id: str | None = Header(default=None),
 ) -> StreamingResponse:
@@ -210,23 +229,17 @@ def job_events(
     finally:
         conn.close()
 
-    def stream():
+    async def stream():
         last_id = cursor
-        while True:
-            conn = cache.connect()
-            try:
-                job = cache.get_job(conn, job_id)
-                if not job:
-                    return
-                events = cache.job_events_after(conn, job_id, last_id)
-            finally:
-                conn.close()
-            for event in events:
-                last_id = max(last_id, int(event["id"]))
-                yield _sse_event(event)
-            if job["status"] != "running":
+        for _ in range(SSE_MAX_POLLS):
+            if await request.is_disconnected():  # tab closed / connection dropped → stop (don't pin a thread for the whole job)
                 return
-            time.sleep(1)
+            job, events, last_id = await asyncio.to_thread(_poll_job_events, job_id, last_id)
+            for event in events:
+                yield _sse_event(event)
+            if not job or job["status"] != "running":
+                return
+            await asyncio.sleep(1)
 
     return StreamingResponse(
         stream(), media_type="text/event-stream",
@@ -368,49 +381,58 @@ def place_detail(place_id: str) -> dict:
 @app.get("/api/searches")
 def searches() -> JSONResponse:
     conn = cache.connect()
-    rows = conn.execute(
-        "SELECT id, query, location, place_ids_json, verdicts_json, source, created_at "
-        "FROM searches ORDER BY created_at DESC LIMIT 50"
-    ).fetchall()
-    names = {r["place_id"]: r["name"]
-             for r in conn.execute("SELECT place_id, name FROM places").fetchall()}
-    out = []
-    for row in rows:
-        ids = json.loads(row["place_ids_json"] or "[]")
-        verdicts = json.loads(row["verdicts_json"]) if row["verdicts_json"] else []
-        by_id = {v["place_id"]: v for v in verdicts if isinstance(v, dict)}
-        out.append({
-            "id": row["id"], "query": row["query"], "location": row["location"],
-            "source": row["source"], "created_at": row["created_at"],
-            "places": [
-                {"place_id": pid, "name": names[pid],
-                 "relevant": by_id.get(pid, {}).get("relevant"),  # None = unjudged
-                 "reason": by_id.get(pid, {}).get("reason")}
-                for pid in ids if pid in names  # deleted places drop out of history
-            ],
-        })
-    return JSONResponse(out)
+    try:
+        rows = conn.execute(
+            "SELECT id, query, location, place_ids_json, verdicts_json, source, created_at "
+            "FROM searches ORDER BY created_at DESC LIMIT 50"
+        ).fetchall()
+        names = {r["place_id"]: r["name"]
+                 for r in conn.execute("SELECT place_id, name FROM places").fetchall()}
+        out = []
+        for row in rows:
+            ids = json.loads(row["place_ids_json"] or "[]")
+            verdicts = json.loads(row["verdicts_json"]) if row["verdicts_json"] else []
+            by_id = {v["place_id"]: v for v in verdicts if isinstance(v, dict)}
+            out.append({
+                "id": row["id"], "query": row["query"], "location": row["location"],
+                "source": row["source"], "created_at": row["created_at"],
+                "places": [
+                    {"place_id": pid, "name": names[pid],
+                     "relevant": by_id.get(pid, {}).get("relevant"),  # None = unjudged
+                     "reason": by_id.get(pid, {}).get("reason")}
+                    for pid in ids if pid in names  # deleted places drop out of history
+                ],
+            })
+        return JSONResponse(out)
+    finally:
+        conn.close()
 
 
 @app.get("/api/reports")
 def reports() -> JSONResponse:
     conn = cache.connect()
-    rows = conn.execute(
-        """SELECT r.id, r.place_id, p.name, r.profile, r.review_count, r.created_at
-           FROM reports r JOIN places p ON p.place_id = r.place_id
-           ORDER BY r.created_at DESC LIMIT 100"""
-    ).fetchall()
-    return JSONResponse([dict(r) for r in rows])
+    try:
+        rows = conn.execute(
+            """SELECT r.id, r.place_id, p.name, r.profile, r.review_count, r.created_at
+               FROM reports r JOIN places p ON p.place_id = r.place_id
+               ORDER BY r.created_at DESC LIMIT 100"""
+        ).fetchall()
+        return JSONResponse([dict(r) for r in rows])
+    finally:
+        conn.close()
 
 
 @app.get("/api/reports/{report_id}")
 def report_detail(report_id: int) -> dict:
     conn = cache.connect()
-    row = conn.execute("SELECT * FROM reports WHERE id=?", (report_id,)).fetchone()
-    if not row:
-        raise HTTPException(404, "unknown report")
-    return {"md": row["report_md"], "json": json.loads(row["report_json"]),
-            "profile": row["profile"], "created_at": row["created_at"]}
+    try:
+        row = conn.execute("SELECT * FROM reports WHERE id=?", (report_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "unknown report")
+        return {"md": row["report_md"], "json": json.loads(row["report_json"]),
+                "profile": row["profile"], "created_at": row["created_at"]}
+    finally:
+        conn.close()
 
 
 @app.get("/api/profiles")

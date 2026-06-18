@@ -25,6 +25,32 @@ class WebStaticContractTest(unittest.TestCase):
                         "app.js should keep at least 19 spare lines for future urgent UX fixes",
                     )
 
+    def test_stream_job_honors_pause_flag(self) -> None:
+        # Regression guard (v0.4.36 leak, v0.4.37 fix): a job paused on a hidden tab —
+        # including one paused while its startJob POST is still in flight — must not open
+        # an EventSource. streamJob must check job.paused before `new EventSource`.
+        js = (WEB / "app.js").read_text(encoding="utf-8")
+        body = js[js.index("function streamJob"):][:500]
+        self.assertIn("new EventSource", body, "streamJob should open the EventSource")
+        self.assertLess(
+            body.index("paused"),
+            body.index("new EventSource"),
+            "streamJob must honor job.paused before opening an EventSource (hidden-tab SSE leak)",
+        )
+
+    def test_resume_clears_pause_even_mid_post(self) -> None:
+        # Companion guard: returning to a tab while the startJob POST is still in flight
+        # (job.id is null) must still clear job.paused — otherwise the later
+        # streamJob() call is blocked and the job freezes (stuck timeline, disabled submit).
+        js = (WEB / "app.js").read_text(encoding="utf-8")
+        body = js[js.index("function resumeJobStream"):][:300]
+        guard = body[: body.index("job.paused = false")]
+        self.assertNotIn(
+            "job.id",
+            guard,
+            "resumeJobStream must clear job.paused independent of job.id (mid-POST tab round-trip must not freeze the job)",
+        )
+
     def test_mobile_query_textarea_has_readable_height(self) -> None:
         css = (WEB / "app.css").read_text(encoding="utf-8")
         match = re.search(r"textarea\.query-input\s*\{([^}]+)\}", css)

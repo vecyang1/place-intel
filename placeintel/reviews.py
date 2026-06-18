@@ -285,7 +285,9 @@ def _serpapi_get(params: dict[str, str], page: int) -> dict[str, Any]:
         resp.raise_for_status()
         payload = resp.json()
     except (requests.RequestException, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"SerpAPI request failed on page {page}: {exc}") from exc
+        # requests embeds the full URL (incl. api_key=…) in str(exc) — redact before it
+        # propagates into job events / client-facing error fields.
+        raise RuntimeError(config.redact_secrets(f"SerpAPI request failed on page {page}: {exc}")) from exc
     if payload.get("error"):
         raise RuntimeError(f"SerpAPI error on page {page}: {payload['error']}")
     return payload

@@ -83,7 +83,7 @@
       <div class="job" id="scout-job" hidden>
         <div class="job-head"><span class="job-label">实时进度 <span class="label-en">live</span></span><span class="job-id" id="scout-jobid"></span></div>
         <ol class="timeline" id="scout-timeline"></ol>
-        <div class="job-results" id="scout-results"></div>
+        <div class="job-results" id="scout-results" aria-live="polite"></div>
       </div>
     </section>
 
@@ -121,7 +121,7 @@
       <div class="job" id="shop-job" hidden>
         <div class="job-head"><span class="job-label">实时进度 <span class="label-en">live</span></span><span class="job-id" id="shop-jobid"></span></div>
         <ol class="timeline" id="shop-timeline"></ol>
-        <div class="job-results" id="shop-results"></div>
+        <div class="job-results" id="shop-results" aria-live="polite"></div>
       </div>
     </section>
 
@@ -156,14 +156,14 @@
           <option value="">全部报告 profile</option><option value="with-report">有报告</option><option value="no-report">无报告</option>
         </select>
       </div>
-      <div id="library-status"></div>
+      <div id="library-status" role="status" aria-live="polite"></div>
       <div id="library-compare" aria-live="polite"></div>
       <div class="shop-grid" id="library-grid"></div>
 
       <div class="section-head history-head">
         <h2>历史搜索 <span class="label-en">past searches</span></h2>
       </div>
-      <div id="history-status"></div>
+      <div id="history-status" role="status" aria-live="polite"></div>
       <ol class="history" id="history-list"></ol>
     </section>
 
@@ -179,7 +179,7 @@
         <p class="form-hint">答案只来自已缓存的评价原文和店铺元数据，不上网瞎编。想问某一家店，去资料库点进店铺详情。问过的问题会缓存——同样的问题、评价没更新时直接秒回。</p>
       </form>
       <div id="ask-history"></div>
-      <div id="ask-answer"></div>
+      <div id="ask-answer" aria-live="polite"></div>
     </section>
 
   </main>

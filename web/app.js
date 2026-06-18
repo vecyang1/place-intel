@@ -193,13 +193,9 @@ function renderSearchRow(s) {
 function renderHours(hoursJson) {
   if (!hoursJson) return '';
   let h = hoursJson;
-  if (typeof h === 'string') {
-    try { h = JSON.parse(h); } catch { return esc(hoursJson); }
-  }
+  if (typeof h === 'string') { try { h = JSON.parse(h); } catch { return esc(hoursJson); } }
   if (Array.isArray(h)) return h.map((x) => esc(String(x))).join('<br>');
-  if (h && typeof h === 'object') {
-    return Object.entries(h).map(([k, v]) => `${esc(k)} — ${esc(String(v))}`).join('<br>');
-  }
+  if (h && typeof h === 'object') return Object.entries(h).map(([k, v]) => `${esc(k)} — ${esc(String(v))}`).join('<br>');
   return esc(String(hoursJson));
 }
 const LANG_META = { zh: ['中文', 'Chinese', 'Vec native / Chinese readers'], en: ['English', 'EN', 'Global travelers'], vi: ['Tiếng Việt', 'Vietnamese', 'Local Vietnamese voices'], ko: ['한국어', 'Korean', 'Korean visitors'], ja: ['日本語', 'Japanese', 'Japanese visitors'], th: ['ไทย', 'Thai', 'Thai visitors'], other: ['其他语言', 'Other', 'Mixed language'], unknown: ['无文字', 'No text', 'Rating-only'] };
@@ -326,26 +322,26 @@ function appendEvents(kind, events) {
   els.timeline.scrollTop = els.timeline.scrollHeight; // auto-scroll timeline only
 }
 function failJob(kind, msg) {
-  const job = state.jobs[kind];
-  if (job) { job.active = false; if (job.es) job.es.close(); }
-  const els = jobEls(kind);
-  els.submit.disabled = false;
-  removeLive(kind);
+  const job = state.jobs[kind]; if (job) { job.active = false; if (job.es) job.es.close(); }
+  const els = jobEls(kind); els.submit.disabled = false; removeLive(kind);
   els.results.innerHTML = errorHtml(msg);
 }
+// A live job on a hidden tab shouldn't hold its SSE/poll open: pause releases it, resume re-attaches (server replays from lastEventId).
+function pauseJobStream(kind) { const job = state.jobs[kind]; if (!job || !job.active) return; job.paused = true; if (job.es) { job.es.close(); job.es = null; } if (job.timer) { clearTimeout(job.timer); job.timer = null; } }
+function resumeJobStream(kind) { const job = state.jobs[kind]; if (!job || !job.active || job.es || job.timer) return; job.paused = false; if (job.id) streamJob(kind); } // clear pause even mid-POST (id still null) so the pending startJob→streamJob attaches
 async function startJob(kind, path, body) {
   const prev = state.jobs[kind];
   if (prev && prev.timer) clearTimeout(prev.timer);
   if (prev && prev.es) prev.es.close();
   if (prev) prev.active = false;
-  const job = { id: null, path, body, rendered: 0, lastEventId: 0, fails: 0, timer: null, es: null, active: true };
+  const job = { id: null, path, body, rendered: 0, lastEventId: 0, fails: 0, timer: null, es: null, active: true, paused: false };
   state.jobs[kind] = job;
   const els = jobEls(kind);
   els.submit.disabled = true;
   els.wrap.hidden = false;
   els.results.innerHTML = '';
   els.jobid.textContent = '';
-  els.timeline.innerHTML = `<li class="tl-item tl-live" id="${kind}-live">
+  els.timeline.innerHTML = `<li class="tl-item tl-live" id="${kind}-live" aria-live="polite">
     <span class="tl-dot dot-live"></span>
     <div class="tl-content"><p class="tl-msg muted">已提交，等待后端响应…</p></div>
   </li>`;
@@ -360,7 +356,7 @@ async function startJob(kind, path, body) {
   }
 }
 function streamJob(kind) {
-  const job = state.jobs[kind]; if (!window.EventSource || !job?.id) return pollJob(kind);
+  const job = state.jobs[kind]; if (!job || job.paused) return; if (!window.EventSource || !job.id) return pollJob(kind); // paused → resumeJobStream re-opens when the tab is shown
   const es = new EventSource(`/api/jobs/${encodeURIComponent(job.id)}/events?after=${job.lastEventId || 0}`); job.es = es;
   es.onmessage = (e) => { if (state.jobs[kind] !== job || !job.active) return es.close(); try { const ev = JSON.parse(e.data); appendEvents(kind, [ev]); if (ev.stage === 'done') { es.close(); pollJob(kind); } } catch { /* bad SSE frame falls through to final poll */ } };
   es.onerror = () => { es.close(); if (state.jobs[kind] === job && job.active) pollJob(kind); };
@@ -379,13 +375,13 @@ async function pollJob(kind) {
       return;
     }
     setLiveMsg(kind, `轮询失败，重试中（${job.fails}/${MAX_POLL_FAILS}）…`);
-    job.timer = setTimeout(() => pollJob(kind), POLL_MS);
+    if (!job.paused) job.timer = setTimeout(() => pollJob(kind), POLL_MS);
     return;
   }
   appendEvents(kind, data.events || []);
   if (data.status === 'running') {
     setLiveMsg(kind, '运行中…');
-    job.timer = setTimeout(() => pollJob(kind), POLL_MS);
+    if (!job.paused) job.timer = setTimeout(() => pollJob(kind), POLL_MS);
     return;
   }
   job.active = false;
@@ -436,6 +432,7 @@ async function openDetail(placeId) {
   const close = $('#detail-close');
   if (overlay.hidden) state.detailReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   overlay.hidden = false;
+  $('.shell').inert = true; // background app non-interactive + hidden from assistive tech while the dossier is modal
   document.body.classList.add('no-scroll');
   body.innerHTML = loadingHtml('读取店铺档案');
   close.focus({ preventScroll: true });
@@ -451,6 +448,7 @@ async function openDetail(placeId) {
 }
 function closeDetail() {
   $('#detail-overlay').hidden = true;
+  $('.shell').inert = false;
   document.body.classList.remove('no-scroll');
   state.detail = null;
   const returnFocus = state.detailReturnFocus;
@@ -469,6 +467,7 @@ function trapDetailFocus(e) {
 function switchTab(name, syncHash = true) {
   if (!TAB_NAMES.includes(name)) name = 'scout';
   if (!$('#detail-overlay').hidden) closeDetail(); // a dossier drawer shouldn't linger over another tab
+  ['scout', 'shop'].forEach((k) => (k === name ? resumeJobStream : pauseJobStream)(k)); // hidden tab's live job releases its stream; visible tab's re-attaches
   state.tab = name;
   $$('.tab').forEach((t) => {
     const on = t.dataset.tab === name;

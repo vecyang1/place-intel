@@ -378,68 +378,65 @@ def ask(question: str, place_id: str | None = None, top_k: int = 20,
     (same scope, no new reviews since) is answered instantly for free.
     Returns {"answer", "cached", "created_at"}."""
     conn = cache.connect()
-    qvec = embed.embed_query(question)
+    try:
+        qvec = embed.embed_query(question)
 
-    reason_info = config.provider_info()["reason"]
-    scope = _ask_scope(conn, place_id)
-    fresh_after = cache.newest_review_scrape(conn, place_id)
-    if not no_cache:
-        hit = cache.find_cached_answer(conn, question, qvec, place_id)
-        if hit:
-            log.info("QA cache hit (score %.3f): %r", hit["score"], hit["question"])
-            result = {"answer": hit["answer"], "cached": True,
-                      "created_at": hit["created_at"], "matched": hit["question"],
-                      "model": hit["model"] or reason_info["model"],
-                      "provider": reason_info["provider"], "cache_scope": scope,
-                      "evidence_fresh_after": fresh_after, "evidence": []}
-            conn.close()
-            return result
+        reason_info = config.provider_info()["reason"]
+        scope = _ask_scope(conn, place_id)
+        fresh_after = cache.newest_review_scrape(conn, place_id)
+        if not no_cache:
+            hit = cache.find_cached_answer(conn, question, qvec, place_id)
+            if hit:
+                log.info("QA cache hit (score %.3f): %r", hit["score"], hit["question"])
+                return {"answer": hit["answer"], "cached": True,
+                        "created_at": hit["created_at"], "matched": hit["question"],
+                        "model": hit["model"] or reason_info["model"],
+                        "provider": reason_info["provider"], "cache_scope": scope,
+                        "evidence_fresh_after": fresh_after, "evidence": []}
 
-    hits = cache.vector_search(conn, qvec, top_k=top_k, place_id=place_id)
-    if not hits:
-        result = {"answer": "Cache is empty (or nothing relevant) — run a scout first.",
-                  "cached": False, "created_at": time.time(),
-                  "model": reason_info["model"], "provider": reason_info["provider"],
-                  "cache_scope": scope, "evidence_fresh_after": fresh_after, "evidence": []}
+        hits = cache.vector_search(conn, qvec, top_k=top_k, place_id=place_id)
+        if not hits:
+            return {"answer": "Cache is empty (or nothing relevant) — run a scout first.",
+                    "cached": False, "created_at": time.time(),
+                    "model": reason_info["model"], "provider": reason_info["provider"],
+                    "cache_scope": scope, "evidence_fresh_after": fresh_after, "evidence": []}
+
+        # Listing metadata for every place represented in the evidence (or the scoped one)
+        listing_ids = [place_id] if place_id else list(dict.fromkeys(
+            h["place_id"] for h in hits))[:MAX_LISTINGS_IN_ASK]
+        listing_rows = [row for pid in listing_ids if (row := cache.get_place(conn, pid))]
+        listings = "\n\n".join(_listing_block(row) for row in listing_rows)
+        evidence = "\n".join(
+            f"[{h['place_name']} | {h['review_date'] or '?'} | ★{h['rating'] or '?'}] {h['text'][:500]}"
+            for h in hits
+        )
+        evidence_cards = _listing_evidence(listing_rows) + _review_evidence(hits)
+        lang_rule = "Answer in Chinese." if report_lang == "zh" else f"Answer in {report_lang}."
+        from google.genai import types
+        response = analyze._client().models.generate_content(
+            model=reason_info["model"],
+            contents=(f"QUESTION: {question}\n\nPLACE LISTINGS (Google Maps metadata — "
+                      f"authoritative for address/hours/phone/website):\n{listings}\n\n"
+                      f"REVIEW EVIDENCE:\n{evidence}"),
+            config=types.GenerateContentConfig(
+                system_instruction=f"Today is {time.strftime('%Y-%m-%d')}. Answer ONLY from "
+                "the place listings and review evidence given. Listings are authoritative "
+                "for hard facts (address, hours, phone, website); reviews are evidence for "
+                "experiences, prices and risks — cite place names and dates for those. "
+                "Translate quoted review excerpts into the answer language, tagging the "
+                f"original language when it differs. Say what's unknown. {lang_rule}",
+                temperature=0.2,
+            ),
+        )
+        answer = response.text or ""
+        if answer.strip():
+            cache.save_qa(conn, question, place_id, answer, reason_info["model"], qvec)
+        return {"answer": answer, "cached": False, "created_at": time.time(),
+                "model": reason_info["model"], "provider": reason_info["provider"],
+                "cache_scope": scope, "evidence_fresh_after": fresh_after,
+                "evidence": evidence_cards}
+    finally:
         conn.close()
-        return result
-
-    # Listing metadata for every place represented in the evidence (or the scoped one)
-    listing_ids = [place_id] if place_id else list(dict.fromkeys(
-        h["place_id"] for h in hits))[:MAX_LISTINGS_IN_ASK]
-    listing_rows = [row for pid in listing_ids if (row := cache.get_place(conn, pid))]
-    listings = "\n\n".join(_listing_block(row) for row in listing_rows)
-    evidence = "\n".join(
-        f"[{h['place_name']} | {h['review_date'] or '?'} | ★{h['rating'] or '?'}] {h['text'][:500]}"
-        for h in hits
-    )
-    evidence_cards = _listing_evidence(listing_rows) + _review_evidence(hits)
-    lang_rule = "Answer in Chinese." if report_lang == "zh" else f"Answer in {report_lang}."
-    from google.genai import types
-    response = analyze._client().models.generate_content(
-        model=reason_info["model"],
-        contents=(f"QUESTION: {question}\n\nPLACE LISTINGS (Google Maps metadata — "
-                  f"authoritative for address/hours/phone/website):\n{listings}\n\n"
-                  f"REVIEW EVIDENCE:\n{evidence}"),
-        config=types.GenerateContentConfig(
-            system_instruction=f"Today is {time.strftime('%Y-%m-%d')}. Answer ONLY from "
-            "the place listings and review evidence given. Listings are authoritative "
-            "for hard facts (address, hours, phone, website); reviews are evidence for "
-            "experiences, prices and risks — cite place names and dates for those. "
-            "Translate quoted review excerpts into the answer language, tagging the "
-            f"original language when it differs. Say what's unknown. {lang_rule}",
-            temperature=0.2,
-        ),
-    )
-    answer = response.text or ""
-    if answer.strip():
-        cache.save_qa(conn, question, place_id, answer, reason_info["model"], qvec)
-    result = {"answer": answer, "cached": False, "created_at": time.time(),
-              "model": reason_info["model"], "provider": reason_info["provider"],
-              "cache_scope": scope, "evidence_fresh_after": fresh_after,
-              "evidence": evidence_cards}
-    conn.close()
-    return result
 
 
 def translate_review(review_id: str, target_lang: str = "zh") -> dict:

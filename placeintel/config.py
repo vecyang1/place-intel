@@ -13,6 +13,19 @@ import os
 import re
 from pathlib import Path
 
+# Strip provider API keys out of error/log strings before they reach API clients
+# or get persisted to job events. requests embeds the full URL (with `api_key=…`)
+# in its exception text, so a transient SerpAPI failure would otherwise leak the key.
+_SECRET_QS_RE = re.compile(r"((?:api_?key|access_token|token|secret)=)[^&\s'\"]+", re.IGNORECASE)
+
+
+def redact_secrets(text: str | None) -> str | None:
+    """Redact `api_key=…`-style secrets from any string (error messages, URLs)."""
+    if not text:
+        return text
+    return _SECRET_QS_RE.sub(r"\1REDACTED", str(text))
+
+
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 
 # Load a project-local `.env` if present (external users: copy `.env.example`).

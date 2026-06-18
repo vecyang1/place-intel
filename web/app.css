@@ -627,7 +627,7 @@ textarea.query-input { min-height: 6em; }
 .review-lang { border: 1px solid var(--line-soft); border-radius: 999px; padding: 0 0.38rem; color: var(--ink-55); }
 .review-date { color: var(--ink-40); margin-left: auto; }
 .review-text { font-size: 0.9rem; margin-top: 0.3rem; line-height: 1.6; }
-.review-translate { margin-left: auto; border: 1px solid var(--line-soft); border-radius: 999px; padding: 0 0.45rem; color: var(--ink-55); font-size: 0.68rem; }
+.review-translate { margin-left: auto; border: 1px solid var(--line-soft); border-radius: 999px; padding: 0 0.45rem; color: var(--ink-55); font-size: 0.68rem; min-height: 24px; display: inline-flex; align-items: center; }
 .review-translate:hover { border-color: var(--accent); color: var(--accent); }
 .review-translate:disabled { opacity: 0.6; cursor: wait; }
 .review-translation { margin-top: 0.45rem; padding: 0.55rem 0.7rem; border-left: 3px solid var(--accent); background: var(--card); font-size: 0.86rem; }
@@ -737,7 +737,7 @@ textarea.query-input { min-height: 6em; }
   border-radius: var(--radius-sm);
   padding: 0.4rem 0.65rem; margin-bottom: 0.7rem;
 }
-.btn-refresh { font-size: 0.7rem; padding: 0.15rem 0.5rem; }
+.btn-refresh { font-size: 0.7rem; padding: 0.15rem 0.5rem; min-height: 24px; display: inline-flex; align-items: center; }
 
 .qa-chips {
   display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center;
