@@ -10,7 +10,7 @@ WEB = ROOT / "web"
 
 class WebStaticContractTest(unittest.TestCase):
     def test_no_build_web_files_stay_under_project_budget(self) -> None:
-        for path in [WEB / "index.html", WEB / "app.css", WEB / "app.js"]:
+        for path in [WEB / "index.html", WEB / "app.css", WEB / "app.js", WEB / "i18n.js"]:
             with self.subTest(path=path.name):
                 line_count = len(path.read_text(encoding="utf-8").splitlines())
                 self.assertLess(
@@ -116,7 +116,7 @@ class WebStaticContractTest(unittest.TestCase):
             ("app.js", (WEB / "app.js").read_text(encoding="utf-8")),
         ]
         for source_name, source in sources:
-            for raw in re.findall(r'placeholder="([^"]+)"', source):
+            for raw in re.findall(r'(?<!-)placeholder="([^"]+)"', source):
                 placeholder = unescape(raw)
                 with self.subTest(source=source_name, placeholder=placeholder):
                     self.assertIn("例", placeholder)
@@ -158,6 +158,65 @@ class WebStaticContractTest(unittest.TestCase):
     def test_stale_job_submission_cannot_poll_newer_job(self) -> None:
         js = (WEB / "app.js").read_text(encoding="utf-8")
         self.assertIn("state.jobs[kind] !== job", js)
+
+    def test_top_tabs_use_aligned_tracks_and_clear_mode_vocabulary(self) -> None:
+        html = (WEB / "index.html").read_text(encoding="utf-8")
+        css = (WEB / "app.css").read_text(encoding="utf-8")
+        js = (WEB / "app.js").read_text(encoding="utf-8")
+        i18n = (WEB / "i18n.js").read_text(encoding="utf-8")
+        dynamic_copy = js + i18n
+
+        self.assertIn("侦察新店", html)
+        self.assertIn("问缓存", html)
+        self.assertRegex(css, r"\.tabs\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)", re.S)
+        self.assertRegex(css, r"\.tab::after\s*\{[^}]*left:\s*50%", re.S)
+        self.assertIn("问缓存只问已有证据", dynamic_copy)
+        self.assertIn("侦察会搜索或刷新地图与评价证据", dynamic_copy)
+
+    def test_locale_catalog_owns_core_ui_language_copy(self) -> None:
+        html = (WEB / "index.html").read_text(encoding="utf-8")
+        js = (WEB / "app.js").read_text(encoding="utf-8")
+        i18n = (WEB / "i18n.js").read_text(encoding="utf-8")
+
+        self.assertIn('/static/i18n.js?v=__PLACEINTEL_VERSION__"', html)
+        self.assertIn("PI18N", i18n)
+        self.assertIn("supportedUiLocales", i18n)
+        self.assertIn("placeintel.languagePreference", i18n)
+        self.assertIn("applyStaticText", i18n)
+        self.assertIn("initLanguage", js)
+        self.assertIn("language_hint", js + i18n)
+        self.assertIn("report_lang", js + i18n)
+        self.assertIn("renderLanguageControls", js)
+        self.assertIn("data-i18n", html)
+
+    def test_photo_ui_uses_lazy_source_images_and_safe_links(self) -> None:
+        html = (WEB / "index.html").read_text(encoding="utf-8")
+        css = (WEB / "app.css").read_text(encoding="utf-8")
+        js = (WEB / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("photoSourcesHtml", js)
+        self.assertIn("photo-lightbox", html)
+        self.assertIn("photo-lightbox-toolbar", html)
+        self.assertIn("photo-lightbox-zoom-in", html)
+        self.assertIn("photo-lightbox-prev", html)
+        self.assertIn("photo-lightbox-next", html)
+        self.assertIn("openPhotoLightbox", js)
+        self.assertIn("setPhotoZoom", js)
+        self.assertIn("shiftPhoto", js)
+        self.assertIn("wheel", js)
+        self.assertIn("data-photo-zoom", js + html)
+        self.assertIn("data-photo-step", html)
+        self.assertIn("data-photo-url", js)
+        self.assertIn('loading="lazy"', js)
+        self.assertIn('decoding="async"', js)
+        self.assertNotIn('target="_blank" rel="noopener noreferrer"><img class="source-photo-img"', js)
+        self.assertIn("source photo", js)
+        self.assertIn("review photo", js)
+        self.assertRegex(css, r"\.source-photo\s*\{[^}]*aspect-ratio:\s*4\s*/\s*3", re.S)
+        self.assertIn("cursor: zoom-in", css)
+        self.assertIn("object-fit: cover", css)
+        self.assertIn("background: rgba(0, 0, 0, 0.86)", css)
+        self.assertIn("overflow: auto", css)
 
 
 if __name__ == "__main__":

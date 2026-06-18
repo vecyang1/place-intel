@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import __version__, cache, config, doctor, pipeline, profiles
+from . import __version__, cache, config, doctor, language, photos, pipeline, profiles
 
 log = logging.getLogger(__name__)
 app = FastAPI(title="placeintel", version=__version__)
@@ -55,6 +55,7 @@ class ScoutRequest(BaseModel):
     top: int = Field(default=3, ge=1, le=MAX_TOP)
     max_reviews: int = Field(default=300, ge=1, le=MAX_REVIEWS_CAP)
     report_lang: str | None = Field(default=None, max_length=16)
+    language_hint: str | None = Field(default=None, max_length=16)
     refresh: bool = False
     no_ai: bool = False
 
@@ -65,23 +66,34 @@ class ShopRequest(BaseModel):
     profile: str | None = Field(default=None, max_length=80)
     max_reviews: int = Field(default=300, ge=1, le=MAX_REVIEWS_CAP)
     report_lang: str | None = Field(default=None, max_length=16)
+    language_hint: str | None = Field(default=None, max_length=16)
     refresh: bool = False
 
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
     place_id: str | None = Field(default=None, max_length=200)
-    report_lang: str = Field(default="zh", max_length=16)
+    report_lang: str | None = Field(default=None, max_length=16)
+    language_hint: str | None = Field(default=None, max_length=16)
     fresh: bool = False  # skip the QA answer cache
 
 
 class ReviewTranslateRequest(BaseModel):
     review_id: str = Field(min_length=1, max_length=200)
-    target_lang: str = Field(default="zh", max_length=16)
+    target_lang: str | None = Field(default=None, max_length=16)
 
 
 class SettingsRequest(BaseModel):
     reason_model: str = Field(min_length=1, max_length=120)
+
+
+class LanguageSettingsRequest(BaseModel):
+    ui_language: str | None = None
+    default_answer_language: str | None = None
+    default_report_language: str | None = None
+    translation_target: str | None = None
+    evidence_language: str | None = None
+    make_default: bool = False
 
 
 class FavoriteRequest(BaseModel):
@@ -139,6 +151,7 @@ def _run_scout(job_id: str, req: ScoutRequest, on_event) -> None:
             query=req.query, location=req.near, profile_name=req.profile,
             top_n=req.top, max_reviews=req.max_reviews, report_lang=req.report_lang,
             refresh=req.refresh, use_ai=not req.no_ai, on_event=on_event,
+            language_hint=req.language_hint,
         )
         _finish_job(job_id, result=result)
     except Exception as exc:
@@ -151,7 +164,7 @@ def _run_shop(job_id: str, req: ShopRequest, on_event) -> None:
         result = pipeline.scout_single(
             target=req.target, near=req.near, profile_name=req.profile,
             max_reviews=req.max_reviews, report_lang=req.report_lang,
-            refresh=req.refresh, on_event=on_event,
+            refresh=req.refresh, on_event=on_event, language_hint=req.language_hint,
         )
         _finish_job(job_id, result=result)
     except Exception as exc:
@@ -250,13 +263,15 @@ async def job_events(
 @app.post("/api/ask")
 def ask(req: AskRequest) -> dict:
     return pipeline.ask(req.question, place_id=req.place_id,
-                        report_lang=req.report_lang, no_cache=req.fresh)
+                        report_lang=req.report_lang, language_hint=req.language_hint,
+                        no_cache=req.fresh)
 
 
 @app.post("/api/reviews/translate")
 def translate_review(req: ReviewTranslateRequest) -> dict:
     try:
-        return pipeline.translate_review(req.review_id, req.target_lang)
+        target = req.target_lang or language.config_language_status()["translation_target"]
+        return pipeline.translate_review(req.review_id, target)
     except LookupError as exc:
         raise HTTPException(404, str(exc))
     except ValueError as exc:
@@ -321,7 +336,11 @@ def places() -> JSONResponse:
                       (SELECT rr.profile FROM reports rr
                        WHERE rr.place_id = p.place_id
                        ORDER BY rr.created_at DESC, rr.id DESC LIMIT 1)
-                       AS latest_report_profile
+                       AS latest_report_profile,
+                      (SELECT rr.report_lang FROM reports rr
+                       WHERE rr.place_id = p.place_id
+                       ORDER BY rr.created_at DESC, rr.id DESC LIMIT 1)
+                       AS latest_report_lang
                FROM places p
                LEFT JOIN reviews r ON r.place_id = p.place_id
                LEFT JOIN reports rep ON rep.place_id = p.place_id
@@ -335,6 +354,7 @@ def places() -> JSONResponse:
             item = dict(row)
             item["favorite"] = bool(item.get("favorite"))
             item["refresh_enabled"] = bool(item.get("refresh_enabled"))
+            item["thumbnail"] = photos.resolve_place_photos(conn, row["place_id"], list_mode=True)
             out.append(item)
         risks = cache.activity_risks(conn, out)  # one review-date scan, not N+1
         for item in out:
@@ -357,7 +377,7 @@ def place_detail(place_id: str) -> dict:
             (place_id, MAX_REVIEWS_IN_DETAIL),
         ).fetchall()
         report = conn.execute(
-            """SELECT report_md, report_json, profile, model, created_at FROM reports
+            """SELECT report_md, report_json, profile, model, report_lang, evidence_lang, created_at FROM reports
                WHERE place_id=? ORDER BY created_at DESC LIMIT 1""",
             (place_id,),
         ).fetchone()
@@ -368,9 +388,11 @@ def place_detail(place_id: str) -> dict:
         place_payload.update(cache.favorite_meta(conn, place_id))
         return {
             "place": place_payload,
+            "photos": photos.resolve_place_photos(conn, place_id),
             "reviews": [dict(r) for r in reviews],
             "report": ({"md": report["report_md"], "json": json.loads(report["report_json"]),
                         "profile": report["profile"], "model": report["model"],
+                        "report_lang": report["report_lang"], "evidence_lang": report["evidence_lang"],
                         "created_at": report["created_at"]}
                        if report else None),
         }
@@ -388,6 +410,9 @@ def searches() -> JSONResponse:
         ).fetchall()
         names = {r["place_id"]: r["name"]
                  for r in conn.execute("SELECT place_id, name FROM places").fetchall()}
+        report_counts = {r["place_id"]: r["count"] for r in conn.execute(
+            "SELECT place_id, COUNT(*) AS count FROM reports GROUP BY place_id"
+        ).fetchall()}
         out = []
         for row in rows:
             ids = json.loads(row["place_ids_json"] or "[]")
@@ -398,6 +423,7 @@ def searches() -> JSONResponse:
                 "source": row["source"], "created_at": row["created_at"],
                 "places": [
                     {"place_id": pid, "name": names[pid],
+                     "report_count": int(report_counts.get(pid, 0)),
                      "relevant": by_id.get(pid, {}).get("relevant"),  # None = unjudged
                      "reason": by_id.get(pid, {}).get("reason")}
                     for pid in ids if pid in names  # deleted places drop out of history
@@ -413,7 +439,8 @@ def reports() -> JSONResponse:
     conn = cache.connect()
     try:
         rows = conn.execute(
-            """SELECT r.id, r.place_id, p.name, r.profile, r.review_count, r.created_at
+            """SELECT r.id, r.place_id, p.name, r.profile, r.report_lang, r.evidence_lang,
+                      r.review_count, r.created_at
                FROM reports r JOIN places p ON p.place_id = r.place_id
                ORDER BY r.created_at DESC LIMIT 100"""
         ).fetchall()
@@ -430,7 +457,8 @@ def report_detail(report_id: int) -> dict:
         if not row:
             raise HTTPException(404, "unknown report")
         return {"md": row["report_md"], "json": json.loads(row["report_json"]),
-                "profile": row["profile"], "created_at": row["created_at"]}
+                "profile": row["profile"], "report_lang": row["report_lang"],
+                "evidence_lang": row["evidence_lang"], "created_at": row["created_at"]}
     finally:
         conn.close()
 
@@ -484,10 +512,14 @@ def config_status() -> dict:
         "settings": {
             "reason_model": config.reason_model(),
             "translation_model": config.translation_model(),
-            "default_answer_language": "zh",
-            "evidence_language": config.EVIDENCE_LANG,
+            "ui_language": language.default_language_setting("ui_language"),
+            "default_answer_language": language.default_language_setting("default_answer_language"),
+            "default_report_language": language.default_language_setting("default_report_language"),
+            "translation_target": language.default_language_setting("translation_target"),
+            "evidence_language": language.evidence_language(),
             "cache_ttl_days": config.PLACE_TTL_DAYS,
         },
+        "language": language.config_language_status(),
         "runtime": {
             "port": DEFAULT_PORT,
             "data_dir": {"configured": True, "path_visible": False},
@@ -500,6 +532,19 @@ def config_status() -> dict:
             "message": "Destructive cache/restore actions stay in the CLI and require explicit confirmation.",
         },
     }
+
+
+@app.post("/api/settings/language")
+def update_language_settings(req: LanguageSettingsRequest) -> dict:
+    if not req.make_default:
+        return {"ok": True, "saved": {}, "language": language.config_language_status()}
+    try:
+        updates = language.validate_language_settings(_request_payload(req))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if updates:
+        config.save_settings(updates)
+    return {"ok": True, "saved": updates, "language": language.config_language_status()}
 
 
 @app.get("/api/models")

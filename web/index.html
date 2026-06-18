@@ -10,22 +10,23 @@
   <title>placeintel — walk in armed</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%23c8473d' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23c8473d'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/static/app.css?v=__PLACEINTEL_VERSION__">
+  <script src="/static/i18n.js?v=__PLACEINTEL_VERSION__" defer></script>
   <script src="/static/app.js?v=__PLACEINTEL_VERSION__" defer></script>
 </head>
 <body>
-<a class="skip-link" href="#main">跳到主要内容</a>
+<a class="skip-link" href="#main" data-i18n="skip">跳到主要内容</a>
 <div class="shell">
 
   <header class="masthead">
     <h1>place<em>intel</em></h1>
-    <p class="tagline">进店之前，先读完它的几百条评价。<span class="en">Walk in armed.</span></p>
+    <p class="tagline" data-i18n="tagline">进店之前，先读完它的几百条评价。<span class="en">Walk in armed.</span></p>
   </header>
 
   <nav class="tabs" role="tablist" aria-label="主导航">
-    <button type="button" class="tab is-active" id="tab-scout" role="tab" aria-selected="true" aria-controls="panel-scout" tabindex="0" data-tab="scout">侦察 <span class="tab-en">Scout</span></button>
-    <button type="button" class="tab" id="tab-shop" role="tab" aria-selected="false" aria-controls="panel-shop" tabindex="-1" data-tab="shop">单店 <span class="tab-en">Shop</span></button>
-    <button type="button" class="tab" id="tab-library" role="tab" aria-selected="false" aria-controls="panel-library" tabindex="-1" data-tab="library">资料库 <span class="tab-en">Library</span></button>
-    <button type="button" class="tab" id="tab-ask" role="tab" aria-selected="false" aria-controls="panel-ask" tabindex="-1" data-tab="ask">提问 <span class="tab-en">Ask</span></button>
+    <button type="button" class="tab is-active" id="tab-scout" role="tab" aria-selected="true" aria-controls="panel-scout" tabindex="0" data-tab="scout" data-i18n="nav.scout">侦察新店 <span class="tab-en">Scout</span></button>
+    <button type="button" class="tab" id="tab-shop" role="tab" aria-selected="false" aria-controls="panel-shop" tabindex="-1" data-tab="shop" data-i18n="nav.shop">单店深挖 <span class="tab-en">Shop</span></button>
+    <button type="button" class="tab" id="tab-library" role="tab" aria-selected="false" aria-controls="panel-library" tabindex="-1" data-tab="library" data-i18n="nav.library">资料库 <span class="tab-en">Library</span></button>
+    <button type="button" class="tab" id="tab-ask" role="tab" aria-selected="false" aria-controls="panel-ask" tabindex="-1" data-tab="ask" data-i18n="nav.ask">问缓存 <span class="tab-en">Ask</span></button>
   </nav>
 
   <main id="main" tabindex="-1">
@@ -34,20 +35,20 @@
     <section class="panel" id="panel-scout" role="tabpanel" aria-labelledby="tab-scout">
       <form id="scout-form" novalidate>
         <div class="field">
-          <label for="scout-query">想找什么 <span class="label-en">query</span></label>
+          <label for="scout-query" data-i18n="label.query">想找什么 <span class="label-en">query</span></label>
           <textarea id="scout-query" name="query" class="query-input" rows="2" required
-            placeholder="店名 / 需求 / Maps URL，任何语言&#10;例：会安吉他租赁 · guitar lessons Da Nang…"></textarea>
+            placeholder="店名 / 需求 / Maps URL，任何语言&#10;例：会安吉他租赁 · guitar lessons Da Nang…" data-i18n-placeholder="ph.query"></textarea>
         </div>
         <div class="field">
-          <label for="scout-near">在哪里 <span class="label-en">near · 可选</span></label>
-          <input id="scout-near" name="near" type="text" autocomplete="off" placeholder="例：Hoi An, Vietnam…">
+          <label for="scout-near" data-i18n="label.near">在哪里 <span class="label-en">near · 可选</span></label>
+          <input id="scout-near" name="near" type="text" autocomplete="off" placeholder="例：Hoi An, Vietnam…" data-i18n-placeholder="ph.near">
         </div>
         <div class="command-mode" id="command-mode" role="group" aria-label="推荐工作模式">
-          <button type="button" class="chip" data-command-mode="scout" aria-pressed="true">侦察 Scout</button>
-          <button type="button" class="chip" data-command-mode="shop" aria-pressed="false">单店 Shop</button>
-          <button type="button" class="chip" data-command-mode="ask" aria-pressed="false">提问 Ask</button>
+          <button type="button" class="chip" data-command-mode="scout" aria-pressed="true"><span data-i18n="mode.scout">侦察新店 Scout</span><span class="chip-help" data-i18n="mode.help.scout">搜 Maps + 抓评价</span></button>
+          <button type="button" class="chip" data-command-mode="shop" aria-pressed="false"><span data-i18n="mode.shop">单店深挖 Shop</span><span class="chip-help" data-i18n="mode.help.shop">已知店名/链接</span></button>
+          <button type="button" class="chip" data-command-mode="ask" aria-pressed="false"><span data-i18n="mode.ask">问缓存 Ask</span><span class="chip-help" data-i18n="mode.help.ask">只问已有证据</span></button>
         </div>
-        <p class="mode-reason" id="command-reason" aria-live="polite">输入需求、店名或 Maps 链接，会自动推荐路径。</p>
+        <p class="mode-reason" id="command-reason" aria-live="polite" data-i18n="reason.empty">输入需求、店名或 Maps 链接，会自动推荐路径。</p>
         <details class="advanced" id="scout-advanced">
           <summary>高级 <span class="label-en">advanced</span></summary>
           <div class="advanced-grid">
@@ -69,19 +70,19 @@
             </div>
           </div>
         </details>
-        <button type="submit" class="btn-primary" id="scout-submit">开始侦察 Scout →</button>
-        <p class="form-hint">第一次跑新地点需要几分钟：AI规划 → 搜索 → AI筛选 → 抓评价 → 向量化 → 推理报告。全程进度都看得见。</p>
+        <button type="submit" class="btn-primary" id="scout-submit" data-i18n="button.scout">开始侦察 Scout →</button>
+        <p class="form-hint" data-i18n="hint.scout">第一次跑新地点需要几分钟：AI规划 → 搜索 → AI筛选 → 抓评价 → 向量化 → 推理报告。全程进度都看得见。</p>
       </form>
       <section class="scout-past" id="scout-past" aria-labelledby="scout-past-title">
         <div class="section-head">
-          <h2 id="scout-past-title">已侦察 <span class="label-en">past scouts</span></h2>
-          <button type="button" class="btn-ghost" id="scout-past-reload">刷新 ↻</button>
+          <h2 id="scout-past-title" data-i18n="past.scouts">已侦察 <span class="label-en">past scouts</span></h2>
+          <button type="button" class="btn-ghost" id="scout-past-reload" data-i18n="refresh.short">刷新 ↻</button>
         </div>
         <div id="scout-past-status" role="status" aria-live="polite"></div>
         <ol class="history" id="scout-past-list"></ol>
       </section>
       <div class="job" id="scout-job" hidden>
-        <div class="job-head"><span class="job-label">实时进度 <span class="label-en">live</span></span><span class="job-id" id="scout-jobid"></span></div>
+        <div class="job-head"><span class="job-label" data-i18n="live">实时进度 <span class="label-en">live</span></span><span class="job-id" id="scout-jobid"></span></div>
         <ol class="timeline" id="scout-timeline"></ol>
         <div class="job-results" id="scout-results" aria-live="polite"></div>
       </div>
@@ -91,9 +92,9 @@
     <section class="panel" id="panel-shop" role="tabpanel" aria-labelledby="tab-shop" hidden>
       <form id="shop-form" novalidate>
         <div class="field">
-          <label for="shop-target">哪家店 <span class="label-en">target</span></label>
+          <label for="shop-target" data-i18n="label.target">哪家店 <span class="label-en">target</span></label>
           <input id="shop-target" name="target" class="query-input" type="text" required autocomplete="off"
-            placeholder="例：The Workshop Coffee 或 Google Maps 链接…">
+            placeholder="例：The Workshop Coffee 或 Google Maps 链接…" data-i18n-placeholder="ph.shop">
         </div>
         <div class="field">
           <label for="shop-near">在哪里 <span class="label-en">near · 可选</span></label>
@@ -115,8 +116,8 @@
             </div>
           </div>
         </details>
-        <button type="submit" class="btn-primary" id="shop-submit">深挖这家店 Deep dive →</button>
-        <p class="form-hint">结果是一份聚焦报告：这家店的口碑、反复出现的抱怨、防坑要点。</p>
+        <button type="submit" class="btn-primary" id="shop-submit" data-i18n="button.shop">深挖这家店 Deep dive →</button>
+        <p class="form-hint" data-i18n="hint.shop">结果是一份聚焦报告：这家店的口碑、反复出现的抱怨、防坑要点。</p>
       </form>
       <div class="job" id="shop-job" hidden>
         <div class="job-head"><span class="job-label">实时进度 <span class="label-en">live</span></span><span class="job-id" id="shop-jobid"></span></div>
@@ -128,32 +129,32 @@
     <!-- ============ LIBRARY ============ -->
     <section class="panel" id="panel-library" role="tabpanel" aria-labelledby="tab-library" hidden>
       <div class="section-head">
-        <h2>已缓存的店 <span class="label-en">cached shops</span></h2>
-        <button type="button" class="btn-ghost" id="library-reload">刷新 ↻</button>
+        <h2 data-i18n="cached.shops">已缓存的店 <span class="label-en">cached shops</span></h2>
+        <button type="button" class="btn-ghost" id="library-reload" data-i18n="refresh.short">刷新 ↻</button>
       </div>
       <div class="library-tools">
-        <input id="library-search" name="library_search" type="search" autocomplete="off" placeholder="例：guitar / hiking / Hoi An…">
-        <select id="library-sort" name="library_sort" aria-label="资料库排序">
-          <option value="smart">智能排序 smart</option>
-          <option value="fresh">最近更新 fresh</option>
-          <option value="cached">缓存评价多 cached</option>
-          <option value="rating">评分高 rating</option>
+        <input id="library-search" name="library_search" type="search" autocomplete="off" placeholder="例：吉他 / 徒步 / 会安…" data-i18n-placeholder="ph.library">
+        <select id="library-sort" name="library_sort" aria-label="资料库排序" data-i18n-aria="aria.library.sort">
+          <option value="smart" data-i18n="filter.sort.smart">智能排序</option>
+          <option value="fresh" data-i18n="filter.sort.fresh">最近更新</option>
+          <option value="cached" data-i18n="filter.sort.cached">缓存评价多</option>
+          <option value="rating" data-i18n="filter.sort.rating">评分高</option>
         </select>
-        <select id="library-category" name="library_category" aria-label="按类别筛选"><option value="">全部类别 category</option></select>
-        <select id="library-freshness" name="library_freshness" aria-label="按新鲜度筛选">
-          <option value="">全部新鲜度 freshness</option><option value="recent">近期更新 recent</option><option value="stale">可能过期 stale</option>
+        <select id="library-category" name="library_category" aria-label="按类别筛选" data-i18n-aria="aria.library.category"><option value="" data-i18n="filter.category.all">全部类别</option></select>
+        <select id="library-freshness" name="library_freshness" aria-label="按新鲜度筛选" data-i18n-aria="aria.library.freshness">
+          <option value="" data-i18n="filter.freshness.all">全部新鲜度</option><option value="recent" data-i18n="filter.freshness.recent">近期更新</option><option value="stale" data-i18n="filter.freshness.stale">可能过期</option>
         </select>
-        <select id="library-risk" name="library_risk" aria-label="按风险筛选">
-          <option value="">全部风险 risk</option><option value="risk">只看需核实</option><option value="ok">隐藏风险项</option>
+        <select id="library-risk" name="library_risk" aria-label="按风险筛选" data-i18n-aria="aria.library.risk">
+          <option value="" data-i18n="filter.risk.all">全部风险</option><option value="risk" data-i18n="filter.risk.risk">只看需核实</option><option value="ok" data-i18n="filter.risk.ok">隐藏风险项</option>
         </select>
-        <select id="library-language" name="library_language" aria-label="按评价语言筛选">
-          <option value="">全部语言 language</option><option value="zh">中文 zh</option><option value="en">English en</option><option value="vi">Tiếng Việt vi</option><option value="ko">한국어 ko</option><option value="other">其他 other</option>
+        <select id="library-language" name="library_language" aria-label="按评价语言筛选" data-i18n-aria="aria.library.language">
+          <option value="" data-i18n="filter.language.all">全部语言</option><option value="zh" data-i18n="filter.language.zh">中文</option><option value="en" data-i18n="filter.language.en">英语</option><option value="vi" data-i18n="filter.language.vi">越南语</option><option value="ko" data-i18n="filter.language.ko">韩语</option><option value="other" data-i18n="filter.language.other">其他</option>
         </select>
-        <select id="library-cached" name="library_cached" aria-label="按缓存评价数筛选">
-          <option value="">全部缓存 cached</option><option value="50">50+ 已缓存</option><option value="100">100+ 已缓存</option><option value="300">300+ 已缓存</option>
+        <select id="library-cached" name="library_cached" aria-label="按缓存评价数筛选" data-i18n-aria="aria.library.cached">
+          <option value="" data-i18n="filter.cached.all">全部缓存</option><option value="50" data-i18n="filter.cached.50">50+ 已缓存</option><option value="100" data-i18n="filter.cached.100">100+ 已缓存</option><option value="300" data-i18n="filter.cached.300">300+ 已缓存</option>
         </select>
-        <select id="library-report" name="library_report" aria-label="按报告筛选">
-          <option value="">全部报告 profile</option><option value="with-report">有报告</option><option value="no-report">无报告</option>
+        <select id="library-report" name="library_report" aria-label="按报告筛选" data-i18n-aria="aria.library.report">
+          <option value="" data-i18n="filter.report.all">全部报告</option><option value="with-report" data-i18n="filter.report.with">有报告</option><option value="no-report" data-i18n="filter.report.no">无报告</option>
         </select>
       </div>
       <div id="library-status" role="status" aria-live="polite"></div>
@@ -161,7 +162,7 @@
       <div class="shop-grid" id="library-grid"></div>
 
       <div class="section-head history-head">
-        <h2>历史搜索 <span class="label-en">past searches</span></h2>
+        <h2 data-i18n="past.searches">历史搜索 <span class="label-en">past searches</span></h2>
       </div>
       <div id="history-status" role="status" aria-live="polite"></div>
       <ol class="history" id="history-list"></ol>
@@ -171,12 +172,12 @@
     <section class="panel" id="panel-ask" role="tabpanel" aria-labelledby="tab-ask" hidden>
       <form id="ask-form" novalidate>
         <div class="field">
-          <label for="ask-question">问缓存里的所有评价 <span class="label-en">ask the cache</span></label>
+          <label for="ask-question" data-i18n="ask.label">问缓存里的所有评价 <span class="label-en">ask the cache</span></label>
           <textarea id="ask-question" name="question" class="query-input" rows="2" required
-            placeholder="例：哪家老师最有耐心？哪家有坑？…"></textarea>
+            placeholder="例：哪家老师最有耐心？哪家有坑？…" data-i18n-placeholder="ph.ask"></textarea>
         </div>
-        <button type="submit" class="btn-primary" id="ask-submit">提问 Ask →</button>
-        <p class="form-hint">答案只来自已缓存的评价原文和店铺元数据，不上网瞎编。想问某一家店，去资料库点进店铺详情。问过的问题会缓存——同样的问题、评价没更新时直接秒回。</p>
+        <button type="submit" class="btn-primary" id="ask-submit" data-i18n="button.ask">问缓存 Ask →</button>
+        <p class="form-hint" data-i18n="hint.ask">Ask 只问已有缓存证据，不搜索 Google Maps。要找新地方或刷新评价，先跑 Scout/Shop。</p>
       </form>
       <div id="ask-history"></div>
       <div id="ask-answer" aria-live="polite"></div>
@@ -184,14 +185,14 @@
 
   </main>
 
-  <footer class="colophon">placeintel · 本地评价情报站 · 数据只缓存在本机<br>
+  <footer class="colophon"><span data-i18n="footer">placeintel · 本地评价情报站 · 数据只缓存在本机</span><br>
     <span id="meta-line" class="meta-line"></span>
-    <button type="button" class="btn-model" id="system-toggle">系统 System</button>
-    <button type="button" class="btn-model" id="model-switch" hidden>更换模型 ⇄</button>
+    <button type="button" class="btn-model" id="system-toggle" data-i18n="system">系统 System</button>
+    <button type="button" class="btn-model" id="model-switch" hidden data-i18n="model.switch">更换模型 ⇄</button>
     <div class="model-picker" id="model-picker" hidden>
       <select id="model-select" name="reason_model" aria-label="推理模型"></select>
-      <input id="model-custom" name="custom_reason_model" type="text" placeholder="例：gemini-flash-latest…" hidden>
-      <button type="button" class="btn-model" id="model-save">保存</button>
+      <input id="model-custom" name="custom_reason_model" type="text" placeholder="例：gemini-flash-latest…" data-i18n-placeholder="ph.model" hidden>
+      <button type="button" class="btn-model" id="model-save" data-i18n="model.save">保存</button>
       <span class="model-status" id="model-status" role="status"></span>
     </div>
     <section id="system-panel" class="model-picker" aria-live="polite" hidden></section></footer>
@@ -202,13 +203,31 @@
   <div class="detail-backdrop" data-close="1"></div>
   <aside class="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-title">
     <header class="detail-head">
-      <h2 id="detail-title">店铺档案 <span class="label-en">dossier</span></h2>
-      <button type="button" class="detail-close" id="detail-close" aria-label="关闭">×</button>
+      <h2 id="detail-title" data-i18n="detail.title">店铺档案 <span class="label-en">dossier</span></h2>
+      <button type="button" class="detail-close" id="detail-close" aria-label="关闭" data-i18n-aria="detail.close">×</button>
     </header>
     <div class="detail-body" id="detail-body"></div>
   </aside>
 </div>
 
-<noscript><p class="noscript">placeintel 需要启用 JavaScript 才能工作。</p></noscript>
+<!-- ============ PHOTO LIGHTBOX ============ -->
+<div class="photo-lightbox" id="photo-lightbox" role="dialog" aria-modal="true" aria-label="source photo" hidden>
+  <div class="photo-lightbox-backdrop" data-photo-close="1"></div>
+  <figure class="photo-lightbox-frame">
+    <div class="photo-lightbox-toolbar" role="group" aria-label="图片缩放">
+      <span class="photo-lightbox-count" id="photo-lightbox-count" aria-live="polite">1/1</span>
+      <button type="button" class="photo-lightbox-zoom" id="photo-lightbox-zoom-out" data-photo-zoom="-1" aria-label="缩小图片">−</button><span class="photo-lightbox-zoom-label" id="photo-lightbox-zoom-label" aria-live="polite">100%</span><button type="button" class="photo-lightbox-zoom" id="photo-lightbox-zoom-in" data-photo-zoom="1" aria-label="放大图片">+</button><button type="button" class="photo-lightbox-zoom" id="photo-lightbox-zoom-reset" data-photo-zoom="0" aria-label="重置图片缩放">100%</button>
+      <button type="button" class="photo-lightbox-close" id="photo-lightbox-close" aria-label="关闭图片">×</button>
+    </div>
+    <div class="photo-lightbox-stage">
+      <button type="button" class="photo-lightbox-nav photo-lightbox-prev" id="photo-lightbox-prev" data-photo-step="-1" aria-label="上一张图片">‹</button>
+      <div class="photo-lightbox-canvas"><img id="photo-lightbox-img" alt=""></div>
+      <button type="button" class="photo-lightbox-nav photo-lightbox-next" id="photo-lightbox-next" data-photo-step="1" aria-label="下一张图片">›</button>
+    </div>
+    <figcaption id="photo-lightbox-caption"></figcaption><a id="photo-lightbox-source" class="photo-lightbox-source" href="#" target="_blank" rel="noopener noreferrer"></a>
+  </figure>
+</div>
+
+<noscript><p class="noscript" data-i18n="noscript">placeintel 需要启用 JavaScript 才能工作。</p></noscript>
 </body>
 </html>

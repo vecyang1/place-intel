@@ -84,6 +84,8 @@ CREATE TABLE IF NOT EXISTS reports (
     report_json   TEXT NOT NULL,
     report_md     TEXT NOT NULL,
     review_count  INTEGER,
+    report_lang   TEXT,
+    evidence_lang TEXT,
     created_at    REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS searches (
@@ -100,6 +102,7 @@ CREATE TABLE IF NOT EXISTS qa (
     place_id      TEXT,
     answer        TEXT NOT NULL,
     model         TEXT,
+    answer_lang   TEXT,
     question_vec  BLOB,
     created_at    REAL NOT NULL
 );
@@ -195,6 +198,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         "ALTER TABLE searches ADD COLUMN plan_json TEXT",
         "ALTER TABLE searches ADD COLUMN verdicts_json TEXT",
         "ALTER TABLE review_translations ADD COLUMN provider TEXT",
+        "ALTER TABLE reports ADD COLUMN report_lang TEXT",
+        "ALTER TABLE reports ADD COLUMN evidence_lang TEXT",
+        "ALTER TABLE qa ADD COLUMN answer_lang TEXT",
     ):
         try:
             conn.execute(ddl)
@@ -508,12 +514,14 @@ def vector_search(
 def save_report(
     conn: sqlite3.Connection, place_id: str, profile: str, model: str,
     report_json: dict, report_md: str, review_count: int,
+    report_lang: str | None = None, evidence_lang: str | None = None,
 ) -> None:
     conn.execute(
         """INSERT INTO reports (place_id, profile, model, report_json, report_md,
-           review_count, created_at) VALUES (?,?,?,?,?,?,?)""",
+           review_count, report_lang, evidence_lang, created_at)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
         (place_id, profile, model, json.dumps(report_json, ensure_ascii=False),
-         report_md, review_count, time.time()),
+         report_md, review_count, report_lang, evidence_lang, time.time()),
     )
     conn.commit()
 
@@ -638,13 +646,21 @@ def get_job(conn: sqlite3.Connection, job_id: str) -> dict | None:
 
 
 def latest_report(conn: sqlite3.Connection, place_id: str,
-                  profile: str | None = None) -> sqlite3.Row | None:
+                  profile: str | None = None,
+                  report_lang: str | None = None) -> sqlite3.Row | None:
     """Most recent report for a place (optionally for one profile)."""
-    where = "AND profile=?" if profile else ""
-    params = (place_id, profile) if profile else (place_id,)
+    filters = []
+    params: list[object] = [place_id]
+    if profile:
+        filters.append("profile=?")
+        params.append(profile)
+    if report_lang:
+        filters.append("report_lang=?")
+        params.append(report_lang)
+    where = "AND " + " AND ".join(filters) if filters else ""
     return conn.execute(
         f"SELECT * FROM reports WHERE place_id=? {where} "
-        "ORDER BY created_at DESC LIMIT 1", params,
+        "ORDER BY created_at DESC LIMIT 1", tuple(params),
     ).fetchone()
 
 
@@ -918,25 +934,29 @@ def delete_place(conn: sqlite3.Connection, place_id: str) -> int:
 # -- QA cache: past reasoned answers double as a semantic answer source ----------
 
 def save_qa(conn: sqlite3.Connection, question: str, place_id: str | None,
-            answer: str, model: str, question_vec: np.ndarray | None) -> None:
+            answer: str, model: str, question_vec: np.ndarray | None,
+            answer_lang: str | None = None) -> None:
     blob = (np.asarray(question_vec, dtype=np.float32).tobytes()
             if question_vec is not None else None)
     conn.execute(
-        "INSERT INTO qa (question, place_id, answer, model, question_vec, created_at) "
-        "VALUES (?,?,?,?,?,?)",
-        (question, place_id, answer, model, blob, time.time()),
+        "INSERT INTO qa (question, place_id, answer, model, answer_lang, question_vec, created_at) "
+        "VALUES (?,?,?,?,?,?,?)",
+        (question, place_id, answer, model, answer_lang, blob, time.time()),
     )
     conn.commit()
 
 
 def find_cached_answer(
     conn: sqlite3.Connection, question: str, question_vec: np.ndarray,
-    place_id: str | None, min_score: float = 0.90,
+    place_id: str | None, min_score: float = 0.90, answer_lang: str | None = None,
 ) -> dict | None:
     """Semantic QA-cache lookup, scope-exact (one place vs global). An answer is
     only valid while NO new reviews arrived in its scope after it was written."""
     where = "WHERE place_id=?" if place_id else "WHERE place_id IS NULL"
-    params = (place_id,) if place_id else ()
+    params: tuple = (place_id,) if place_id else ()
+    if answer_lang:
+        where += " AND answer_lang=?"
+        params = (*params, answer_lang)
     rows = conn.execute(
         f"SELECT * FROM qa {where} ORDER BY created_at DESC LIMIT 200", params
     ).fetchall()
@@ -960,7 +980,7 @@ def find_cached_answer(
         return None
     return {"question": best["question"], "answer": best["answer"],
             "model": best["model"], "created_at": best["created_at"],
-            "score": best_score}
+            "answer_lang": best["answer_lang"], "score": best_score}
 
 
 def recent_qa(conn: sqlite3.Connection, place_id: str | None = None,
@@ -969,7 +989,7 @@ def recent_qa(conn: sqlite3.Connection, place_id: str | None = None,
     where = "WHERE place_id=?" if place_id else "WHERE place_id IS NULL"
     params: tuple = (place_id, limit) if place_id else (limit,)
     return conn.execute(
-        f"SELECT id, question, answer, place_id, created_at FROM qa {where} "
+        f"SELECT id, question, answer, place_id, answer_lang, created_at FROM qa {where} "
         "ORDER BY created_at DESC LIMIT ?", params,
     ).fetchall()
 
@@ -977,7 +997,7 @@ def recent_qa(conn: sqlite3.Connection, place_id: str | None = None,
 def recent_qa_all(conn: sqlite3.Connection, limit: int = 12) -> list[sqlite3.Row]:
     """Recent Q&A across scopes for display only; cache lookup remains exact-scope."""
     return conn.execute(
-        """SELECT qa.id, qa.question, qa.answer, qa.place_id, qa.created_at,
+        """SELECT qa.id, qa.question, qa.answer, qa.place_id, qa.answer_lang, qa.created_at,
                   p.name AS place_name
            FROM qa LEFT JOIN places p ON p.place_id = qa.place_id
            ORDER BY qa.created_at DESC LIMIT ?""",

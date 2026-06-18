@@ -143,12 +143,16 @@ def _load_settings() -> dict:
         return {}
 
 
-def save_setting(key: str, value: str) -> None:
+def save_settings(updates: dict[str, str]) -> None:
     ensure_dirs()
-    settings = {**_load_settings(), key: value}
+    settings = {**_load_settings(), **updates}
     tmp = SETTINGS_PATH.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(settings, ensure_ascii=False, indent=2))
     os.replace(tmp, SETTINGS_PATH)
+
+
+def save_setting(key: str, value: str) -> None:
+    save_settings({key: value})
 
 
 def reason_model() -> str:
@@ -167,6 +171,12 @@ def translation_model() -> str:
         or os.getenv("PLACEINTEL_TRANSLATION_MODEL")
         or DEFAULT_TRANSLATION_MODEL
     )
+
+
+def evidence_language() -> str:
+    """Quoted-evidence mode: user setting > env > report-language translation."""
+    value = (_load_settings().get("evidence_language") or EVIDENCE_LANG or "report").strip().lower()
+    return value if value in {"report", "original"} else "report"
 
 
 def list_reason_models() -> list[str]:

@@ -67,7 +67,7 @@ def _data_dir_check() -> tuple[str, dict]:
 def _static_web_check() -> tuple[str, dict]:
     web_dir = config.PROJECT_DIR / "web"
     files = {}
-    for name in ("index.html", "app.css", "app.js"):
+    for name in ("index.html", "app.css", "app.js", "i18n.js"):
         path = web_dir / name
         if not path.exists():
             raise RuntimeError(f"{name} missing")

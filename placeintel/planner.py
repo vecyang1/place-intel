@@ -24,7 +24,7 @@ from functools import lru_cache
 from google import genai
 from google.genai import types
 
-from . import cache, config, profiles
+from . import cache, config, language, profiles
 
 log = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ def _fallback_plan(user_text: str, near: str | None) -> dict:
         "queries": [user_text],
         "scrape_lang": "en",
         "profile": profiles.guess_profile(user_text),
-        "report_lang": "zh" if _CJK_RE.search(user_text) else "en",
+        "report_lang": language.detect_text_language(user_text) or "en",
         "relevance": user_text,
         "reasoning": "(AI 规划不可用，按原文搜索)",
         "ai": False,
@@ -139,7 +139,7 @@ rating/price wishes in them; those belong in "relevance"."""
             plan["profile"] = profiles.guess_profile(user_text)
         queries = [q for q in plan.get("queries") or [] if isinstance(q, str) and q.strip()]
         plan["queries"] = queries[:3] or [user_text]
-        plan["report_lang"] = plan.get("report_lang") or "zh"
+        plan["report_lang"] = language.normalize_language_tag(plan.get("report_lang")) or language.detect_text_language(user_text) or "en"
         plan["ai"] = True
         return plan
     except Exception as exc:  # noqa: BLE001 — planning must never block the pipeline
@@ -150,7 +150,7 @@ rating/price wishes in them; those belong in "relevance"."""
 # -- relevance filter ------------------------------------------------------------
 
 def filter_candidates(intent: str, relevance: str, places: list,
-                      report_lang: str = "zh") -> list[dict]:
+                      report_lang: str = "en") -> list[dict]:
     """Judge each candidate against the intent. Returns verdicts in input order:
     [{place_id, name, relevant, reason}]. Fail-open on any error."""
     if not places:
@@ -160,7 +160,7 @@ def filter_candidates(intent: str, relevance: str, places: list,
         f"★{p.rating or '?'} ({p.review_count or '?'} reviews) | {p.address or '?'}"
         for i, p in enumerate(places)
     )
-    lang_rule = "中文" if report_lang == "zh" else report_lang
+    lang_rule = language.language_instruction(report_lang)
     system = f"""You judge Google Maps search results for relevance to a user's intent.
 Be strict on CATEGORY (a motorbike rental is NOT relevant to a guitar rental query)
 but lenient on details — a music shop that likely rents guitars IS relevant even if

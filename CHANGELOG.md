@@ -1,83 +1,119 @@
 # Changelog — place-intel
 
-## v0.4.37 — 2026-06-19 — adversarial audit hardening (12 verified fixes)
-An adversarially-verified production audit (4 dimension reviewers, every finding
-re-checked by an independent skeptic against the source) surfaced 12 real defects.
-All fixed and verified; the riskiest were on the multi-client VPS lane.
+## v0.4.45 — 2026-06-19 — merge: source photos + language switch ⊕ production hardening
+Reconciles two lines that diverged at v0.4.34: the **source-photo galleries + lightbox**
+and the **UI/answer/report language switch** (entries v0.4.35→v0.4.44 below) with a
+**production-hardening line** that ran in parallel. Both are now in. The hardening is
+folded in here (its parallel v0.4.35–v0.4.37 entries were collapsed into this merge to
+avoid version collisions):
+- **Security:** SerpAPI API key no longer leaks via `requests` exception text into job
+  events / error fields (`config.redact_secrets`, applied at the SerpAPI raise sites and
+  the job-error sink); `discover.py` now catches `RequestException` around `raise_for_status`.
+- **Reliability:** `/api/jobs/{id}/events` is async + `is_disconnected()`-aware so abandoned
+  streams don't pin threadpool threads; `/api/searches`, `/api/reports`, `/api/reports/{id}`
+  and `pipeline.ask()` release their SQLite connection via `try/finally`; SQLite opens in
+  **WAL** with a 15s busy-timeout (kills "database is locked" under concurrency).
+- **Hidden-tab job streams:** Scout/Shop `EventSource` streams pause when their tab is
+  hidden and re-attach on return; both `streamJob` and `resumeJobStream` honor the pause
+  flag (a tab switch during the submit POST can neither leak a stream nor freeze the job),
+  guarded by two regression tests.
+- **Performance:** `/api/places` activity-risk is a single scoped scan over risk-eligible
+  places (no per-row N+1).
+- **Accessibility / UX (carried from the hardening line):** risk badges use a real
+  `--danger` token; WCAG AA contrast on accent buttons (dark ink on coral in dark mode);
+  the no-risk state gets a calm green `✓`; the dossier modal sets the background `inert`
+  and exposes `aria-live` regions for job progress, library/history status, and answers;
+  standalone tap targets meet the 24px minimum; mobile library filters pair into two columns;
+  API request models enforce Pydantic `Field` bounds at the trust boundary.
 
-Security / reliability (HIGH):
-- **SerpAPI key no longer leaks**: `requests` embeds the full URL (incl. `api_key=…`)
-  in its exception text, which flowed into job events / error fields and out over the
-  `/api/jobs/{id}` + SSE endpoints. A 401 from a wrong/expired key was enough. Added
-  `config.redact_secrets()` and applied it at the SerpAPI raise sites
-  (`reviews.py`, `discover.py`) and at the job-error sink. `discover.py` now also
-  catches `RequestException` around `raise_for_status()` (previously uncaught).
-- **SSE no longer pins a worker thread per stream**: `/api/jobs/{id}/events` was a sync
-  generator that looped for the whole job and never noticed a client disconnect, so a
-  few closed tabs could exhaust the threadpool and hang every endpoint. Rewritten as an
-  async stream that checks `request.is_disconnected()`, polls the DB off the event loop,
-  and is bounded by an absolute max so a wedged job can't loop forever.
-- **DB connections no longer leak**: `/api/searches`, `/api/reports`,
-  `/api/reports/{id}` opened a SQLite connection with no `try/finally` (the 404 branch
-  leaked too) — wrapped to release on every path.
-- **Tab-switch SSE leak (v0.4.36 regression) closed**: a tab switch *during* the
-  in-flight `startJob` POST set `paused` before any stream existed, then `streamJob`
-  opened one anyway because it never read `paused`. Both sides now honor the flag —
-  `streamJob` won't open a stream while paused, and `resumeJobStream` clears `paused`
-  on return even mid-POST (`job.id` still null), so a tab round-trip *during*
-  submission can neither leak a hidden-tab stream nor freeze the job (a second-pass
-  adversarial audit caught the freeze case). Two contract tests guard both sides.
+## v0.4.44 — 2026-06-16 — report-aware scout history
+- Past Scout rows now carry per-place `report_count` from `/api/searches`, so
+  places that already have generated reports can be visually emphasized in the
+  Scout history chips.
+- Dossiers without a report now show an in-modal "Generate report" action that
+  starts the existing single-shop job for that cached place instead of sending
+  the user to retype it in Shop manually.
+- Added backend and Playwright regressions for report-marked search history and
+  no-report dossier report generation.
 
-Accessibility (MEDIUM/LOW):
-- Dossier overlay now sets the background `.shell` `inert` while open, so screen-reader
-  virtual-cursor users can't read through the modal into the page behind it.
-- Live regions added to the job timeline/results, library/history status, and Ask
-  answer so progress, completion, errors, and answers are announced to screen readers.
-- `.review-translate` and `.btn-refresh` raised to the 24px WCAG 2.2 (2.5.8) tap-target
-  minimum the rest of the UI already meets.
+## v0.4.43 — 2026-06-16 — selected-language UI chrome
+- Chinese UI mode now renders app chrome in Chinese only instead of paired
+  Chinese/English glossary labels across tabs, Library filters, System,
+  dossiers, Ask evidence, Compare, translations, and source-photo controls.
+- English UI mode now keeps the same surfaces English-only, including dynamic
+  empty states, history labels, language-lens filters, and cached-answer notes.
+- Added Playwright regressions for both selected-language directions plus the
+  System panel so future UI copy changes do not reintroduce mixed-language
+  labels.
 
-Robustness / performance (MEDIUM):
-- `pipeline.ask()` (the Ask endpoint) wrapped in `try/finally` so a provider/network
-  error no longer leaks its DB connection.
-- SQLite now opens in **WAL** with a **15s busy-timeout** (was the 5s default, no WAL),
-  so overlapping scrape jobs and interactive writes stop hitting "database is locked".
-- `/api/places` no longer full-scans every review on each library load: the activity-risk
-  batch now scans only risk-eligible (popular) places via the `place_id` index. Output
-  is identical (verified: 109 places, 1 flagged, 0 mismatches vs the per-place path).
+## v0.4.42 — 2026-06-15 — eager photo gallery preload
+- Source-photo lightboxes now preload the rest of the active gallery as soon as
+  the viewer opens or a card thumbnail expands into the full place gallery, so
+  next/previous arrow navigation is warm before the user clicks.
+- Preloading is browser-memory only through URL-backed `Image()` objects. The
+  project still stores no image binaries and adds no photo cache to disk.
 
-## v0.4.36 — 2026-06-18 — live job streams pause on hidden tabs
-- **Released the tab-switch SSE leak**: a Scout/Shop job streaming over
-  `EventSource` kept its connection open after you navigated to another tab,
-  only closing when the job finished. `switchTab` now pauses a hidden tab's
-  live job — closing its `EventSource` (and clearing any poll timer) — and
-  resumes it on return, reopening the stream from `after=lastEventId` so the
-  server replays only missed events (no gaps, no duplicates). The poll-fallback
-  path is guarded by a `paused` flag so an in-flight poll can't re-arm a loop on
-  a backgrounded tab. Verified live: switching away closes the stream exactly
-  once and keeps the job alive; switching back re-attaches at the right offset.
+## v0.4.41 — 2026-06-15 — card photo gallery lazy expansion
+- Library and Compare card photo clicks now lazy-load the existing
+  `/api/places/{place_id}` photo metadata before building the lightbox gallery,
+  so a card thumbnail can browse the same multi-photo set as the dossier.
+- Kept the photo storage policy lightweight: the app still uses source URLs
+  only, downloads no image binaries, and falls back to the clicked thumbnail if
+  a detail-photo lookup fails.
 
-## v0.4.35 — 2026-06-18 — production hardening: risk visibility, a11y, input bounds
-- **Fixed dead risk styling**: the `--danger` CSS variable was referenced by the
-  activity-risk banner and risk badges but never defined, so every "可能已停业/低活跃"
-  warning rendered as plain colorless text. Risk warnings now show in red; the
-  "未发现低活跃风险" reassurance gets a calm green `✓` treatment instead of masquerading
-  as an alert.
-- **WCAG AA contrast**: near-white text on the light coral fill (primary button,
-  active command pill, ask button) was only 2.78:1 in dark mode. Flipped
-  `--on-accent` to dark ink in dark mode → 6.3:1. Lighthouse accessibility 96 → 100.
-- **WCAG 2.2 target size**: standalone tappable chips now meet the 24px minimum.
-- **Dossier drawer** now closes when switching nav tabs (was lingering over the new
-  view); focus returns safely even if the opening element was removed.
-- **Mobile Library filters** pair into two columns instead of stacking all eight
-  controls full-width, so the first result is reachable with far less scrolling.
-- **API input bounds**: Scout/Shop/Ask/Settings/Favorite request models now enforce
-  length and numeric limits (`top` ≤ 8, `max_reviews` ≤ 5000, bounded query/text) at
-  the trust boundary — the front-end already clamped, but the API is the real edge.
-- **/api/places performance**: replaced the per-place activity-risk N+1 (3 queries ×
-  every place) with a single batch review-date scan, and capped the library query.
-- **Robustness**: SerpAPI non-JSON responses now raise a clear error instead of a raw
-  `JSONDecodeError`; empty LLM report responses raise an actionable message instead of
-  an `AttributeError`; web fetches now time out instead of hanging forever.
+## v0.4.40 — 2026-06-15 — language adaptation
+- Added a shared language owner for safe BCP-47-like output tags, UI defaults,
+  translation targets, and language-settings validation.
+- Ask, Scout, Shop, reports, CLI JSON, `/api/config`, and review translation no
+  longer force Chinese defaults. Ask cache entries are now language-specific, and
+  reports store `report_lang` plus `evidence_lang`.
+- Added `web/i18n.js` as the no-build locale catalog for English/Chinese UI
+  chrome, browser-language detection, `Intl` formatting, and request language
+  hints.
+- Added Settings/System controls for UI language, Ask/report output language,
+  review translation target, and optional app-wide defaults through
+  `/api/settings/language`.
+
+## v0.4.39 — 2026-06-15 — source URL photo gallery extension
+- The source-photo lightbox now quotes the exact original image URL in the
+  viewer, with an explicit clickable source link for user inspection.
+- Dossier source-photo strips now render up to 12 URL-only images, keeping the
+  no-binary-cache storage policy while making richer Google/source photo sets
+  browsable with the existing arrows and keyboard navigation.
+
+## v0.4.38 — 2026-06-15 — scrollable photo gallery lightbox
+- Added previous/next controls and keyboard ArrowLeft/ArrowRight navigation to
+  the source-photo lightbox so multi-photo Google/source sets can be reviewed
+  without closing the dossier.
+- Added mouse/trackpad wheel zoom inside the lightbox. Zoom now grows a real
+  scrollable canvas instead of transform-scaling an unscrollable image.
+- Kept the URL-only photo policy: the gallery uses existing source URLs and
+  still does not download or store image binaries.
+
+## v0.4.37 — 2026-06-15 — darker zoomable photo lightbox
+- Darkened and polished the source-photo lightbox so clicked Google/source
+  photos read as an intentional in-app viewer instead of a loose overlay.
+- Added in-lightbox zoom controls with visible 100%/125% state, reset support,
+  keyboard +/- zoom, and focus trapping across the photo controls.
+- Preserved the URL-only photo policy: no image binaries are downloaded, cached,
+  or added to the backup surface.
+
+## v0.4.36 — 2026-06-15 — aligned photo cards and lightbox
+- Library cards no longer promote the first results into wider featured tiles;
+  cached shop cards now keep comparable widths and align cleanly across the grid.
+- Source/review photo tiles now open an in-app lightbox instead of launching a
+  new browser tab. Escape closes the image viewer and returns to the dossier.
+- Cards without source photos get a fixed placeholder slot, keeping Library and
+  Compare layouts stable while still avoiding any image binary cache.
+
+## v0.4.35 — 2026-06-15 — source photos and navigation clarity
+- Added a URL-only photo resolver for cached places, exposing bounded
+  `thumbnail` and `photos[]` metadata without downloading image binaries or
+  changing backup scope.
+- Library cards, dossiers, and Compare cards now render lazy source/review
+  photos with stable fallback tiles and safe source links.
+- Aligned the top tabs into equal tracks and clarified Scout/Shop/Library/Ask
+  labels so Ask reads as cached-evidence Q&A, not a new Google Maps search.
 
 ## v0.4.34 — 2026-06-15 — agent CLI global hardening
 - Added root-level agent options before subcommands:

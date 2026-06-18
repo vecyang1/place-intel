@@ -249,13 +249,35 @@ class CliJsonContractTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(stderr, "")
         ask.assert_called_once_with(
-            "Which shop?", place_id="place-1", top_k=20, report_lang="zh", no_cache=True,
+            "Which shop?", place_id="place-1", top_k=20, report_lang=None, no_cache=True,
         )
         payload = json.loads(stdout)
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["command"], "ask")
         self.assertEqual(payload["data"], {**answer, "place_id": "place-1"})
         self.assertEqual(payload["data"]["place_id"], "place-1")
+
+    def test_ask_report_language_flag_still_overrides_default(self) -> None:
+        answer = {
+            "answer": "Réponse",
+            "cached": False,
+            "created_at": 100.0,
+            "model": "test-model",
+            "provider": "VectorEngine",
+            "report_lang": "fr",
+            "evidence": [],
+        }
+        with mock.patch("placeintel.pipeline.ask", return_value=answer) as ask:
+            code, stdout, stderr = self._run_cli([
+                "ask", "Which shop?", "--report-lang", "fr", "--format", "json",
+            ])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        ask.assert_called_once_with(
+            "Which shop?", place_id=None, top_k=20, report_lang="fr", no_cache=False,
+        )
+        self.assertEqual(json.loads(stdout)["data"]["report_lang"], "fr")
 
     def test_ask_format_json_empty_cache_exits_with_machine_error(self) -> None:
         answer = {

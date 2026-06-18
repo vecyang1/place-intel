@@ -85,6 +85,61 @@ class ReviewTranslationTest(unittest.TestCase):
         self.assertEqual(first["provider"], "test-provider")
         self.assertEqual(second["provider"], "test-provider")
 
+    def test_translate_review_accepts_non_zh_en_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(config, "DB_PATH", Path(tmp) / "placeintel.db"):
+                conn = cache.connect()
+                cache.upsert_place(conn, cache.Place(place_id="place-1", name="View Point"))
+                cache.upsert_reviews(conn, [
+                    cache.Review(
+                        review_id="review-en-1",
+                        place_id="place-1",
+                        rating=5,
+                        text="Helpful owner and transparent prices.",
+                        lang="en",
+                    )
+                ])
+                conn.close()
+
+                client = _TranslateClient()
+                provider = {
+                    "reason": {"model": "expensive-model", "provider": "test-provider"},
+                    "translate": {"model": "gemini-3.1-flash-lite", "provider": "test-provider"},
+                    "embed": {"model": "embed-test", "provider": "test-provider"},
+                }
+                with mock.patch.object(analyze, "_client", return_value=client), \
+                        mock.patch.object(config, "provider_info", return_value=provider):
+                    vi = pipeline.translate_review("review-en-1", "vi")
+                    fr = pipeline.translate_review("review-en-1", "fr-FR")
+
+        self.assertEqual(client.models.calls, 2)
+        self.assertEqual(vi["target_lang"], "vi")
+        self.assertEqual(fr["target_lang"], "fr-FR")
+        self.assertEqual(vi["source_lang"], "en")
+
+    def test_translate_review_rejects_unsafe_target_without_provider_call(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(config, "DB_PATH", Path(tmp) / "placeintel.db"):
+                conn = cache.connect()
+                cache.upsert_place(conn, cache.Place(place_id="place-1", name="View Point"))
+                cache.upsert_reviews(conn, [
+                    cache.Review(
+                        review_id="review-en-1",
+                        place_id="place-1",
+                        rating=5,
+                        text="Helpful owner and transparent prices.",
+                        lang="en",
+                    )
+                ])
+                conn.close()
+
+                client = _TranslateClient()
+                with mock.patch.object(analyze, "_client", return_value=client):
+                    with self.assertRaises(ValueError):
+                        pipeline.translate_review("review-en-1", "../zh")
+
+        self.assertEqual(client.models.calls, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

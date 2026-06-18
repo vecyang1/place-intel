@@ -257,11 +257,13 @@ CORE_SCHEMAS = {
     },
     "ask_result": {
         "type": "object",
-        "required": ["answer", "cached", "created_at", "model", "provider", "evidence"],
+        "required": ["answer", "cached", "created_at", "model", "provider", "evidence", "report_lang"],
         "properties": {
             "cache_scope": {"type": "object"},
             "evidence_fresh_after": {"type": ["number", "null"]},
             "evidence": {"type": "array", "items": {"type": "object", "required": ["type"]}},
+            "report_lang": {"type": "string"},
+            "language_source": {"type": "string"},
         },
     },
     "backup_manifest": {
@@ -460,6 +462,8 @@ def _cmd_report(args: argparse.Namespace) -> int:
             "place_id": row["place_id"],
             "profile": row["profile"],
             "model": row["model"],
+            "report_lang": row["report_lang"],
+            "evidence_lang": row["evidence_lang"],
             "json": json.loads(row["report_json"]),
             "md": row["report_md"],
             "review_count": row["review_count"],
@@ -862,7 +866,7 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("question")
     a.add_argument("--place", help="restrict to one place_id")
     a.add_argument("--top-k", type=int, default=20)
-    a.add_argument("--report-lang", default="zh")
+    a.add_argument("--report-lang", default=None)
     a.add_argument("--fresh", action="store_true",
                    help="skip the QA answer cache, always re-reason")
     _add_format_arg(a)
@@ -871,7 +875,7 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("report", help="(re)generate a report from cached reviews")
     r.add_argument("place_id")
     r.add_argument("--profile", default=None)
-    r.add_argument("--report-lang", default="zh")
+    r.add_argument("--report-lang", default=None)
     r.add_argument("--evidence-lang", choices=["report", "original"], default=None,
                    help="quoted evidence: translated into report language (default) "
                         "or kept verbatim; global default via PLACEINTEL_EVIDENCE_LANG")
