@@ -54,11 +54,15 @@ class ServerContractTest(unittest.TestCase):
             "translate": {"model": "translate-model", "provider": "VectorEngine"},
             "embed": {"model": "embed-model", "provider": "Google 官方"},
         }
-        with mock.patch.object(server.config, "provider_info", return_value=info), \
+        # Isolate SETTINGS_PATH so the contract asserts pristine defaults, not
+        # whatever language prefs a developer persisted by using the app locally.
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(server.config, "provider_info", return_value=info), \
                 mock.patch.object(server.config, "reason_model", return_value="reason-model"), \
                 mock.patch.object(server.config, "translation_model", return_value="translate-model"), \
                 mock.patch.object(server.config, "EVIDENCE_LANG", "original"), \
                 mock.patch.object(server.config, "PLACE_TTL_DAYS", 9), \
+                mock.patch.object(server.config, "SETTINGS_PATH", Path(tmp) / "settings.json"), \
                 mock.patch.object(server.config, "DATA_DIR", Path("/private/user/data")):
             response = TestClient(server.app).get("/api/config")
 
