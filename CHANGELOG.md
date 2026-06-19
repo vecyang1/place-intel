@@ -1,5 +1,24 @@
 # Changelog — place-intel
 
+## v0.4.49 — 2026-06-19 — inline report generation: no more silent "jumps back to nothing"
+Fixes a real-user report: generating a report inside the dossier would stream a few steps,
+then quit and revert to the empty "no report yet" state with no explanation. Root cause was
+two stacked bugs, confirmed from the user's actual failed job (The Marble Mountains — a
+41,233-review place):
+- **Partial review scrapes were thrown away (backend, `reviews.py`).** The SerpAPI fallback
+  paginates ~20 reviews/page. When a *later* page timed out, the exception propagated and
+  **discarded the reviews already collected** — so analyze saw "no cached reviews" and produced
+  nothing. `_fetch_via_serpapi` now salvages what it has: a later-page failure keeps the
+  earlier pages (a report on the newest 20 beats an empty dossier); only a first-page failure
+  (nothing collected) still raises. New `tests/test_review_salvage.py`.
+- **A 0-report job silently reverted the dossier (frontend, `dossier.js`).** A job can finish
+  `status='done'` yet produce no report. `pollFinal` treated any non-error terminal status as
+  success and called `openDetail()`, which **wiped the live timeline back to the pristine empty
+  state**, swallowing the warnings the user had just watched stream by. It now only refreshes
+  in place when a report actually exists; otherwise it shows an honest "未生成报告 / no report"
+  box with the failure reasons and a **retry** button (the retry re-uses the cache). New
+  `.report-fail` style.
+
 ## v0.4.48 — 2026-06-19 — dossier UX: photo opens the dossier, reports generate in place, sharper photos
 Three real-user UX fixes on the web app, all front-end (no API/contract change). New module
 `web/dossier.js` (loaded before `app.js`; keeps `app.js` under its 780-line budget).

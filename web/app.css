@@ -679,6 +679,7 @@ textarea.query-input { min-height: 6em; }
   font-weight: 700;
   margin-bottom: 0.25rem;
 }
+.report-fail button { margin-top: 0.7rem; }
 .empty {
   border: 1.5px dashed var(--line); border-radius: var(--radius);
   padding: 2.2rem 1.4rem; text-align: center; font-family: var(--mono);

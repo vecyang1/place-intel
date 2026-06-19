@@ -265,7 +265,19 @@ def _fetch_via_serpapi(place: Place, max_reviews: int | None) -> list[Review]:
     }
     collected: list[Review] = []
     for page in range(1, max_pages + 1):
-        payload = _serpapi_get(params, page)
+        try:
+            payload = _serpapi_get(params, page)
+        except RuntimeError:
+            # A later page timing out must not void reviews already in hand — a report
+            # on the newest 20 beats reverting the user to an empty dossier. Only a
+            # first-page failure (nothing collected) has nothing to salvage, so re-raise.
+            if collected:
+                logger.warning(
+                    "SerpAPI page %d failed — salvaging %d reviews already collected for %s",
+                    page, len(collected), place.place_id,
+                )
+                break
+            raise
         batch = payload.get("reviews") or []
         collected = collected + [_serp_item_to_review(item, place.place_id) for item in batch]
         logger.debug("SerpAPI page %d: %d reviews (total %d)", page, len(batch), len(collected))

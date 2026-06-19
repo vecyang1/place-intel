@@ -15,6 +15,22 @@ function hiRes(url, width) {
 
 const DOSSIER_POLL_MS = 2000, DOSSIER_MAX_FAILS = 5;
 
+// A job can finish (status 'done') yet produce no report — e.g. the review scrape
+// timed out so there was nothing to analyze. Surface that honestly inside the slot
+// (keeping the timeline above it) with a retry that re-uses the cache, instead of
+// silently reverting the dossier to its pristine "no report yet" state.
+function reportFailHtml(placeId, name, address, errors) {
+  const why = (errors || []).map((e) => `<li>${esc(e)}</li>`).join('');
+  return `<div class="error-box report-fail">`
+    + `<span class="error-label">${ui('未生成报告', 'no report')}</span>`
+    + `<p>${ui('抓取或分析中途失败，这次没有生成报告。多半是评价抓取超时——直接重试，已完成的步骤会命中缓存。',
+        'Generation failed partway, so no report was produced — usually a review-scrape timeout. Just retry; completed steps hit the cache.')}</p>`
+    + (why ? `<details class="result-errors" open><summary>${ui('原因', 'Why')}</summary><ul>${why}</ul></details>` : '')
+    + `<button type="button" class="btn-ghost" data-generate-report="${esc(placeId)}"`
+    + ` data-place-name="${esc(name || '')}" data-place-address="${esc(address || '')}">${ui('重试生成', 'Retry')} →</button>`
+    + `</div>`;
+}
+
 // Generate a report without leaving the dossier: stream live progress into the report slot,
 // then refresh the dossier in place. Mirrors streamJob/pollJob but scoped to one inline slot.
 async function generateReportInline(btn) {
@@ -64,10 +80,19 @@ async function generateReportInline(btn) {
     if (job.es) { try { job.es.close(); } catch (e) { /* noop */ } job.es = null; }
     if (data.status === 'error') { if (alive()) results.innerHTML = errorHtml(`${ui('任务失败', 'Job failed')}：${data.error || ui('未知错误', 'unknown error')}`); stop(); return; }
     if (data.status === 'interrupted') { if (alive()) results.innerHTML = errorHtml(`${ui('任务中断', 'Job interrupted')}：${data.retry_hint || data.error || ''}`); stop(); return; }
+    // Terminal status, but the pipeline may have produced 0 reports (scrape timed out →
+    // nothing to analyze). Only refresh-in-place when a report actually exists; otherwise
+    // show why it failed and offer a retry — never silently wipe back to the empty state.
+    const reports = (data.result && data.result.reports) || [];
+    const saved = reports.find((r) => r.place_id === placeId) || reports[0] || null;
     const wasAlive = alive();
     stop();
-    if (wasAlive) openDetail(placeId);              // refresh the dossier so the new report shows in place
-    if (state.libraryLoaded) loadLibrary();         // keep the library card's report badge fresh
+    if (saved) {
+      if (wasAlive) openDetail(saved.place_id);     // report produced → show it in place
+      if (state.libraryLoaded) loadLibrary();       // keep the library card's report badge fresh
+    } else if (wasAlive) {
+      results.innerHTML = reportFailHtml(placeId, target, near, (data.result && data.result.errors) || []);
+    }
   };
 
   const startStream = () => {
