@@ -1,5 +1,16 @@
 # Changelog — place-intel
 
+## v0.4.51 — 2026-06-19 — dossier: jump to the spot on Google Maps from the top
+Adds a prominent "📍 在 Google 地图打开 / Open in Google Maps ↗" action to the top of the
+dossier header (on the freshness row, beside *Remove from cache*), so you can jump straight to
+the place on Google Maps. Previously the only Maps link was buried at the very bottom of the
+dossier inside the facts `<dl>` ("地图 / Map") — easy to miss. That redundant fact row is
+removed; the link now lives where you see it first. `renderDetail` also gains a fallback: if a
+cached place has no stored `maps_url`, it builds a `google.com/maps/search` URL from the name +
+address, so the jump always works. The link opens in a new tab with `rel="noopener noreferrer"`
+and reuses the proven `--accent`/`--on-accent` button pairing (`.detail-map-link`). Localized
+via `ui()`; `app.css` stays within its 800-line budget.
+
 ## v0.4.50 — 2026-06-19 — finish the language switch: result/library/dossier strings localize
 Completes the bilingual UI: the remaining hardcoded Chinese in the dynamic render layer now
 goes through the `ui('中文','English')` helper, so the EN/ZH switch covers the whole app, not

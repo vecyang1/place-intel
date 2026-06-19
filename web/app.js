@@ -242,13 +242,13 @@ function renderDetail(data) {
   const site = safeUrl(p.website);
   addFact(ui('网站', 'Website'), site && `<a href="${esc(site)}" target="_blank" rel="noopener noreferrer">${esc(site)}</a>`);
   addFact(ui('营业时间', 'Hours'), renderHours(p.hours_json));
-  const maps = safeUrl(p.maps_url);
-  addFact(ui('地图', 'Map'), maps && `<a href="${esc(maps)}" target="_blank" rel="noopener noreferrer">Google Maps ↗</a>`);
+  const maps = safeUrl(p.maps_url) || (p.name ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([p.name, p.address].filter(Boolean).join(' '))}` : null);
   return `<header class="detail-shop">
     <p class="detail-kicker">${esc(p.category || ui('店铺', 'Shop'))} · ${esc(stars(p.rating))} · ${fmtInt(p.review_count)} ${ui('条在列', 'listed')}</p>
     <h2 class="detail-name">${esc(p.name || ui('未命名', 'Unnamed'))}</h2>
     ${p.activity_risk ? `<p class="activity-risk">${esc(p.activity_risk.label)} · ${esc(p.activity_risk.reason)}</p>` : ''}
     <p class="detail-fresh">${ui('已缓存', 'Cached')} ${reviews.length} ${ui('条评价', 'reviews')} · ${ui('更新于', 'Updated')} ${esc(relTime(p.last_refreshed))}
+      ${maps ? `<a class="detail-map-link" href="${esc(maps)}" target="_blank" rel="noopener noreferrer">📍 ${ui('在 Google 地图打开', 'Open in Google Maps')} ↗</a>` : ''}
       <button type="button" class="btn-ghost btn-danger" data-delete-place="${esc(p.place_id)}" data-place-name="${esc(p.name || '')}">${ui('从缓存移除', 'Remove from cache')} ✕</button>
     </p>
   </header>
