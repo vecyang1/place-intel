@@ -83,7 +83,7 @@ function renderPlanCard(plan) {
   if (!plan) return '';
   const queries = (plan.queries || []).map((q) => `<span class="chip">${esc(q)}</span>`).join('');
   const metaBits = [plan.near ? `near · ${esc(plan.near)}` : '', plan.profile ? `profile · ${esc(plan.profile)}` : '', plan.report_lang ? `lang · ${esc(plan.report_lang)}` : ''].filter(Boolean).join('<span class="sep">/</span>');
-  return `<div class="plan-card"><div class="plan-label">AI 的计划 · the plan</div>${plan.reasoning ? `<p class="plan-reasoning">${esc(plan.reasoning)}</p>` : ''}${plan.intent ? `<p class="plan-intent">意图 — ${esc(plan.intent)}</p>` : ''}${queries ? `<div class="plan-queries"><span class="plan-q-label">实际执行的搜索</span>${queries}</div>` : ''}${metaBits ? `<p class="plan-meta">${metaBits}</p>` : ''}</div>`;
+  return `<div class="plan-card"><div class="plan-label">${ui('AI 的计划 · the plan', 'The plan')}</div>${plan.reasoning ? `<p class="plan-reasoning">${esc(plan.reasoning)}</p>` : ''}${plan.intent ? `<p class="plan-intent">${ui('意图', 'Intent')} — ${esc(plan.intent)}</p>` : ''}${queries ? `<div class="plan-queries"><span class="plan-q-label">${ui('实际执行的搜索', 'Searches run')}</span>${queries}</div>` : ''}${metaBits ? `<p class="plan-meta">${metaBits}</p>` : ''}</div>`;
 }
 function renderVerdicts(verdicts) {
   if (!Array.isArray(verdicts) || !verdicts.length) return '';
@@ -112,44 +112,44 @@ function renderReportArticle(rep) {
   </article>`;
 }
 function renderResult(result) {
-  if (!result) return emptyHtml('任务完成但没有返回结果。');
+  if (!result) return emptyHtml(ui('任务完成但没有返回结果。', 'The job finished but returned no results.'));
   const places = result.places || [];
   const reports = result.reports || [];
   const errors = result.errors || [];
   const deepIds = new Set(reports.map((r) => r.place_id));
   const cut = (result.filtered || []).filter((v) => !v.relevant);
   const parts = [];
-  parts.push(`<p class="result-summary">找到 <strong>${places.length}</strong> 家 · 深挖 <strong>${reports.length}</strong> 份报告${
-    errors.length ? ` · <span class="warn">${errors.length} 个警告</span>` : ''}</p>`);
+  parts.push(`<p class="result-summary">${ui('找到', 'Found')} <strong>${places.length}</strong> ${ui('家 · 深挖', 'shops ·')} <strong>${reports.length}</strong> ${ui('份报告', 'reports')}${
+    errors.length ? ` · <span class="warn">${errors.length} ${ui('个警告', 'warnings')}</span>` : ''}</p>`);
   if (result.plan) parts.push(renderPlanCard(result.plan));
   if (places.length) {
     parts.push(compareTrayHtml());
     parts.push(`<div class="place-list">${places.map((p) => `<div class="place-pick"><button type="button" class="place-row${deepIds.has(p.place_id) ? ' is-deep' : ''}" data-open-place="${esc(p.place_id)}">
       <span class="place-rating">${esc(stars(p.rating))}</span>
       <span class="place-name">${esc(p.name)}</span>
-      <span class="place-count">${fmtInt(p.review_count)} 评价${deepIds.has(p.place_id) ? ' · 已深挖' : ''}</span>
+      <span class="place-count">${fmtInt(p.review_count)} ${ui('评价', 'reviews')}${deepIds.has(p.place_id) ? ` · ${ui('已深挖', 'deep-dived')}` : ''}</span>
       ${p.address ? `<span class="place-addr">${esc(p.address)}</span>` : ''}
-    </button><button type="button" class="btn-ghost compare-pick" data-compare-place="${esc(p.place_id)}" data-place-name="${esc(p.name)}" data-place-rating="${esc(p.rating ?? '')}" data-review-count="${esc(p.review_count ?? '')}" data-place-address="${esc(p.address || '')}" data-cached-reviews="${esc(p.cached_reviews ?? '')}" aria-pressed="false">加入对比</button></div>`).join('')}</div>`);
+    </button><button type="button" class="btn-ghost compare-pick" data-compare-place="${esc(p.place_id)}" data-place-name="${esc(p.name)}" data-place-rating="${esc(p.rating ?? '')}" data-review-count="${esc(p.review_count ?? '')}" data-place-address="${esc(p.address || '')}" data-cached-reviews="${esc(p.cached_reviews ?? '')}" aria-pressed="false">${ui('加入对比', 'Compare')}</button></div>`).join('')}</div>`);
   } else {
-    parts.push(emptyHtml('一家都没找到 — 换个说法，或在「在哪里」里写明城市。'));
+    parts.push(emptyHtml(ui('一家都没找到 — 换个说法，或在「在哪里」里写明城市。', 'No shops found — try rephrasing, or name the city in "Where".')));
   }
   if (cut.length) {
-    parts.push(`<details class="result-cut"><summary>AI 排除了 ${cut.length} 家（为什么）</summary>${renderVerdicts(result.filtered)}</details>`);
+    parts.push(`<details class="result-cut"><summary>${ui(`AI 排除了 ${cut.length} 家（为什么）`, `AI excluded ${cut.length} shops (why)`)}</summary>${renderVerdicts(result.filtered)}</details>`);
   }
   parts.push(reports.map(renderReportArticle).join(''));
   if (errors.length) {
-    parts.push(`<details class="result-errors" open><summary>警告 ${errors.length}</summary><ul>${
+    parts.push(`<details class="result-errors" open><summary>${ui('警告', 'Warnings')} ${errors.length}</summary><ul>${
       errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></details>`);
   }
   return parts.join('');
 }
 function photoSourcesHtml(photos, variant = 'strip', placeId = '') { const limit = variant === 'strip' ? 12 : 1, big = variant === 'card' || variant === 'compare', opensDossier = Boolean(big && placeId), xs = (Array.isArray(photos) ? photos : photos ? [photos] : []).filter((p) => safeUrl(p?.url || p?.thumb_url)).slice(0, limit); if (!xs.length) return variant === 'strip' ? '' : `<div class="photo-strip photo-${esc(variant)}"><span class="source-photo is-empty"><span class="photo-label">${ui('没有来源图片', 'no source photo')}</span></span></div>`; return `<div class="photo-strip photo-${esc(variant)}">${xs.map((p) => { const url = safeUrl(p.url) || safeUrl(p.thumb_url), src = safeUrl(p.thumb_url) || url, label = p.kind === 'review' ? ui('评价图片', 'review photo') : ui('来源图片', 'source photo'), meta = [label, p.source, p.author, p.date].filter(Boolean).join(' · '), imgSrc = big ? hiRes(src, 800) : src, trigger = opensDossier ? `data-open-place="${esc(placeId)}" aria-label="${esc(ui('打开档案', 'Open dossier'))}"` : `data-photo-url="${esc(url)}" data-photo-src="${esc(src)}" data-photo-caption="${esc(meta)}" aria-label="${esc(`${ui('打开', 'Open')} ${meta}`)}"`; return `<button type="button" class="source-photo${opensDossier ? ' opens-dossier' : ''}" ${trigger}><img class="source-photo-img" src="${esc(imgSrc)}" alt="${esc(meta)}" loading="lazy" decoding="async" onerror="this.closest('.source-photo')?.classList.add('is-broken')"><span class="photo-label">${esc(label)}</span></button>`; }).join('')}</div>`; }
 function renderShopCard(p, featured) {
-  const rep = reportKey(p), picked = state.libraryCompare.includes(p.place_id), latest = p.latest_report_at ? `最近报告 ${relTime(p.latest_report_at)}${rep ? ` · ${rep}` : ''}` : '';
-  return `<article class="shop-card${featured ? ' is-featured' : ''}">${photoSourcesHtml(p.thumbnail, 'card', p.place_id)}<div class="shop-card-top"><span class="shop-rating">${esc(stars(p.rating))}</span>${p.activity_risk ? `<span class="badge badge-risk">${esc(p.activity_risk.severity === 'high' ? '低活跃风险' : '近期偏静')}</span>` : ''}${p.report_count ? `<span class="badge">报告 ×${fmtInt(p.report_count)}</span>` : ''}</div>
-    <h3 class="shop-name">${esc(p.name)}</h3>${p.category ? `<p class="shop-cat">${esc(p.category)}</p>` : ''}<p class="shop-stats"><span>${fmtInt(p.review_count)} 条在列</span><span>${fmtInt(p.cached_reviews)} 条已缓存</span></p>${p.address ? `<p class="shop-addr">${esc(p.address)}</p>` : ''}
-    <p class="shop-fresh">更新于 ${esc(relTime(p.last_refreshed))}</p>${latest ? `<p class="shop-fresh">${esc(latest)}</p>` : ''}
-    <div><button type="button" class="btn-ghost" data-favorite-place="${esc(p.place_id)}" aria-pressed="${p.favorite ? 'true' : 'false'}">${p.favorite ? '已收藏' : '收藏'}</button> <button type="button" class="btn-ghost" data-library-compare="${esc(p.place_id)}" aria-pressed="${picked ? 'true' : 'false'}">${picked ? '已对比' : '对比'}</button> <button type="button" class="btn-ghost" data-open-place="${esc(p.place_id)}">打开档案</button></div></article>`;
+  const rep = reportKey(p), picked = state.libraryCompare.includes(p.place_id), latest = p.latest_report_at ? `${ui('最近报告', 'Latest report')} ${relTime(p.latest_report_at)}${rep ? ` · ${rep}` : ''}` : '';
+  return `<article class="shop-card${featured ? ' is-featured' : ''}">${photoSourcesHtml(p.thumbnail, 'card', p.place_id)}<div class="shop-card-top"><span class="shop-rating">${esc(stars(p.rating))}</span>${p.activity_risk ? `<span class="badge badge-risk">${esc(p.activity_risk.severity === 'high' ? ui('低活跃风险', 'Low activity') : ui('近期偏静', 'Recently quiet'))}</span>` : ''}${p.report_count ? `<span class="badge">${ui('报告', 'Reports')} ×${fmtInt(p.report_count)}</span>` : ''}</div>
+    <h3 class="shop-name">${esc(p.name)}</h3>${p.category ? `<p class="shop-cat">${esc(p.category)}</p>` : ''}<p class="shop-stats"><span>${fmtInt(p.review_count)} ${ui('条在列', 'listed')}</span><span>${fmtInt(p.cached_reviews)} ${ui('条已缓存', 'cached')}</span></p>${p.address ? `<p class="shop-addr">${esc(p.address)}</p>` : ''}
+    <p class="shop-fresh">${ui('更新于', 'Updated')} ${esc(relTime(p.last_refreshed))}</p>${latest ? `<p class="shop-fresh">${esc(latest)}</p>` : ''}
+    <div><button type="button" class="btn-ghost" data-favorite-place="${esc(p.place_id)}" aria-pressed="${p.favorite ? 'true' : 'false'}">${p.favorite ? ui('已收藏', 'Saved') : ui('收藏', 'Save')}</button> <button type="button" class="btn-ghost" data-library-compare="${esc(p.place_id)}" aria-pressed="${picked ? 'true' : 'false'}">${picked ? ui('已对比', 'Comparing') : ui('对比', 'Compare')}</button> <button type="button" class="btn-ghost" data-open-place="${esc(p.place_id)}">${ui('打开档案', 'Open dossier')}</button></div></article>`;
 }
 function placeScore(p) { const age = Math.max(0, Date.now() / 1000 - (p.last_refreshed || 0)); return (p.report_count || 0) * 650 + (p.cached_reviews || 0) * 2 + (p.review_count || 0) * 0.02 + (Number(p.rating) || 0) * 25 + Math.max(0, 80 - age / 3600) - (p.activity_risk ? 80 : 0); }
 const filterVal = (id) => $(`#${id}`)?.value || '', reportKey = (p) => String(p.latest_report_profile || p.report_profile || '').trim(), isStale = (p) => Boolean(p.activity_risk) || Date.now() / 1000 - (p.last_refreshed || 0) > 14 * 86400;
@@ -163,13 +163,13 @@ function compareThemes(reviews) { const m = new Map(); (reviews || []).filter((r
 function compareCardHtml(p) { const d = state.compareDetails[p.place_id] || {}, place = d.place || p, reviews = d.reviews || [], rep = d.report || null, j = repJson(rep), risk = place.activity_risk || p.activity_risk, facts = [place.category, place.address, place.phone].filter(Boolean).join(' · ') || ui('未知', 'unknown'), cached = p.cached_reviews ?? reviews.length, advice = (j.walk_in_brief || []).slice(0, 2), pic = place.thumbnail || p.thumbnail || (d.photos || [])[0]; return `<article class="shop-card compare-place-card">${photoSourcesHtml(pic, 'compare', p.place_id)}<div class="shop-card-top"><span class="shop-rating">${esc(stars(place.rating || p.rating))}</span>${risk ? `<span class="badge badge-risk">${esc(risk.label || ui('风险', 'risk'))}</span>` : `<span class="badge">${ui('缓存', 'cache')}</span>`}</div><h3 class="shop-name">${esc(place.name || p.name)}</h3><p class="shop-cat">${fmtInt(place.review_count ?? p.review_count)} ${ui('条在列', 'listed')} · ${fmtInt(cached)} ${ui('条已缓存', 'cached')}</p><dl class="facts"><div class="fact"><dt class="compare-label" style="position:sticky;top:0;background:var(--paper);z-index:1">${ui('事实', 'Facts')}</dt><dd>${esc(facts)}</dd></div><div class="fact"><dt class="compare-label" style="position:sticky;top:0;background:var(--paper);z-index:1">${ui('新鲜度', 'Fresh')}</dt><dd>${esc(`${ui('抓取', 'scrape')} ${relTime(place.last_refreshed || p.last_refreshed)} · ${ui('报告', 'report')} ${rep?.created_at ? relTime(rep.created_at) : relTime(p.latest_report_at)} · ${rep?.profile || reportKey(p) || ui('无报告', 'no report')}`)}</dd></div><div class="fact"><dt class="compare-label" style="position:sticky;top:0;background:var(--paper);z-index:1">${ui('结论', 'Verdict')}</dt><dd>${esc(j.verdict || ui('未知', 'unknown'))}</dd></div><div class="fact"><dt class="compare-label" style="position:sticky;top:0;background:var(--paper);z-index:1">${ui('风险', 'Risk')}</dt><dd>${esc(risk ? `${risk.label || ''} ${risk.reason || ''}`.trim() : ui('未标记', 'none flagged'))}</dd></div><div class="fact"><dt class="compare-label" style="position:sticky;top:0;background:var(--paper);z-index:1">${ui('语言', 'Language')}</dt><dd>${compareLangs(reviews)}</dd></div><div class="fact"><dt class="compare-label" style="position:sticky;top:0;background:var(--paper);z-index:1">${ui('证据', 'Evidence')}</dt><dd>${esc(compareThemes(reviews))}</dd></div><div class="fact"><dt class="compare-label" style="position:sticky;top:0;background:var(--paper);z-index:1">${ui('进店前', 'Walk-in')}</dt><dd>${advice.length ? `<ol>${advice.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ui('未知', 'unknown')}</dd></div></dl><button type="button" class="btn-ghost" data-open-place="${esc(p.place_id)}">${ui('打开档案', 'Open dossier')}</button></article>`; }
 function renderCompareBoard(picks) { return picks.length >= 2 ? `<section class="compare-board detail-section" style="width:100%" aria-label="${ui('对比板', 'Compare Board')}"><p class="detail-kicker">${ui('对比板', 'Compare Board')}</p><div class="shop-grid">${picks.map(compareCardHtml).join('')}</div></section>` : `<div class="empty small">${ui('再选一家即可打开对比板。', 'Pick one more shop to open Compare Board.')}</div>`; }
 async function loadCompareDetails(picks) { const ids = picks.map((p) => p.place_id).filter((id) => !state.compareDetails[id]); if (!ids.length || state.compareLoading) return; state.compareLoading = true; try { const rows = await Promise.all(ids.map((id) => apiGet(`/api/places/${encodeURIComponent(id)}`).catch((err) => ({ place: { place_id: id, name: id }, reviews: [], report: null, error: err.message })))); rows.forEach((row, i) => { state.compareDetails[ids[i]] = row; }); } finally { state.compareLoading = false; renderLibraryCompare(); $$('.job-results').forEach(refreshCompareTray); } }
-function renderLibraryCompare() { const box = $('#library-compare'); if (!box) return; const picks = state.libraryCompare.map((id) => state.places.find((p) => p.place_id === id)).filter(Boolean); if (picks.length >= 2) loadCompareDetails(picks); box.innerHTML = picks.length ? `<div class="compare-tray"><span>Compare ${picks.length}/5</span>${picks.map((p) => `<button type="button" class="chip chip-link" data-open-place="${esc(p.place_id)}">${esc(p.name)} · ${esc(stars(p.rating))} · ${fmtInt(p.cached_reviews)}缓存</button>`).join('')}<button type="button" class="btn-ghost" data-library-compare-clear>清空</button></div>${renderCompareBoard(picks)}` : '<div class="compare-tray">选择 2-5 家加入 Compare。</div>'; }
+function renderLibraryCompare() { const box = $('#library-compare'); if (!box) return; const picks = state.libraryCompare.map((id) => state.places.find((p) => p.place_id === id)).filter(Boolean); if (picks.length >= 2) loadCompareDetails(picks); box.innerHTML = picks.length ? `<div class="compare-tray"><span>Compare ${picks.length}/5</span>${picks.map((p) => `<button type="button" class="chip chip-link" data-open-place="${esc(p.place_id)}">${esc(p.name)} · ${esc(stars(p.rating))} · ${fmtInt(p.cached_reviews)} ${ui('缓存', 'cached')}</button>`).join('')}<button type="button" class="btn-ghost" data-library-compare-clear>${ui('清空', 'Clear')}</button></div>${renderCompareBoard(picks)}` : `<div class="compare-tray">${ui('选择 2-5 家加入 Compare。', 'Select 2-5 shops to add to Compare.')}</div>`; }
 function toggleLibraryCompare(btn) { const id = btn.dataset.libraryCompare; let xs = state.libraryCompare.filter((x) => x !== id); if (xs.length === state.libraryCompare.length) { if (xs.length >= 5) return; xs.push(id); } state.libraryCompare = xs; renderLibrary(); }
 function renderLibrary() {
   const grid = $('#library-grid'), status = $('#library-status'); if (!grid || !status) return;
   if (!state.places.length) { state.libraryCompare = []; grid.innerHTML = ''; status.innerHTML = emptyHtml(t('empty.library'), 'scout'); renderLibraryCompare(); return; }
   const xs = libraryMatches(), limit = state.libraryLimit || LIBRARY_PAGE_SIZE, shown = xs.slice(0, limit), q = ($('#library-search')?.value || '').trim();
-  grid.innerHTML = renderLibraryGrid(shown) + (xs.length > limit ? `<button type="button" class="btn-ghost library-more" data-library-more="1">显示更多 ${xs.length - limit} 家</button>` : '');
+  grid.innerHTML = renderLibraryGrid(shown) + (xs.length > limit ? `<button type="button" class="btn-ghost library-more" data-library-more="1">${ui(`显示更多 ${xs.length - limit} 家`, `Show ${xs.length - limit} more`)}</button>` : '');
   status.innerHTML = xs.length ? `<p class="library-count">${ui('显示', 'Showing')} ${shown.length} / ${state.places.length}${q ? ` · ${ui('搜索', 'Search')} ${esc(q)}` : ''}</p>` : emptyHtml(t('empty.library.nomatch'));
   renderLibraryCompare();
 }
@@ -177,7 +177,7 @@ function renderSearchRow(s) {
   const places = s.places || [];
   const cutCount = places.filter((p) => p.relevant === false).length;
   const kept = places.filter((p) => p.relevant !== false);
-  const more = kept.length > SEARCH_ROW_CHIP_LIMIT ? `<span class="chip chip-more">+${kept.length - SEARCH_ROW_CHIP_LIMIT} 家</span>` : '';
+  const more = kept.length > SEARCH_ROW_CHIP_LIMIT ? `<span class="chip chip-more">+${kept.length - SEARCH_ROW_CHIP_LIMIT} ${ui('家', 'more')}</span>` : '';
   const chips = kept.slice(0, SEARCH_ROW_CHIP_LIMIT)
     .map((p) => `<button type="button" class="chip chip-link${p.report_count ? ' has-report' : ''}" data-open-place="${esc(p.place_id)}"${p.report_count ? ` title="${esc(`${ui('报告', 'report')} ×${fmtInt(p.report_count)}`)}"` : ''}>${esc(p.name)}</button>`)
     .join('') + more;
@@ -185,7 +185,7 @@ function renderSearchRow(s) {
     <div class="search-main">
       <span class="search-query">${esc(s.query)}</span>
       ${s.location ? `<span class="search-loc">@ ${esc(s.location)}</span>` : ''}
-      <span class="search-meta">${esc([s.source, cutCount ? `AI 排除 ${cutCount} 家` : '', relTime(s.created_at)].filter(Boolean).join(' · '))}</span>
+      <span class="search-meta">${esc([s.source, cutCount ? ui(`AI 排除 ${cutCount} 家`, `AI cut ${cutCount}`) : '', relTime(s.created_at)].filter(Boolean).join(' · '))}</span>
     </div>
     ${chips ? `<div class="search-places">${chips}</div>` : ''}
   </li>`;
@@ -220,9 +220,9 @@ function renderReviewCard(r) {
   const target = state.translationTarget;
   const tx = r.review_id && r.text ? `<button type="button" class="review-translate" data-review-translate="${esc(r.review_id)}" data-review-translate-target="${target}">${esc(txButtonLabel(target))}</button>` : '';
   return `<article class="review" data-review-lang="${esc(lang)}" data-review-rating="${esc(reviewRatingBand(r.rating))}"><header class="review-meta">
-      <span class="review-stars">${esc(stars(r.rating))}</span><span class="review-author">${esc(r.author || '匿名')}</span><span class="review-lang">${esc(m[0])}</span>${dateStr ? `<span class="review-date">${esc(dateStr)}</span>` : ''}${tx}</header>
+      <span class="review-stars">${esc(stars(r.rating))}</span><span class="review-author">${esc(r.author || ui('匿名', 'Anonymous'))}</span><span class="review-lang">${esc(m[0])}</span>${dateStr ? `<span class="review-date">${esc(dateStr)}</span>` : ''}${tx}</header>
     ${r.text ? `<p class="review-text">${esc(r.text)}</p>` : ''}
-    ${r.owner_response ? `<div class="owner-reply"><span class="owner-label">店家回复</span><p>${esc(r.owner_response)}</p></div>` : ''}
+    ${r.owner_response ? `<div class="owner-reply"><span class="owner-label">${ui('店家回复', 'Owner reply')}</span><p>${esc(r.owner_response)}</p></div>` : ''}
   </article>`;
 }
 function repJson(rep) { try { return typeof rep?.json === 'string' ? JSON.parse(rep.json) : (rep?.json || {}); } catch { return {}; } }
@@ -237,19 +237,19 @@ function renderDetail(data) {
   const rep = (data && data.report) || null;
   const facts = [];
   const addFact = (label, html) => { if (html) facts.push(`<div class="fact"><dt>${label}</dt><dd>${html}</dd></div>`); };
-  addFact('地址', p.address && esc(p.address));
-  addFact('电话', p.phone && esc(p.phone));
+  addFact(ui('地址', 'Address'), p.address && esc(p.address));
+  addFact(ui('电话', 'Phone'), p.phone && esc(p.phone));
   const site = safeUrl(p.website);
-  addFact('网站', site && `<a href="${esc(site)}" target="_blank" rel="noopener noreferrer">${esc(site)}</a>`);
-  addFact('营业时间', renderHours(p.hours_json));
+  addFact(ui('网站', 'Website'), site && `<a href="${esc(site)}" target="_blank" rel="noopener noreferrer">${esc(site)}</a>`);
+  addFact(ui('营业时间', 'Hours'), renderHours(p.hours_json));
   const maps = safeUrl(p.maps_url);
-  addFact('地图', maps && `<a href="${esc(maps)}" target="_blank" rel="noopener noreferrer">Google Maps ↗</a>`);
+  addFact(ui('地图', 'Map'), maps && `<a href="${esc(maps)}" target="_blank" rel="noopener noreferrer">Google Maps ↗</a>`);
   return `<header class="detail-shop">
-    <p class="detail-kicker">${esc(p.category || '店铺')} · ${esc(stars(p.rating))} · ${fmtInt(p.review_count)} 条在列</p>
-    <h2 class="detail-name">${esc(p.name || '未命名')}</h2>
+    <p class="detail-kicker">${esc(p.category || ui('店铺', 'Shop'))} · ${esc(stars(p.rating))} · ${fmtInt(p.review_count)} ${ui('条在列', 'listed')}</p>
+    <h2 class="detail-name">${esc(p.name || ui('未命名', 'Unnamed'))}</h2>
     ${p.activity_risk ? `<p class="activity-risk">${esc(p.activity_risk.label)} · ${esc(p.activity_risk.reason)}</p>` : ''}
-    <p class="detail-fresh">已缓存 ${reviews.length} 条评价 · 更新于 ${esc(relTime(p.last_refreshed))}
-      <button type="button" class="btn-ghost btn-danger" data-delete-place="${esc(p.place_id)}" data-place-name="${esc(p.name || '')}">从缓存移除 ✕</button>
+    <p class="detail-fresh">${ui('已缓存', 'Cached')} ${reviews.length} ${ui('条评价', 'reviews')} · ${ui('更新于', 'Updated')} ${esc(relTime(p.last_refreshed))}
+      <button type="button" class="btn-ghost btn-danger" data-delete-place="${esc(p.place_id)}" data-place-name="${esc(p.name || '')}">${ui('从缓存移除', 'Remove from cache')} ✕</button>
     </p>
   </header>
   ${photoSourcesHtml(data.photos, 'strip')}
@@ -259,7 +259,7 @@ function renderDetail(data) {
       <label>${ui('只问这家店', 'Ask this shop')}</label>
       <div class="ask-inline">
         <input type="text" class="ask-shop-input" autocomplete="off" placeholder="例：他们家能修琴吗？老板态度怎么样？…">
-        <button type="submit" class="btn-small">问 →</button>
+        <button type="submit" class="btn-small">${ui('问', 'Ask')} →</button>
       </div>
     </form>
     <div class="qa-history" data-qa-scope="${esc(p.place_id)}"></div>
@@ -268,12 +268,12 @@ function renderDetail(data) {
   ${facts.length ? `<section class="detail-section"><dl class="facts detail-facts">${facts.join('')}</dl></section>` : ''}
   <section class="detail-section">
     ${rep
-    ? `<div class="report-meta-line">最新报告${rep.profile ? ` · ${esc(rep.profile)}` : ''}${rep.model ? ` · <span class="model-tag">${esc(rep.model)}</span>` : ''} · ${esc(relTime(rep.created_at))}</div>
+    ? `<div class="report-meta-line">${ui('最新报告', 'Latest report')}${rep.profile ? ` · ${esc(rep.profile)}` : ''}${rep.model ? ` · <span class="model-tag">${esc(rep.model)}</span>` : ''} · ${esc(relTime(rep.created_at))}</div>
        <article class="report"><div class="report-body">${mdToHtml(rep.md)}</div></article>`
     : `<div data-report-slot><div class="empty small">${ui('这家店还没有报告。', 'This place has no report yet.')} <button type="button" class="btn-ghost" data-generate-report="${esc(p.place_id)}" data-place-name="${esc(p.name || '')}" data-place-address="${esc(p.address || '')}">${ui('生成报告', 'Generate report')} →</button></div></div>`}
   </section>
   <details class="detail-reviews">
-    <summary>评价原文 reviews · ${reviews.length} 条</summary>
+    <summary>${ui(`评价原文 reviews · ${reviews.length} 条`, `Reviews · ${reviews.length}`)}</summary>
     ${renderLanguageLens(reviews)}
     <div class="review-list">${reviews.map(renderReviewCard).join('')}</div>
   </details>`;
@@ -316,7 +316,7 @@ async function startJob(kind, path, body) {
   els.jobid.textContent = '';
   els.timeline.innerHTML = `<li class="tl-item tl-live" id="${kind}-live" aria-live="polite">
     <span class="tl-dot dot-live"></span>
-    <div class="tl-content"><p class="tl-msg muted">已提交，等待后端响应…</p></div>
+    <div class="tl-content"><p class="tl-msg muted">${ui('已提交，等待后端响应…', 'Submitted, waiting for the backend…')}</p></div>
   </li>`;
   try {
     const { job_id } = await apiPost(path, body);
@@ -325,7 +325,7 @@ async function startJob(kind, path, body) {
     els.jobid.textContent = `job ${job_id}`;
     streamJob(kind);
   } catch (err) {
-    failJob(kind, `提交失败：${err.message} — 确认后端在运行后重试。`);
+    failJob(kind, ui(`提交失败：${err.message} — 确认后端在运行后重试。`, `Submit failed: ${err.message} — make sure the backend is running, then retry.`));
   }
 }
 function streamJob(kind) {
@@ -344,16 +344,16 @@ async function pollJob(kind) {
   } catch (err) {
     job.fails += 1;
     if (job.fails >= MAX_POLL_FAILS) {
-      failJob(kind, `轮询失败：${err.message} — 后端可能掉线了。修好后重新提交即可，已完成的步骤有缓存，几乎不花时间。`);
+      failJob(kind, ui(`轮询失败：${err.message} — 后端可能掉线了。修好后重新提交即可，已完成的步骤有缓存，几乎不花时间。`, `Polling failed: ${err.message} — the backend may be offline. Fix it and resubmit; completed steps are cached and cost almost nothing.`));
       return;
     }
-    setLiveMsg(kind, `轮询失败，重试中（${job.fails}/${MAX_POLL_FAILS}）…`);
+    setLiveMsg(kind, ui(`轮询失败，重试中（${job.fails}/${MAX_POLL_FAILS}）…`, `Polling failed, retrying (${job.fails}/${MAX_POLL_FAILS})…`));
     if (!job.paused) job.timer = setTimeout(() => pollJob(kind), POLL_MS);
     return;
   }
   appendEvents(kind, data.events || []);
   if (data.status === 'running') {
-    setLiveMsg(kind, '运行中…');
+    setLiveMsg(kind, ui('运行中…', 'Running…'));
     if (!job.paused) job.timer = setTimeout(() => pollJob(kind), POLL_MS);
     return;
   }
@@ -363,19 +363,19 @@ async function pollJob(kind) {
   if (job.es) job.es.close();
   removeLive(kind);
   if (data.status === 'error') {
-    els.results.innerHTML = errorHtml(`任务失败：${data.error || '未知错误'} — 可直接重新提交，已完成的步骤会命中缓存。`);
+    els.results.innerHTML = errorHtml(ui(`任务失败：${data.error || '未知错误'} — 可直接重新提交，已完成的步骤会命中缓存。`, `Job failed: ${data.error || 'unknown error'} — just resubmit; completed steps hit the cache.`));
     return;
   }
-  if (data.status === 'interrupted') { els.results.innerHTML = `<div class="error-box"><span class="error-label">中断 interrupted</span>${esc(`任务中断：${data.retry_hint || data.error || '后端重启，中止了这个任务。'}`)}<button type="button" class="btn-ghost" data-retry-job="${esc(kind)}">用缓存重试 →</button></div>`; return; }
+  if (data.status === 'interrupted') { els.results.innerHTML = `<div class="error-box"><span class="error-label">中断 interrupted</span>${esc(`${ui('任务中断', 'Interrupted')}：${data.retry_hint || data.error || ui('后端重启，中止了这个任务。', 'The backend restarted and aborted this job.')}`)}<button type="button" class="btn-ghost" data-retry-job="${esc(kind)}">${ui('用缓存重试 →', 'Retry with cache →')}</button></div>`; return; }
   els.results.innerHTML = renderResult(data.result);
   if (kind === 'scout') loadScoutPast();
   if (state.libraryLoaded) loadLibrary(); // keep library tab fresh in background
 }
 async function loadScoutPast() {
   const list = $('#scout-past-list'), status = $('#scout-past-status'); if (!list || !status) return;
-  if (!list.innerHTML) status.innerHTML = loadingHtml('读取过去侦察');
-  try { state.searches = await apiGet('/api/searches') || []; list.innerHTML = state.searches.slice(0, 8).map(renderSearchRow).join(''); status.innerHTML = state.searches.length ? '' : emptyHtml('还没有过去侦察。'); refreshCommandMode(); }
-  catch (err) { list.innerHTML = ''; status.innerHTML = errorHtml(`读取过去侦察失败：${err.message}`); }
+  if (!list.innerHTML) status.innerHTML = loadingHtml(ui('读取过去侦察', 'Reading past scouts'));
+  try { state.searches = await apiGet('/api/searches') || []; list.innerHTML = state.searches.slice(0, 8).map(renderSearchRow).join(''); status.innerHTML = state.searches.length ? '' : emptyHtml(ui('还没有过去侦察。', 'No past scouts yet.')); refreshCommandMode(); }
+  catch (err) { list.innerHTML = ''; status.innerHTML = errorHtml(ui(`读取过去侦察失败：${err.message}`, `Failed to read past scouts: ${err.message}`)); }
 }
 async function loadLibrary() {
   const grid = $('#library-grid'), status = $('#library-status'), hList = $('#history-list'), hStatus = $('#history-status');
@@ -387,7 +387,7 @@ async function loadLibrary() {
     renderLibrary();
   } else {
     grid.innerHTML = '';
-    status.innerHTML = errorHtml(`读取资料库失败：${placesR.reason.message}`);
+    status.innerHTML = errorHtml(ui(`读取资料库失败：${placesR.reason.message}`, `Failed to read Library: ${placesR.reason.message}`));
   }
   if (searchesR.status === 'fulfilled') {
     state.searches = searchesR.value || [];
@@ -395,10 +395,10 @@ async function loadLibrary() {
     hStatus.innerHTML = state.searches.length ? '' : emptyHtml(t('empty.history'));
   } else {
     hList.innerHTML = '';
-    hStatus.innerHTML = errorHtml(`读取历史失败：${searchesR.reason.message}`);
+    hStatus.innerHTML = errorHtml(ui(`读取历史失败：${searchesR.reason.message}`, `Failed to read history: ${searchesR.reason.message}`));
   }
 }
-async function toggleFavorite(btn) { const id = btn.dataset.favoritePlace, next = btn.getAttribute('aria-pressed') !== 'true'; btn.disabled = true; try { await apiPost(`/api/places/${encodeURIComponent(id)}/favorite`, { favorite: next }); await loadLibrary(); } catch (err) { window.alert(`收藏失败：${err.message}`); } finally { btn.disabled = false; } }
+async function toggleFavorite(btn) { const id = btn.dataset.favoritePlace, next = btn.getAttribute('aria-pressed') !== 'true'; btn.disabled = true; try { await apiPost(`/api/places/${encodeURIComponent(id)}/favorite`, { favorite: next }); await loadLibrary(); } catch (err) { window.alert(ui(`收藏失败：${err.message}`, `Save failed: ${err.message}`)); } finally { btn.disabled = false; } }
 async function openDetail(placeId) {
   const overlay = $('#detail-overlay');
   const body = $('#detail-body');
@@ -407,7 +407,7 @@ async function openDetail(placeId) {
   overlay.hidden = false;
   $('.shell').inert = true; // background app non-interactive + hidden from assistive tech while the dossier is modal
   document.body.classList.add('no-scroll');
-  body.innerHTML = loadingHtml('读取店铺档案');
+  body.innerHTML = loadingHtml(ui('读取店铺档案', 'Reading shop dossier'));
   close.focus({ preventScroll: true });
   try {
     const data = await apiGet(`/api/places/${encodeURIComponent(placeId)}`);
@@ -416,7 +416,7 @@ async function openDetail(placeId) {
     body.scrollTop = 0;
     loadQaHistory(placeId); // past Q&A for this shop, re-askable
   } catch (err) {
-    body.innerHTML = errorHtml(`读取失败：${err.message}`);
+    body.innerHTML = errorHtml(ui(`读取失败：${err.message}`, `Load failed: ${err.message}`));
   }
 }
 function closeDetail() {
@@ -495,7 +495,7 @@ function bindForms() {
       $('#shop-target').value = query; switchTab('shop'); return startJob('shop', '/api/shop', shopBody);
     }
     const cached = matchingScout(query, near);
-    if (cached && !$('#scout-refresh').checked) { $('#scout-past-status').textContent = '命中缓存：下面已有同一侦察；强制刷新才会重新抓取。'; return $('#scout-past').scrollIntoView({ block: 'start', behavior: 'smooth' }); }
+    if (cached && !$('#scout-refresh').checked) { $('#scout-past-status').textContent = ui('命中缓存：下面已有同一侦察；强制刷新才会重新抓取。', 'Cache hit: the same scout is already below; only force-refresh re-fetches.'); return $('#scout-past').scrollIntoView({ block: 'start', behavior: 'smooth' }); }
     if (near) body.near = near;
     if ($('#scout-profile').value) body.profile = $('#scout-profile').value;
     if ($('#scout-refresh').checked) body.refresh = true;
@@ -552,8 +552,8 @@ function renderAnswer(res, q, placeId) {
 async function runAsk(q, placeId, out, fresh) {
   const submit = $('#ask-submit');
   if (!placeId && submit) submit.disabled = true;
-  out.innerHTML = loadingHtml(fresh ? '强制重新推理中'
-    : placeId ? '只检索这家店的评价 + 推理中' : '在整个缓存里检索 + 推理中');
+  out.innerHTML = loadingHtml(fresh ? ui('强制重新推理中', 'Force re-reasoning…')
+    : placeId ? ui('只检索这家店的评价 + 推理中', 'Searching reviews for this shop + reasoning…') : ui('在整个缓存里检索 + 推理中', 'Searching the whole cache + reasoning…'));
   try {
     const body = { question: q, ...langPayload('answer') };
     if (placeId) body.place_id = placeId;
@@ -571,10 +571,10 @@ function renderQaChips(rows) {
   if (!rows || !rows.length) return '';
   const chips = rows.map((r) => {
     const label = r.question.length > 42 ? `${r.question.slice(0, 42)}…` : r.question;
-    const place = r.place_id ? (r.place_name || '单店') : '';
+    const place = r.place_id ? (r.place_name || ui('单店', 'this shop')) : '';
     return `<button type="button" class="chip chip-link" data-ask-again="${esc(r.question)}"
       ${place ? `data-ask-place="${esc(r.place_id)}"` : ''}
-      title="${esc(place ? `${place} · ` : '')}${esc(relTime(r.created_at))} · 点击重问（命中缓存则免费秒回）">${esc(label)}${place ? ` · ${esc(place)}` : ''}</button>`;
+      title="${esc(place ? `${place} · ` : '')}${esc(relTime(r.created_at))} · ${esc(ui('点击重问（命中缓存则免费秒回）', 'Click to re-ask (cached answers return instantly, free)'))}">${esc(label)}${place ? ` · ${esc(place)}` : ''}</button>`;
   }).join('');
   return `<div class="qa-chips"><span class="qa-chips-label">${ui('问过', 'Asked')}</span>${chips}</div>`;
 }
@@ -708,19 +708,19 @@ async function translateReview(btn) {
   finally { if (!panel || panel.dataset.txBatch === token) { if (panel) delete panel.dataset.txBusy; controls.forEach((x) => { x.disabled = false; }); } }
 }
 async function deletePlace(placeId, name) {
-  if (!window.confirm(`把「${name || placeId}」连同它缓存的评价、报告、问答一起移除？\n（下次搜到它会重新抓取）`)) return;
+  if (!window.confirm(ui(`把「${name || placeId}」连同它缓存的评价、报告、问答一起移除？\n（下次搜到它会重新抓取）`, `Remove "${name || placeId}" along with its cached reviews, reports, and Q&A?\n(It will be re-fetched next time you find it.)`))) return;
   try {
     await apiDelete(`/api/places/${encodeURIComponent(placeId)}`);
     closeDetail();
     loadLibrary();
   } catch (err) {
-    window.alert(`删除失败：${err.message}`);
+    window.alert(ui(`删除失败：${err.message}`, `Delete failed: ${err.message}`));
   }
 }
 async function loadProfiles() { try { const names = await apiGet('/api/profiles'); state.profiles = names; for (const sel of [$('#scout-profile'), $('#shop-profile')]) for (const n of names) sel.appendChild(new Option(n, n)); } catch { /* backend offline — selects keep "auto" only */ } }
 function renderLanguageControls(c) { const lang = PI18N.state(), app = c.language?.app_defaults || {}; return `<section class="language-settings"><h4>${ui('语言', 'Language')}</h4><div class="advanced-grid"><label>${ui('界面', 'UI')} <select id="ui-language">${PI18N.languageOptionsHtml(lang.prefs.ui_language || app.ui_language || 'auto', true)}</select></label><label>${ui('回答', 'Ask')} <select id="answer-language">${PI18N.languageOptionsHtml(lang.prefs.answer_language || app.answer_language || 'auto', true)}</select></label><label>${ui('报告', 'Reports')} <select id="report-language">${PI18N.languageOptionsHtml(lang.prefs.report_language || app.report_language || 'auto', true)}</select></label><label>${ui('译文', 'Reviews')} <select id="translation-target-setting">${PI18N.languageOptionsHtml(lang.translationTarget)}</select></label></div><label class="check"><input type="checkbox" id="language-default"> ${ui('设为本应用默认', 'make default for this app')}</label><button type="button" class="btn-model" id="language-save">${ui('保存语言', 'Save language')}</button><span class="model-status" id="language-status" role="status">${ui('当前', 'active')}: ${ui('界面', 'UI')} ${esc(lang.ui)} · ${ui('回答', 'Ask')} ${esc(lang.answer)} · ${ui('报告', 'Reports')} ${esc(lang.report)} · ${ui('译文', 'Reviews')} ${esc(lang.translationTarget)}</span></section>`; }
 function renderSystemPanel(c, h) { const s = c.settings || {}, p = c.providers || {}, f = c.feature_status || {}, r = c.runtime?.data_dir || {}, link = c.health || {}; return `<h3>${ui('系统状态', 'System Status')}</h3>${renderLanguageControls(c)}<p>${ui('推理', 'reason')} ${esc(s.reason_model)} · ${ui('译文', 'translation')} ${esc(s.translation_model)} · ${ui('默认回答', 'default answer')} ${esc(s.default_answer_language)} · ${ui('默认报告', 'default report')} ${esc(s.default_report_language || 'auto')} · ${ui('证据', 'evidence')} ${esc(s.evidence_language)} · ${ui('缓存', 'cache')} TTL ${esc(s.cache_ttl_days)} ${ui('天', 'days')}</p><p>${ui('数据目录', 'data dir')} ${r.configured ? ui('已配置', 'configured') : ui('缺失', 'missing')} · ${ui('路径', 'path')} ${r.path_visible ? ui('可见', 'visible') : ui('隐藏', 'hidden')} · ${ui('端口', 'port')} ${esc(c.runtime?.port || '—')} · ${ui('健康', 'health')} ${h?.ok ? 'ok' : ui('需检查', 'check')}</p><p>${ui('提供商状态', 'Provider status')} · ${ui('推理', 'reason')} ${esc(p.reason?.provider || 'unknown')} · ${ui('译文', 'translate')} ${esc(p.translate?.provider || 'unknown')} · ${ui('向量', 'embed')} ${esc(p.embed?.provider || 'unknown')}</p><p>${ui('安装状态', 'Setup state')} · ${ui('推理', 'reasoning')} ${f.reasoning?.available ? 'ok' : ui('需配置', 'setup required')} · ${ui('向量', 'embedding')} ${f.embedding?.available ? 'ok' : ui('需配置', 'setup required')} · ${ui('译文', 'translation')} ${f.translation?.available ? 'ok' : ui('需配置', 'setup required')}</p><p><a href="${esc(link.cheap_url || '/api/health')}">${ui('轻量健康检查', 'cheap health')}</a> · <a href="${esc(link.deep_url || '/api/health/deep')}">${ui('深度健康检查', 'deep health')}</a></p><p id="system-danger"><strong>${ui('危险设置', 'Dangerous settings')}</strong> — ${ui('破坏性缓存/恢复操作只保留在命令行，并且需要确认。', 'destructive cache/restore actions stay in CLI and require confirmation.')}</p>`; }
-async function toggleSystem() { const panel = $('#system-panel'); if (!panel) return; if (!panel.hidden) { panel.hidden = true; return; } panel.hidden = false; panel.innerHTML = loadingHtml('读取系统状态'); try { const [c, h] = await Promise.all([apiGet('/api/config'), apiGet('/api/health')]); initLanguage(c); panel.innerHTML = renderSystemPanel(c, h); } catch (err) { panel.innerHTML = errorHtml(`系统状态读取失败：${err.message}`); } }
+async function toggleSystem() { const panel = $('#system-panel'); if (!panel) return; if (!panel.hidden) { panel.hidden = true; return; } panel.hidden = false; panel.innerHTML = loadingHtml(ui('读取系统状态', 'Reading system status')); try { const [c, h] = await Promise.all([apiGet('/api/config'), apiGet('/api/health')]); initLanguage(c); panel.innerHTML = renderSystemPanel(c, h); } catch (err) { panel.innerHTML = errorHtml(ui(`系统状态读取失败：${err.message}`, `Failed to read system status: ${err.message}`)); } }
 async function saveLanguageSettings() { const prefs = { ui_language: $('#ui-language').value, answer_language: $('#answer-language').value, report_language: $('#report-language').value, translation_target: $('#translation-target-setting').value }; const status = $('#language-status'); PI18N.savePrefs(prefs); state.translationTarget = PI18N.translationTarget(); refreshCommandMode(); if (state.libraryLoaded) { syncLibraryControls(); renderLibrary(); } status.textContent = ui('已存到本浏览器', 'saved in this browser'); if ($('#language-default').checked) { try { await apiPost('/api/settings/language', { ui_language: prefs.ui_language, default_answer_language: prefs.answer_language, default_report_language: prefs.report_language, translation_target: prefs.translation_target, make_default: true }); status.textContent = ui('已存到浏览器和应用默认', 'saved in browser and app defaults'); await loadMeta(); } catch (err) { status.textContent = `${ui('未存为应用默认', 'not saved as app default')}: ${err.message}`; } } }
 async function loadMeta() {
   try {
@@ -742,32 +742,32 @@ async function toggleModelPicker() {
   picker.hidden = false;
   const sel = $('#model-select'), status = $('#model-status');
   sel.innerHTML = '';
-  status.textContent = '实时拉取提供商可用模型…';
+  status.textContent = ui('实时拉取提供商可用模型…', 'Fetching available models from provider…');
   try {
     const res = await apiGet('/api/models');
-    for (const name of res.models) sel.appendChild(new Option(name === res.current ? `${name} ← 当前` : name, name));
-    sel.appendChild(new Option('自定义手输…', CUSTOM_MODEL));
+    for (const name of res.models) sel.appendChild(new Option(name === res.current ? ui(`${name} ← 当前`, `${name} ← current`) : name, name));
+    sel.appendChild(new Option(ui('自定义手输…', 'Custom (type manually)…'), CUSTOM_MODEL));
     sel.value = res.models.includes(res.current) ? res.current : CUSTOM_MODEL;
-    status.textContent = res.error ? `列表获取失败（仍可手输）：${res.error}` : `${res.models.length} 个模型 · 提供商实时列表`;
+    status.textContent = res.error ? ui(`列表获取失败（仍可手输）：${res.error}`, `List fetch failed (you can still type manually): ${res.error}`) : ui(`${res.models.length} 个模型 · 提供商实时列表`, `${res.models.length} models · live provider list`);
   } catch (err) {
-    sel.appendChild(new Option('自定义手输…', CUSTOM_MODEL));
-    sel.value = CUSTOM_MODEL; status.textContent = `列表加载失败（仍可手输）：${err.message}`;
+    sel.appendChild(new Option(ui('自定义手输…', 'Custom (type manually)…'), CUSTOM_MODEL));
+    sel.value = CUSTOM_MODEL; status.textContent = ui(`列表加载失败（仍可手输）：${err.message}`, `List load failed (you can still type manually): ${err.message}`);
   }
   $('#model-custom').hidden = sel.value !== CUSTOM_MODEL;
 }
 async function saveModel() {
   const sel = $('#model-select'), status = $('#model-status');
   const name = (sel.value === CUSTOM_MODEL ? $('#model-custom').value : sel.value).trim();
-  if (!name) { status.textContent = '模型名不能为空'; return; }
+  if (!name) { status.textContent = ui('模型名不能为空', 'Model name cannot be empty'); return; }
   const btn = $('#model-save');
-  btn.disabled = true; status.textContent = `用「${name}」做一次真实冒烟调用…`;
+  btn.disabled = true; status.textContent = ui(`用「${name}」做一次真实冒烟调用…`, `Running a real smoke test with "${name}"…`);
   try {
     await apiPost('/api/settings', { reason_model: name });
-    status.textContent = '✓ 已切换并保存 — CLI 与 Web 共用，重启不丢';
+    status.textContent = ui('✓ 已切换并保存 — CLI 与 Web 共用，重启不丢', '✓ Switched and saved — shared by CLI and Web, survives restart');
     await loadMeta();
     setTimeout(() => { $('#model-picker').hidden = true; status.textContent = ''; }, 2000);
   } catch (err) {
-    status.textContent = `✗ 未保存：${err.message}`;
+    status.textContent = ui(`✗ 未保存：${err.message}`, `✗ Not saved: ${err.message}`);
   } finally { btn.disabled = false; }
 }
 function init() { bindForms(); bindGlobal(); switchTab(tabFromHash(), false); window.addEventListener('hashchange', () => switchTab(tabFromHash(), false)); loadProfiles(); loadMeta(); }

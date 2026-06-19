@@ -1,5 +1,17 @@
 # Changelog — place-intel
 
+## v0.4.50 — 2026-06-19 — finish the language switch: result/library/dossier strings localize
+Completes the bilingual UI: the remaining hardcoded Chinese in the dynamic render layer now
+goes through the `ui('中文','English')` helper, so the EN/ZH switch covers the whole app, not
+just the static chrome. Localized surfaces include `renderResult` (job result summary, place
+list, AI-excluded block, warnings), `renderShopCard` / `compareCardHtml` (收藏/对比/打开档案 →
+Save/Compare/Open dossier and the compare-board facts), `renderPlanCard`, `renderLibrary`
+filters, `renderReviewCard`, `renderDetail`, and the nav landmark's `aria-label` (new
+`aria.nav` key + `data-i18n-aria`). Language-detection regexes, the deliberately bilingual
+labels (出错 error / 深挖报告 report), and the example-format placeholders (kept in the contract's
+required "例：…" shape) are unchanged. No API change;
+`app.js` stays within its 780-line budget. Closes the i18n gap flagged after v0.4.45.
+
 ## v0.4.49 — 2026-06-19 — inline report generation: no more silent "jumps back to nothing"
 Fixes a real-user report: generating a report inside the dossier would stream a few steps,
 then quit and revert to the empty "no report yet" state with no explanation. Root cause was
