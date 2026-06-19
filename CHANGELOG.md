@@ -1,5 +1,25 @@
 # Changelog — place-intel
 
+## v0.4.48 — 2026-06-19 — dossier UX: photo opens the dossier, reports generate in place, sharper photos
+Three real-user UX fixes on the web app, all front-end (no API/contract change). New module
+`web/dossier.js` (loaded before `app.js`; keeps `app.js` under its 780-line budget).
+- **Card photo → dossier.** Clicking a library/compare card's photo now opens the shop
+  dossier (打开档案), not the image lightbox — the photo is the card's biggest target and
+  belongs to the place, not a viewer. `photoSourcesHtml(photos, variant, placeId)` renders
+  card/compare photos with `data-open-place` (+ `cursor: pointer`, aria "Open dossier")
+  instead of `data-photo-url`. The dossier's own gallery strip still opens the zoomable
+  lightbox — gallery viewing is unchanged.
+- **Reports generate in place, with live progress.** "生成报告 / Generate report" no longer
+  closes the dossier and jumps to the Shop tab. `generateReportInline` runs `/api/shop` and
+  streams the live timeline into the dossier's report slot (EventSource + polling fallback,
+  mirroring the tab job runners); on completion the dossier refreshes in place to show the
+  new report. Closing the dossier mid-run tears the stream down cleanly (the server job
+  finishes on its own and the library picks up the report).
+- **Sharper photos.** Card and lightbox images were Google thumbnails (`=w400`-class tokens)
+  upscaled on retina and zoom. `hiRes()` bumps the size token of `googleusercontent`/`ggpht`/
+  `gstatic` URLs — cards request `=w800`, the lightbox `=w1600` — while the lightbox's
+  "view original" link keeps the unmodified source URL. Non-Google/non-http URLs pass through.
+
 ## v0.4.47 — 2026-06-19 — batch /api/places photo thumbnails (N+1 → 2 queries)
 The library list resolved a source-photo thumbnail per place — 1–2 indexed queries each,
 ~218 for a 109-place cache. Replaced with `photos.resolve_place_thumbnails`, a single

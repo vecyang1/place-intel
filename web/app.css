@@ -440,6 +440,7 @@ textarea.query-input { min-height: 6em; }
 .source-photo { position: relative; display: block; aspect-ratio: 4 / 3; min-width: 8rem; overflow: hidden; border: 1.5px solid var(--line); border-radius: var(--radius-sm); background: var(--card); color: var(--ink-55); cursor: zoom-in; text-align: left; }
 .photo-strip:not(.photo-card):not(.photo-compare) .source-photo { flex: 0 0 clamp(8rem, 32%, 11rem); }
 .photo-card .source-photo, .photo-compare .source-photo { width: 100%; min-width: 0; margin-bottom: 0.35rem; }
+.source-photo.opens-dossier { cursor: pointer; } /* card/compare photo navigates to the dossier, not a zoom viewer */
 .source-photo-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .photo-label { position: absolute; left: 0.35rem; bottom: 0.35rem; border-radius: 99px; background: color-mix(in oklab, var(--paper) 86%, transparent); padding: 0.08rem 0.4rem; font-family: var(--mono); font-size: 0.6rem; color: var(--ink-70); }
 .source-photo.is-broken img { display: none; }

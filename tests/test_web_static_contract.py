@@ -10,7 +10,7 @@ WEB = ROOT / "web"
 
 class WebStaticContractTest(unittest.TestCase):
     def test_no_build_web_files_stay_under_project_budget(self) -> None:
-        for path in [WEB / "index.html", WEB / "app.css", WEB / "app.js", WEB / "i18n.js"]:
+        for path in [WEB / "index.html", WEB / "app.css", WEB / "app.js", WEB / "i18n.js", WEB / "dossier.js"]:
             with self.subTest(path=path.name):
                 line_count = len(path.read_text(encoding="utf-8").splitlines())
                 self.assertLess(
