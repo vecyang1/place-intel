@@ -2,7 +2,7 @@
 
 Created: 2026-06-20
 Last Updated: 2026-06-20
-Status: 📋 Draft
+Status: ✅ Complete
 Feature Type: Full-stack UI feature
 Owner: Codex
 Deployment Profile: hybrid
@@ -33,40 +33,40 @@ This feature adds cached report markdown translation. It reuses the existing rev
 As a Chinese-reading user looking at an English dossier report, I want to translate the cached report to Chinese so I can read the decision brief without regenerating the report.
 
 Acceptance Criteria:
-- [ ] `POST /api/reports/translate` accepts a cached `report_id` and safe `target_lang`.
-- [ ] The API returns translated markdown, source report language, target language, model, provider, `cached`, and `created_at`.
-- [ ] The first call uses `config.translation_model()` via the existing translate provider role.
-- [ ] A second call for the same report and target returns from SQLite cache without another provider call.
-- [ ] Original `reports.report_md` remains unchanged.
-- [ ] Unsafe target tags return a 400-class error and do not call the provider.
-- [ ] Typecheck/lint passes.
-- [ ] Visual verification via dev-browser or preview skill.
+- [x] `POST /api/reports/translate` accepts a cached `report_id` and safe `target_lang`.
+- [x] The API returns translated markdown, source report language, target language, model, provider, `cached`, and `created_at`.
+- [x] The first call uses `config.translation_model()` via the existing translate provider role.
+- [x] A second call for the same report and target returns from SQLite cache without another provider call.
+- [x] Original `reports.report_md` remains unchanged.
+- [x] Unsafe target tags return a 400-class error and do not call the provider.
+- [x] Typecheck/lint passes.
+- [x] Visual verification via dev-browser or preview skill.
 
 ### US-002: Switch Report Display In Dossier
 
 As a user reading a shop dossier, I want a small report-language switch so I can toggle translated and original report text without losing my place in the modal.
 
 Acceptance Criteria:
-- [ ] Dossier payload includes the latest report `id`.
-- [ ] Dossier report section shows an original/translated switch only when a report exists.
-- [ ] Translation target defaults to the active report output language, then falls back to the app translation target.
-- [ ] Clicking translate renders the translated markdown in the same report body and shows whether it came from cache.
-- [ ] Clicking original restores the untouched original markdown without an API call.
-- [ ] Translation failure leaves the original report visible with an actionable retry state.
-- [ ] Existing dossier focus trap, Escape close, opener focus restoration, photo lightbox, scoped Ask, review translation, and inline report generation still work.
-- [ ] Typecheck/lint passes.
-- [ ] Visual verification via dev-browser or preview skill.
+- [x] Dossier payload includes the latest report `id`.
+- [x] Dossier report section shows an original/translated switch only when a report exists.
+- [x] Translation target defaults to the active report output language, then falls back to the app translation target.
+- [x] Clicking translate renders the translated markdown in the same report body and shows whether it came from cache.
+- [x] Clicking original restores the untouched original markdown without an API call.
+- [x] Translation failure leaves the original report visible with an actionable retry state.
+- [x] Existing dossier focus trap, Escape close, opener focus restoration, photo lightbox, scoped Ask, review translation, and inline report generation still work.
+- [x] Typecheck/lint passes.
+- [x] Visual verification via dev-browser or preview skill.
 
 ### US-003: Keep Future Agents Oriented
 
 As a future agent, I want the new cache table, API contract, and UI behavior documented so I do not rebuild or confuse it with raw review translation.
 
 Acceptance Criteria:
-- [ ] `docs/API.md` documents `POST /api/reports/translate`.
-- [ ] `AGENTS.md` records that report translations are display-layer only and never replace `reports.report_md`.
-- [ ] `CHANGELOG.md`, `progress.md`, and this PRD record the shipped feature and verification evidence.
-- [ ] `tasks/README.md` routes this PRD with current status and next action.
-- [ ] Typecheck/lint passes.
+- [x] `docs/API.md` documents `POST /api/reports/translate`.
+- [x] `AGENTS.md` records that report translations are display-layer only and never replace `reports.report_md`.
+- [x] `CHANGELOG.md`, `progress.md`, and this PRD record the shipped feature and verification evidence.
+- [x] `tasks/README.md` routes this PRD with current status and next action.
+- [x] Typecheck/lint passes.
 
 ## 4. Functional Requirements
 
@@ -228,3 +228,7 @@ No new environment variables, secrets, ports, process managers, deploy scripts, 
 ## Build Progress
 
 - 2026-06-20: PRD drafted after reading `AGENTS.md`, `VAULT.md`, prior language/dossier PRDs, PRD skill references, GitNexus impact reports, and the screenshot evidence.
+- 2026-06-20: Added RED tests for `pipeline.translate_report`, `/api/reports/translate`, report id exposure, and the dossier translate/restore flow.
+- 2026-06-20: Implemented `report_translations`, `pipeline.translate_report()`, the FastAPI endpoint, and the dossier report translation toolbar.
+- 2026-06-20: Updated `AGENTS.md`, `docs/API.md`, `CHANGELOG.md`, `progress.md`, `VAULT.md`, and this PRD/router for v0.4.53.
+- 2026-06-20: Verification passed: `.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` (102 tests); `node --check web/app.js && node --check web/dossier.js && node --check web/i18n.js`; `wc -l web/app.js web/app.css web/dossier.js` (`777/799/138`); `scripts/validate-prd-contract.sh --allow-legacy .`; `npx playwright test tests/ui-audit.spec.js -g "dossier report can translate" --browser=chromium --reporter=list`; `.venv/bin/placeintel deploy-smoke --base-url http://127.0.0.1:9618 --expected-version 0.4.53 --format json`.

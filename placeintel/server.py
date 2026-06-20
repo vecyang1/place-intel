@@ -83,6 +83,11 @@ class ReviewTranslateRequest(BaseModel):
     target_lang: str | None = Field(default=None, max_length=16)
 
 
+class ReportTranslateRequest(BaseModel):
+    report_id: int = Field(ge=1)
+    target_lang: str | None = Field(default=None, max_length=16)
+
+
 class SettingsRequest(BaseModel):
     reason_model: str = Field(min_length=1, max_length=120)
 
@@ -278,6 +283,17 @@ def translate_review(req: ReviewTranslateRequest) -> dict:
         raise HTTPException(400, str(exc))
 
 
+@app.post("/api/reports/translate")
+def translate_report(req: ReportTranslateRequest) -> dict:
+    try:
+        target = req.target_lang or language.config_language_status()["translation_target"]
+        return pipeline.translate_report(req.report_id, target)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
 @app.get("/api/qa")
 def qa_history(place_id: str | None = None, scope: str = "exact") -> JSONResponse:
     conn = cache.connect()
@@ -378,8 +394,8 @@ def place_detail(place_id: str) -> dict:
             (place_id, MAX_REVIEWS_IN_DETAIL),
         ).fetchall()
         report = conn.execute(
-            """SELECT report_md, report_json, profile, model, report_lang, evidence_lang, created_at FROM reports
-               WHERE place_id=? ORDER BY created_at DESC LIMIT 1""",
+            """SELECT id, report_md, report_json, profile, model, report_lang, evidence_lang, created_at FROM reports
+               WHERE place_id=? ORDER BY created_at DESC, id DESC LIMIT 1""",
             (place_id,),
         ).fetchone()
         place_payload = {k: place[k] for k in (
@@ -391,7 +407,7 @@ def place_detail(place_id: str) -> dict:
             "place": place_payload,
             "photos": photos.resolve_place_photos(conn, place_id),
             "reviews": [dict(r) for r in reviews],
-            "report": ({"md": report["report_md"], "json": json.loads(report["report_json"]),
+            "report": ({"id": report["id"], "md": report["report_md"], "json": json.loads(report["report_json"]),
                         "profile": report["profile"], "model": report["model"],
                         "report_lang": report["report_lang"], "evidence_lang": report["evidence_lang"],
                         "created_at": report["created_at"]}

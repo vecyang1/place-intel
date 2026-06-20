@@ -855,6 +855,52 @@ test('no-report dossier can start a focused report job from inside the modal', a
   await expect(page.locator('#shop-results')).toContainText('Trail Needs Report');
 });
 
+test('dossier report can translate to Chinese from cache and restore original', async ({ page }) => {
+  const bodies = [];
+  await page.route('**/api/reports/translate', (route) => {
+    const body = route.request().postDataJSON();
+    bodies.push(body);
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        report_id: body.report_id,
+        target_lang: body.target_lang,
+        source_lang: 'en',
+        md: '# 中文情报报告\n\n结论：到店前确认价格。',
+        cached: true,
+        model: 'gemini-3.1-flash-lite',
+        provider: 'test-provider',
+        created_at: Date.now() / 1000,
+      }),
+    });
+  });
+
+  await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  await setRuntimeLanguage(page, { ui_language: 'zh', answer_language: 'zh', report_language: 'zh', translation_target: 'zh' });
+  await page.evaluate(() => {
+    const place = { place_id: 'report-translate-test', name: 'Hoian Flow', rating: 4.8, review_count: 210, last_refreshed: Date.now() / 1000 };
+    const report = {
+      id: 77,
+      md: '# Hoian Flow Intel Report\n\nVerdict: verify pricing in person.',
+      report_lang: 'en',
+      profile: 'generic',
+      model: 'gemini-3-flash-preview',
+      created_at: Date.now() / 1000,
+      json: { verdict: 'verify pricing in person', walk_in_brief: ['Ask for current price.'] },
+    };
+    document.body.insertAdjacentHTML('beforeend', `<div id="report-translate-host">${window.__pi.render.detail({ place, reviews: [], report })}</div>`);
+  });
+
+  await expect(page.locator('#report-translate-host .report-body')).toContainText('Verdict: verify pricing');
+  await page.locator('#report-translate-host [data-report-translate="77"]').click();
+  await expect(page.locator('#report-translate-host .report-body')).toContainText('结论：到店前确认价格');
+  await expect(page.locator('#report-translate-host .report-translation-status')).toContainText('缓存');
+  expect(bodies).toEqual([{ report_id: 77, target_lang: 'zh' }]);
+
+  await page.locator('#report-translate-host [data-report-original="77"]').click();
+  await expect(page.locator('#report-translate-host .report-body')).toContainText('Verdict: verify pricing');
+});
+
 test('activity risk renders as a cautious visible tag', async ({ page }) => {
   await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
   const html = await page.evaluate(() => {

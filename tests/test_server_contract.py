@@ -169,6 +169,27 @@ class ServerContractTest(unittest.TestCase):
         self.assertEqual(response.json(), expected)
         translate.assert_called_once_with("review-1", "zh")
 
+    def test_report_translation_endpoint_delegates_to_pipeline(self) -> None:
+        expected = {
+            "report_id": 42,
+            "target_lang": "zh",
+            "source_lang": "en",
+            "md": "# 中文报告",
+            "cached": False,
+            "model": "test-model",
+            "provider": "test-provider",
+            "created_at": 100.0,
+        }
+        with mock.patch.object(server.pipeline, "translate_report", return_value=expected) as translate:
+            response = TestClient(server.app).post(
+                "/api/reports/translate",
+                json={"report_id": 42, "target_lang": "zh"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), expected)
+        translate.assert_called_once_with(42, "zh")
+
     def test_ask_endpoint_resolves_browser_language_without_forcing_chinese(self) -> None:
         expected = {
             "answer": "French answer",
@@ -235,6 +256,7 @@ class ServerContractTest(unittest.TestCase):
         self.assertEqual(places.json()[0]["latest_report_profile"], "rental")
         self.assertEqual(detail.status_code, 200)
         self.assertTrue(detail.json()["place"]["favorite"])
+        self.assertEqual(detail.json()["report"]["id"], 2)
 
     def test_searches_api_marks_places_that_already_have_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

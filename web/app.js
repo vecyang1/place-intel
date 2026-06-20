@@ -70,7 +70,7 @@ const txButtonLabel = (target) => `${ui('译文', 'Translate')} ${txLabel(target
 const TAB_NAMES = ['scout', 'shop', 'library', 'ask'];
 const tabFromHash = () => (TAB_NAMES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'scout');
 const SEARCH_ROW_CHIP_LIMIT = 8, LIBRARY_PAGE_SIZE = 12, LIBRARY_FILTERS = '#library-sort,#library-category,#library-freshness,#library-risk,#library-language,#library-cached,#library-report';
-const state = { tab: 'scout', profiles: [], places: [], libraryLoaded: false, libraryLimit: LIBRARY_PAGE_SIZE, libraryCompare: [], compareDetails: {}, compareLoading: false, jobs: { scout: null, shop: null }, detail: null, dossierJob: null, detailReturnFocus: null, photoReturnFocus: null, photoGallery: [], photoIndex: 0, photoZoom: 1, photoPreloads: [], meta: null, config: null, translationTarget: txTarget(), searches: [], commandMode: 'scout', commandManual: false }; // meta={version, reason/translate/embed}
+const state = { tab: 'scout', profiles: [], places: [], libraryLoaded: false, libraryLimit: LIBRARY_PAGE_SIZE, libraryCompare: [], compareDetails: {}, compareLoading: false, jobs: { scout: null, shop: null }, detail: null, dossierJob: null, detailReturnFocus: null, photoReturnFocus: null, photoGallery: [], photoIndex: 0, photoZoom: 1, photoPreloads: [], meta: null, config: null, translationTarget: txTarget(), reportOriginals: {}, searches: [], commandMode: 'scout', commandManual: false }; // meta={version, reason/translate/embed}
 function loadingHtml(msg) { return `<p class="loading">${esc(msg)} <span class="dots">●●●</span></p>`; }
 function errorHtml(msg) { return `<div class="error-box"><span class="error-label">出错 error</span>${esc(msg)}</div>`; }
 function emptyHtml(msg, gotoTab, gotoLabel) { const btn = gotoTab ? `<button type="button" class="btn-ghost" data-goto="${esc(gotoTab)}">${esc(gotoLabel || t('goto.scout'))}</button>` : ''; return `<div class="empty">${esc(msg)}${btn}</div>`; }
@@ -269,7 +269,7 @@ function renderDetail(data) {
   <section class="detail-section">
     ${rep
     ? `<div class="report-meta-line">${ui('最新报告', 'Latest report')}${rep.profile ? ` · ${esc(rep.profile)}` : ''}${rep.model ? ` · <span class="model-tag">${esc(rep.model)}</span>` : ''} · ${esc(relTime(rep.created_at))}</div>
-       <article class="report"><div class="report-body">${mdToHtml(rep.md)}</div></article>`
+       ${renderReportTranslateControls(rep)}<article class="report"><div class="report-body">${mdToHtml(rep.md)}</div></article>`
     : `<div data-report-slot><div class="empty small">${ui('这家店还没有报告。', 'This place has no report yet.')} <button type="button" class="btn-ghost" data-generate-report="${esc(p.place_id)}" data-place-name="${esc(p.name || '')}" data-place-address="${esc(p.address || '')}">${ui('生成报告', 'Generate report')} →</button></div></div>`}
   </section>
   <details class="detail-reviews">
@@ -618,6 +618,8 @@ function bindGlobal() {
     if (reviewFilter) return filterReviewLanguage(reviewFilter);
     const tx = e.target.closest('[data-review-translate]');
     if (tx) return translateReview(tx);
+    const reportTx = e.target.closest('[data-report-translate]'); if (reportTx) return translateReport(reportTx);
+    const reportOriginal = e.target.closest('[data-report-original]'); if (reportOriginal) return restoreReport(reportOriginal);
     const fav = e.target.closest('[data-favorite-place]');
     if (fav) return toggleFavorite(fav);
     const genReport = e.target.closest('[data-generate-report]'); if (genReport) return generateReportInline(genReport);

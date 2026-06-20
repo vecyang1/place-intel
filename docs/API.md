@@ -342,6 +342,7 @@ Returns one dossier payload:
   ],
   "reviews": [],
   "report": {
+    "id": 42,
     "md": "...",
     "json": {},
     "profile": "generic",
@@ -410,6 +411,37 @@ Recent reports. Rows include `report_lang` and `evidence_lang`.
 One report body and structured JSON, including `report_lang` and
 `evidence_lang`.
 
+### `POST /api/reports/translate`
+
+Display-layer report translation only. It must never overwrite
+`reports.report_md` or regenerate the report.
+
+Request:
+
+```json
+{"report_id": 42, "target_lang": "zh"}
+```
+
+Response:
+
+```json
+{
+  "report_id": 42,
+  "target_lang": "zh",
+  "source_lang": "en",
+  "md": "# translated markdown",
+  "cached": false,
+  "model": "gemini-3.1-flash-lite",
+  "provider": "VectorEngine",
+  "created_at": 1781440000.0
+}
+```
+
+`target_lang` is optional in the web UI path; when omitted, the server uses the
+saved translation target. Cache reuse is allowed only when the requested
+`report_id`, normalized target language, and current source-markdown hash all
+match the saved row.
+
 ## Profiles, Models, and Settings
 
 ### `GET /api/profiles`
@@ -430,7 +462,7 @@ Example response:
 
 ```json
 {
-  "version": "0.4.40",
+  "version": "0.4.53",
   "settings": {
     "reason_model": "gemini-3-flash-preview",
     "translation_model": "gemini-3.1-flash-lite",

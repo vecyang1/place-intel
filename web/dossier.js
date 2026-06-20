@@ -1,4 +1,4 @@
-/* placeintel dossier enhancements: hi-res media sizing + in-dossier report generation.
+/* placeintel dossier enhancements: hi-res media sizing + report generation/translation.
    Loaded before app.js so hiRes() is defined before any render; every app.js global it
    uses (state, $, apiGet, apiPost, renderEvent, errorHtml, openDetail, loadLibrary,
    langPayload, clampInt, ui) is referenced only at call time, after app.js has loaded. */
@@ -30,6 +30,24 @@ function reportFailHtml(placeId, name, address, errors) {
     + ` data-place-name="${esc(name || '')}" data-place-address="${esc(address || '')}">${ui('重试生成', 'Retry')} →</button>`
     + `</div>`;
 }
+
+function renderReportTranslateControls(rep) {
+  if (!rep?.id) return '';
+  const id = String(rep.id), source = PI18N.normalizeTag(rep.report_lang || ''), preferred = PI18N.normalizeTag(PI18N.outputLanguage('report')), target = preferred && preferred !== source ? preferred : (state.translationTarget || 'en');
+  state.reportOriginals[id] = rep.md || '';
+  return `<div class="report-translate-bar"><button type="button" class="btn-ghost" data-report-original="${esc(id)}">${ui('原文', 'Original')}</button><label>${ui('译为', 'Translate to')} <select class="report-translation-target" aria-label="${ui('报告翻译目标语言', 'report translation target language')}">${PI18N.languageOptionsHtml(target)}</select></label><button type="button" class="btn-ghost" data-report-translate="${esc(id)}">${ui('翻译报告', 'Translate report')}</button><span class="report-translation-status" role="status" aria-live="polite">${ui('显示原文', 'showing original')}</span></div>`;
+}
+
+async function translateReport(btn) {
+  const section = btn.closest('.detail-section') || document, id = btn.dataset.reportTranslate, sel = $('.report-translation-target', section), body = $('.report-body', section), status = $('.report-translation-status', section), target = PI18N.normalizeTag(sel?.value) || state.translationTarget || 'en';
+  if (!id || !body) return;
+  btn.disabled = true; if (status) status.textContent = ui('翻译报告中…', 'Translating report...');
+  try { const r = await apiPost('/api/reports/translate', { report_id: Number(id), target_lang: target }); body.innerHTML = mdToHtml(r.md); if (status) status.textContent = `${ui('已显示译文', 'showing translation')} · ${r.cached ? ui('缓存', 'cached') : ui('新翻译', 'fresh')} · ${esc(r.target_lang)}`; }
+  catch (err) { if (status) status.textContent = `${ui('翻译失败', 'Translation failed')}：${err.message}`; }
+  finally { btn.disabled = false; }
+}
+
+function restoreReport(btn) { const section = btn.closest('.detail-section') || document, md = state.reportOriginals[btn.dataset.reportOriginal]; const body = $('.report-body', section), status = $('.report-translation-status', section); if (body && md != null) body.innerHTML = mdToHtml(md); if (status) status.textContent = ui('显示原文', 'showing original'); }
 
 // Generate a report without leaving the dossier: stream live progress into the report slot,
 // then refresh the dossier in place. Mirrors streamJob/pollJob but scoped to one inline slot.

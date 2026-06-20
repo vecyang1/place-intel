@@ -1,5 +1,20 @@
 # Changelog — place-intel
 
+## v0.4.53 — 2026-06-20 — cached report translation
+Adds cached, display-layer translation for generated dossier reports. New
+`report_translations` rows key by `report_id`, target language, and source
+markdown hash, so translated report text is reused only while the original
+`reports.report_md` is unchanged. New `POST /api/reports/translate` uses the
+existing cheap translation provider role and returns translated markdown,
+source/target language, provider/model, cache status, and creation time.
+
+The dossier now exposes the latest report id, shows a compact report
+translation toolbar, can translate the report into Chinese or any safe target
+language, labels cache hits, and restores the original report instantly without
+another API call. Original reports and raw reviews remain untouched. Added
+backend/API tests plus a Playwright dossier smoke for translate-from-cache and
+restore-original; static web files remain under the 800-line hard cap.
+
 ## v0.4.52 — 2026-06-20 — agent-readiness PRD governance
 Adds a PRD router and contract gate so future agents can start from the right
 owner record instead of guessing across legacy files. New current-format PRD:

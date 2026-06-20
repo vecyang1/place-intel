@@ -76,6 +76,17 @@ CREATE TABLE IF NOT EXISTS review_translations (
     created_at    REAL NOT NULL,
     PRIMARY KEY (review_id, target_lang)
 );
+CREATE TABLE IF NOT EXISTS report_translations (
+    report_id     INTEGER NOT NULL REFERENCES reports(id),
+    target_lang   TEXT NOT NULL,
+    source_hash   TEXT NOT NULL,
+    source_lang   TEXT,
+    translation_md TEXT NOT NULL,
+    model         TEXT,
+    provider      TEXT,
+    created_at    REAL NOT NULL,
+    PRIMARY KEY (report_id, target_lang)
+);
 CREATE TABLE IF NOT EXISTS reports (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     place_id      TEXT NOT NULL REFERENCES places(place_id),
@@ -445,6 +456,33 @@ def save_review_translation(
              translation=excluded.translation, model=excluded.model, provider=excluded.provider,
              created_at=excluded.created_at""",
         (review_id, target_lang, source_hash, source_lang, translation, model, provider, time.time()),
+    )
+    conn.commit()
+
+
+def cached_report_translation(
+    conn: sqlite3.Connection, report_id: int, target_lang: str, source_hash: str,
+) -> sqlite3.Row | None:
+    return conn.execute(
+        """SELECT * FROM report_translations
+           WHERE report_id=? AND target_lang=? AND source_hash=?""",
+        (report_id, target_lang, source_hash),
+    ).fetchone()
+
+
+def save_report_translation(
+    conn: sqlite3.Connection, report_id: int, target_lang: str, source_hash: str,
+    source_lang: str | None, translation_md: str, model: str, provider: str | None = None,
+) -> None:
+    conn.execute(
+        """INSERT INTO report_translations
+           (report_id, target_lang, source_hash, source_lang, translation_md, model, provider, created_at)
+           VALUES (?,?,?,?,?,?,?,?)
+           ON CONFLICT(report_id, target_lang) DO UPDATE SET
+             source_hash=excluded.source_hash, source_lang=excluded.source_lang,
+             translation_md=excluded.translation_md, model=excluded.model, provider=excluded.provider,
+             created_at=excluded.created_at""",
+        (report_id, target_lang, source_hash, source_lang, translation_md, model, provider, time.time()),
     )
     conn.commit()
 
