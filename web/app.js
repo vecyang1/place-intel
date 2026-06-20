@@ -249,7 +249,7 @@ function renderDetail(data) {
     ${p.activity_risk ? `<p class="activity-risk">${esc(p.activity_risk.label)} · ${esc(p.activity_risk.reason)}</p>` : ''}
     <p class="detail-fresh">${ui('已缓存', 'Cached')} ${cacheLabel} ${ui('条评价', 'reviews')} · ${ui('更新于', 'Updated')} ${esc(relTime(p.last_refreshed))}
       ${maps ? `<a class="detail-map-link" href="${esc(maps)}" target="_blank" rel="noopener noreferrer">📍 ${ui('在 Google 地图打开', 'Open in Google Maps')} ↗</a>` : ''}
-      ${cacheGap ? `<button type="button" class="btn-ghost" data-generate-report="${esc(p.place_id)}" data-report-refresh="reviews" data-place-name="${esc(p.name || '')}" data-place-address="${esc(p.address || '')}">${ui('补抓评价', 'Fetch more reviews')} ↻</button>` : ''}
+      ${cacheGap ? `<button type="button" class="btn-ghost" data-generate-report="${esc(p.place_id)}" data-report-action="refresh-reviews" data-report-refresh="reviews" data-place-name="${esc(p.name || '')}" data-place-address="${esc(p.address || '')}">${ui('补抓评价', 'Fetch more reviews')} ↻</button>` : ''}
       <button type="button" class="btn-ghost btn-danger" data-delete-place="${esc(p.place_id)}" data-place-name="${esc(p.name || '')}">${ui('从缓存移除', 'Remove from cache')} ✕</button>
     </p>
   </header>
@@ -271,7 +271,7 @@ function renderDetail(data) {
     ${rep
     ? `<div class="report-meta-line">${ui('最新报告', 'Latest report')}${rep.profile ? ` · ${esc(rep.profile)}` : ''}${rep.model ? ` · <span class="model-tag">${esc(rep.model)}</span>` : ''} · ${esc(relTime(rep.created_at))}</div>
        ${renderReportTranslateControls(rep)}<article class="report"><div class="report-body">${mdToHtml(rep.md)}</div></article>`
-    : `<div class="empty small">${ui('这家店还没有报告。', 'This place has no report yet.')} <button type="button" class="btn-ghost" data-generate-report="${esc(p.place_id)}" data-place-name="${esc(p.name || '')}" data-place-address="${esc(p.address || '')}">${ui('生成报告', 'Generate report')} →</button></div>`}
+    : `<div class="empty small">${ui('这家店还没有报告。', 'This place has no report yet.')} <button type="button" class="btn-ghost" data-generate-report="${esc(p.place_id)}" data-report-action="generate" data-place-name="${esc(p.name || '')}" data-place-address="${esc(p.address || '')}">${ui('生成报告', 'Generate report')} →</button></div>`}
     </div>
   </section>
   <details class="detail-reviews">

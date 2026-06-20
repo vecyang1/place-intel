@@ -26,7 +26,7 @@ function reportFailHtml(placeId, name, address, errors) {
     + `<p>${ui('抓取或分析中途失败，这次没有生成报告。多半是评价抓取超时——直接重试，已完成的步骤会命中缓存。',
         'Generation failed partway, so no report was produced — usually a review-scrape timeout. Just retry; completed steps hit the cache.')}</p>`
     + (why ? `<details class="result-errors" open><summary>${ui('原因', 'Why')}</summary><ul>${why}</ul></details>` : '')
-    + `<button type="button" class="btn-ghost" data-generate-report="${esc(placeId)}"`
+    + `<button type="button" class="btn-ghost" data-generate-report="${esc(placeId)}" data-report-action="generate"`
     + ` data-place-name="${esc(name || '')}" data-place-address="${esc(address || '')}">${ui('重试生成', 'Retry')} →</button>`
     + `</div>`;
 }

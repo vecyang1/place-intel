@@ -1,5 +1,18 @@
 # Changelog — place-intel
 
+## v0.4.55 — 2026-06-21 — stabilize dossier report actions and UI smoke language
+Hardens the dossier action contract used by the deploy smoke suite. The
+in-dossier "generate report" action and the partial-cache "fetch more reviews"
+action now expose distinct `data-report-action` values, so automation can click
+the intended action without confusing refresh and report-generation controls.
+The no-report dossier smoke now verifies the inline modal refresh path after the
+focused report job completes.
+
+Also makes Playwright language setup explicit before page load for English and
+Chinese expectations. This preserves the real browser behavior where a user's
+saved language/translation target is remembered, while preventing tests from
+accidentally inheriting the runner's locale.
+
 ## v0.4.54 — 2026-06-20 — remember report translation and explain partial review caches
 Fixes the dossier translation UX after the cached report-translation release.
 When a user chooses/translates a report to Chinese, the browser now remembers

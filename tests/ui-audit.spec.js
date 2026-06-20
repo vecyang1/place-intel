@@ -13,6 +13,19 @@ async function preferChineseBeforeLoad(page) {
   });
 }
 
+async function preferEnglishBeforeLoad(page, translationTarget = 'en') {
+  await page.addInitScript((target) => {
+    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+    localStorage.setItem('placeintel.languagePreference', JSON.stringify({
+      ui_language: 'en',
+      answer_language: 'en',
+      report_language: 'en',
+      translation_target: target,
+    }));
+    localStorage.setItem('placeintel.translationTarget', target);
+  }, translationTarget);
+}
+
 async function setRuntimeLanguage(page, prefs) {
   await page.evaluate((nextPrefs) => {
     window.PI18N.savePrefs(nextPrefs);
@@ -269,6 +282,7 @@ test('command center recommends shop for Maps links and starts Shop from the fir
     body: JSON.stringify({ status: 'done', events: [], result: { query: 'DClass', mode: 'single', places: [], reports: [], errors: [] } }),
   }));
 
+  await preferEnglishBeforeLoad(page);
   await page.goto('http://127.0.0.1:9618/#scout', { waitUntil: 'networkidle' });
   await page.locator('#scout-query').fill('https://www.google.com/maps/place/DClass+Guitar');
 
@@ -291,6 +305,7 @@ test('command center manual Ask override answers from the first input', async ({
     });
   });
 
+  await preferEnglishBeforeLoad(page);
   await page.goto('http://127.0.0.1:9618/#scout', { waitUntil: 'networkidle' });
   await page.locator('#scout-query').fill('押金怎么收？');
   await page.locator('[data-command-mode="ask"]').click();
@@ -322,6 +337,7 @@ test('ask answer renders separated listing and review evidence', async ({ page }
     }),
   }));
 
+  await preferEnglishBeforeLoad(page);
   await page.goto('http://127.0.0.1:9618/#ask', { waitUntil: 'networkidle' });
   await page.locator('#ask-question').fill('押金怎么收？');
   await page.locator('#ask-submit').click();
@@ -354,6 +370,7 @@ test('command center reuses matching fresh scout history instead of submitting a
   }));
   await page.route('**/api/scout', (route) => { scoutRequests += 1; return route.fulfill({ status: 500, body: 'duplicate' }); });
 
+  await preferChineseBeforeLoad(page);
   await page.goto('http://127.0.0.1:9618/#scout', { waitUntil: 'networkidle' });
   await page.locator('#scout-query').fill('Hoi An guitar rental');
   await page.locator('#scout-near').fill('Hoi An');
@@ -450,6 +467,7 @@ test('scout results explain plan, verdicts, deep dives, timeline groups, and com
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(detail) });
   });
 
+  await preferEnglishBeforeLoad(page);
   await page.goto('http://127.0.0.1:9618/#scout', { waitUntil: 'networkidle' });
   await page.locator('#scout-query').fill('Hoi An guitar rental');
   await page.locator('#scout-submit').click();
@@ -492,6 +510,7 @@ test('library search filters cached shops and caps the initial list', async ({ p
   await page.route('**/api/places', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(places) }));
   await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
 
+  await preferChineseBeforeLoad(page);
   await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
 
   await expect(page.locator('#library-search')).toBeVisible();
@@ -512,7 +531,7 @@ test('library search filters cached shops and caps the initial list', async ({ p
   await page.locator('#library-search').fill('guitar');
   await expect(page.locator('#library-grid .shop-card')).toHaveCount(1);
   await expect(page.locator('#library-grid')).toContainText("D'Class Guitar");
-  await expect(page.locator('#library-status')).toContainText('Showing 1 / 15');
+  await expect(page.locator('#library-status')).toContainText('显示 1 / 15');
 });
 
 test('source photos render lazily in library, dossier, and compare without page overflow', async ({ page }) => {
@@ -555,6 +574,7 @@ test('source photos render lazily in library, dossier, and compare without page 
     body: JSON.stringify({ place: places[1], photos: [places[1].thumbnail], reviews: [], report: null }),
   }));
 
+  await preferEnglishBeforeLoad(page);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
 
@@ -637,6 +657,7 @@ test('library workspace filters decision signals and opens compare', async ({ pa
   await page.route('**/api/places', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(places) }));
   await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
 
+  await preferChineseBeforeLoad(page);
   await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
 
   for (const id of ['#library-category', '#library-freshness', '#library-risk', '#library-language', '#library-cached', '#library-report']) {
@@ -720,6 +741,7 @@ test('library compare board reads cached dossiers without generating reports', a
   await page.route('**/api/scout', (route) => { generated += 1; return route.fulfill({ status: 500, body: 'should not scout' }); });
   await page.route('**/api/shop', (route) => { generated += 1; return route.fulfill({ status: 500, body: 'should not shop' }); });
 
+  await preferEnglishBeforeLoad(page);
   await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
   await page.locator('[data-library-compare="guitar-shop"]').click();
   await page.locator('[data-library-compare="quiet-tour"]').click();
@@ -805,6 +827,7 @@ test('dossier delete closes modal and rerenders library from API state', async (
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ place, reviews: [], report: null }) });
   });
 
+  await preferEnglishBeforeLoad(page);
   await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
   await page.locator('[data-open-place="delete-me"]').click();
   await expect(page.locator('[data-delete-place="delete-me"]')).toBeVisible();
@@ -818,6 +841,7 @@ test('dossier delete closes modal and rerenders library from API state', async (
 test('no-report dossier can start a focused report job from inside the modal', async ({ page }) => {
   const now = Date.now() / 1000;
   let shopBody = null;
+  let reportReady = false;
   const place = {
     place_id: 'needs-report', name: 'Trail Needs Report', category: 'Hiking area',
     rating: 4.5, review_count: 88, cached_reviews: 32, address: 'Da Nang',
@@ -828,31 +852,38 @@ test('no-report dossier can start a focused report job from inside the modal', a
   await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
   await page.route('**/api/places/needs-report', (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify({ place, reviews: [{ review_id: 'r1', rating: 4, text: 'Good trail.' }], report: null }),
+    body: JSON.stringify({
+      place,
+      reviews: [{ review_id: 'r1', rating: 4, text: 'Good trail.' }],
+      report: reportReady ? { id: 88, md: '# Report', profile: 'generic', created_at: now } : null,
+    }),
   }));
   await page.route('**/api/shop', (route) => {
     shopBody = route.request().postDataJSON();
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ job_id: 'detail-report-job' }) });
   });
   await page.route('**/api/jobs/detail-report-job/events*', (route) => route.fulfill({ status: 204, body: '' }));
-  await page.route('**/api/jobs/detail-report-job', (route) => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
-      status: 'done',
-      events: [{ id: 1, t: now, stage: 'done', msg: '完成：1 份报告' }],
-      result: { query: 'Trail Needs Report', mode: 'single', places: [place], reports: [{ place_id: 'needs-report', name: 'Trail Needs Report', md: '# Report' }], errors: [] },
-    }),
-  }));
+  await page.route('**/api/jobs/detail-report-job', (route) => {
+    reportReady = true;
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'done',
+        events: [{ id: 1, t: now, stage: 'done', msg: '完成：1 份报告' }],
+        result: { query: 'Trail Needs Report', mode: 'single', places: [place], reports: [{ place_id: 'needs-report', name: 'Trail Needs Report', md: '# Report' }], errors: [] },
+      }),
+    });
+  });
 
   await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
   await page.locator('[data-open-place="needs-report"]').click();
-  await expect(page.locator('[data-generate-report="needs-report"]')).toBeVisible();
-  await page.locator('[data-generate-report="needs-report"]').click();
+  const generate = page.locator('[data-report-action="generate"][data-generate-report="needs-report"]');
+  await expect(generate).toBeVisible();
+  await generate.click();
 
   expect(shopBody).toMatchObject({ target: 'Trail Needs Report', refresh: false });
-  await expect(page.locator('#detail-overlay')).toBeHidden();
-  await expect(page.locator('#panel-shop')).toBeVisible();
-  await expect(page.locator('#shop-results')).toContainText('Trail Needs Report');
+  await expect(page.locator('#detail-overlay')).toBeVisible();
+  await expect(page.locator('#detail-body .report-body')).toContainText('Report');
 });
 
 test('dossier partial review cache offers an in-place refresh action', async ({ page }) => {
@@ -998,6 +1029,7 @@ test('dossier remembers Chinese report translation and model when reopened', asy
 });
 
 test('activity risk renders as a cautious visible tag', async ({ page }) => {
+  await preferChineseBeforeLoad(page);
   await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
   const html = await page.evaluate(() => {
     const place = {
@@ -1067,6 +1099,7 @@ test('shop dossier keeps the scoped ask form above the report body', async ({ pa
 });
 
 test('shop dossier opens with a decision brief before long evidence', async ({ page }) => {
+  await preferEnglishBeforeLoad(page);
   await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
   const state = await page.evaluate(() => {
     const place = {
@@ -1398,6 +1431,7 @@ test('review translation can retry after a transient failure', async ({ page }) 
       }),
     });
   });
+  await preferEnglishBeforeLoad(page, 'zh');
   await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
   await page.evaluate(() => {
     const place = { place_id: 'translate-retry-test', name: 'Translate Retry Test', rating: 4.8, review_count: 1 };
