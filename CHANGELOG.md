@@ -1,5 +1,15 @@
 # Changelog — place-intel
 
+## v0.4.52 — 2026-06-20 — agent-readiness PRD governance
+Adds a PRD router and contract gate so future agents can start from the right
+owner record instead of guessing across legacy files. New current-format PRD:
+`tasks/2026-06-20 - prd agent-readiness-governance.md`. New router:
+`tasks/README.md`, covering all 8 PRDs while preserving the 7 historical
+`tasks/prd-*.md` filenames. New executable gate:
+`scripts/validate-prd-contract.sh --allow-legacy .` verifies routing and
+required headers; strict mode intentionally rejects legacy filenames until a
+deliberate migration. Added `tests/test_prd_contract.py` for the contract gate.
+
 ## v0.4.51 — 2026-06-19 — dossier: jump to the spot on Google Maps from the top
 Adds a prominent "📍 在 Google 地图打开 / Open in Google Maps ↗" action to the top of the
 dossier header (on the freshness row, beside *Remove from cache*), so you can jump straight to
