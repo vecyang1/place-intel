@@ -1,5 +1,20 @@
 # Changelog — place-intel
 
+## v0.4.54 — 2026-06-20 — remember report translation and explain partial review caches
+Fixes the dossier translation UX after the cached report-translation release.
+When a user chooses/translates a report to Chinese, the browser now remembers
+that report-display preference and reopens the dossier in the translated view
+until the user explicitly switches back to original. While translated, the
+report model pill and status line show the translation model/provider
+(`gemini-3.1-flash-lite @ VectorEngine`) instead of making the translated text
+look like it came from the original reasoning model.
+
+Also clarifies the common "210 listed / only 1 cached" case: the dossier now
+shows partial cache counts as `cached / listed` and exposes a direct
+`补抓评价 / Fetch more reviews` action when local cached reviews are below the
+Google listing count. The action reuses the existing in-dossier single-shop
+pipeline with `refresh:true`.
+
 ## v0.4.53 — 2026-06-20 — cached report translation
 Adds cached, display-layer translation for generated dossier reports. New
 `report_translations` rows key by `report_id`, target language, and source

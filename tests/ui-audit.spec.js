@@ -855,6 +855,38 @@ test('no-report dossier can start a focused report job from inside the modal', a
   await expect(page.locator('#shop-results')).toContainText('Trail Needs Report');
 });
 
+test('dossier partial review cache offers an in-place refresh action', async ({ page }) => {
+  const now = Date.now() / 1000;
+  let shopBody = null;
+  const place = {
+    place_id: 'partial-cache', name: 'HoiAn Flow | Kite Surf Wind Center', category: 'Surf school',
+    rating: 4.8, review_count: 210, address: 'Hoi An', last_refreshed: now,
+  };
+  const report = { id: 91, md: '# Report', report_lang: 'en', profile: 'generic', model: 'gemini-3-flash-preview', created_at: now, json: {} };
+  await preferChineseBeforeLoad(page);
+  await page.route('**/api/places/partial-cache', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ place, photos: [], reviews: [{ review_id: 'one', rating: 5, text: 'Great wind.' }], report }),
+  }));
+  await page.route('**/api/shop', (route) => {
+    shopBody = route.request().postDataJSON();
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ job_id: 'partial-cache-job' }) });
+  });
+  await page.route('**/api/jobs/partial-cache-job/events*', (route) => route.fulfill({ status: 204, body: '' }));
+  await page.route('**/api/jobs/partial-cache-job', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ status: 'running', events: [] }),
+  }));
+
+  await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  await page.evaluate(() => window.__pi.openDetail('partial-cache'));
+
+  await expect(page.locator('#detail-body .detail-fresh')).toContainText('1 / 210');
+  await expect(page.locator('#detail-body [data-report-refresh="reviews"]')).toBeVisible();
+  await page.locator('#detail-body [data-report-refresh="reviews"]').click();
+  expect(shopBody).toMatchObject({ target: 'HoiAn Flow | Kite Surf Wind Center', refresh: true });
+});
+
 test('dossier report can translate to Chinese from cache and restore original', async ({ page }) => {
   const bodies = [];
   await page.route('**/api/reports/translate', (route) => {
@@ -895,10 +927,74 @@ test('dossier report can translate to Chinese from cache and restore original', 
   await page.locator('#report-translate-host [data-report-translate="77"]').click();
   await expect(page.locator('#report-translate-host .report-body')).toContainText('结论：到店前确认价格');
   await expect(page.locator('#report-translate-host .report-translation-status')).toContainText('缓存');
+  await expect(page.locator('#report-translate-host .report-meta-line .model-tag')).toContainText('gemini-3.1-flash-lite');
   expect(bodies).toEqual([{ report_id: 77, target_lang: 'zh' }]);
 
   await page.locator('#report-translate-host [data-report-original="77"]').click();
   await expect(page.locator('#report-translate-host .report-body')).toContainText('Verdict: verify pricing');
+  await expect(page.locator('#report-translate-host .report-meta-line .model-tag')).toContainText('gemini-3-flash-preview');
+});
+
+test('dossier remembers Chinese report translation and model when reopened', async ({ page }) => {
+  const translateBodies = [];
+  const detailPayload = {
+    place: { place_id: 'report-remember-test', name: 'Hoian Flow', rating: 4.8, review_count: 210, last_refreshed: Date.now() / 1000 },
+    photos: [],
+    reviews: [],
+    report: {
+      id: 88,
+      md: '# Hoian Flow Intel Report\n\nVerdict: verify pricing in person.',
+      report_lang: 'en',
+      profile: 'generic',
+      model: 'gemini-3-flash-preview',
+      created_at: Date.now() / 1000,
+      json: { verdict: 'verify pricing in person', walk_in_brief: ['Ask for current price.'] },
+    },
+  };
+  await page.route('**/api/places/report-remember-test', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify(detailPayload),
+  }));
+  await page.route('**/api/reports/translate', (route) => {
+    const body = route.request().postDataJSON();
+    translateBodies.push(body);
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        report_id: body.report_id,
+        target_lang: body.target_lang,
+        source_lang: 'en',
+        md: '# 中文情报报告\n\n结论：到店前确认价格。',
+        cached: true,
+        model: 'gemini-3.1-flash-lite',
+        provider: 'VectorEngine',
+        created_at: Date.now() / 1000,
+      }),
+    });
+  });
+
+  await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  await setRuntimeLanguage(page, { ui_language: 'zh', answer_language: 'zh', report_language: 'en', translation_target: 'en' });
+  await page.evaluate(() => window.__pi.openDetail('report-remember-test'));
+  await expect(page.locator('#detail-body .report-body')).toContainText('Verdict: verify pricing');
+
+  await page.locator('#detail-body .report-translation-target').selectOption('zh');
+  await page.locator('#detail-body [data-report-translate="88"]').click();
+  await expect(page.locator('#detail-body .report-body')).toContainText('结论：到店前确认价格');
+  await expect(page.locator('#detail-body .report-meta-line .model-tag')).toContainText('gemini-3.1-flash-lite @ VectorEngine');
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('placeintel.languagePreference') || '{}').translation_target)).toBe('zh');
+
+  await page.evaluate(() => window.__pi.closeDetail());
+  await page.evaluate(() => window.__pi.openDetail('report-remember-test'));
+  await expect(page.locator('#detail-body .report-body')).toContainText('结论：到店前确认价格');
+  await expect(page.locator('#detail-body .report-body')).not.toContainText('Verdict: verify pricing');
+  expect(translateBodies).toEqual([{ report_id: 88, target_lang: 'zh' }, { report_id: 88, target_lang: 'zh' }]);
+
+  await page.locator('#detail-body [data-report-original="88"]').click();
+  await expect(page.locator('#detail-body .report-body')).toContainText('Verdict: verify pricing');
+  await page.evaluate(() => window.__pi.closeDetail());
+  await page.evaluate(() => window.__pi.openDetail('report-remember-test'));
+  await expect(page.locator('#detail-body .report-body')).toContainText('Verdict: verify pricing');
 });
 
 test('activity risk renders as a cautious visible tag', async ({ page }) => {

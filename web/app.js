@@ -235,7 +235,7 @@ function renderDetail(data) {
   const p = (data && data.place) || {};
   const reviews = (data && data.reviews) || [];
   const rep = (data && data.report) || null;
-  const facts = [];
+  const facts = [], listedReviews = Number(p.review_count) || 0, cacheGap = listedReviews > reviews.length, cacheLabel = cacheGap ? `${reviews.length} / ${fmtInt(listedReviews)}` : `${reviews.length}`;
   const addFact = (label, html) => { if (html) facts.push(`<div class="fact"><dt>${label}</dt><dd>${html}</dd></div>`); };
   addFact(ui('地址', 'Address'), p.address && esc(p.address));
   addFact(ui('电话', 'Phone'), p.phone && esc(p.phone));
@@ -247,8 +247,9 @@ function renderDetail(data) {
     <p class="detail-kicker">${esc(p.category || ui('店铺', 'Shop'))} · ${esc(stars(p.rating))} · ${fmtInt(p.review_count)} ${ui('条在列', 'listed')}</p>
     <h2 class="detail-name">${esc(p.name || ui('未命名', 'Unnamed'))}</h2>
     ${p.activity_risk ? `<p class="activity-risk">${esc(p.activity_risk.label)} · ${esc(p.activity_risk.reason)}</p>` : ''}
-    <p class="detail-fresh">${ui('已缓存', 'Cached')} ${reviews.length} ${ui('条评价', 'reviews')} · ${ui('更新于', 'Updated')} ${esc(relTime(p.last_refreshed))}
+    <p class="detail-fresh">${ui('已缓存', 'Cached')} ${cacheLabel} ${ui('条评价', 'reviews')} · ${ui('更新于', 'Updated')} ${esc(relTime(p.last_refreshed))}
       ${maps ? `<a class="detail-map-link" href="${esc(maps)}" target="_blank" rel="noopener noreferrer">📍 ${ui('在 Google 地图打开', 'Open in Google Maps')} ↗</a>` : ''}
+      ${cacheGap ? `<button type="button" class="btn-ghost" data-generate-report="${esc(p.place_id)}" data-report-refresh="reviews" data-place-name="${esc(p.name || '')}" data-place-address="${esc(p.address || '')}">${ui('补抓评价', 'Fetch more reviews')} ↻</button>` : ''}
       <button type="button" class="btn-ghost btn-danger" data-delete-place="${esc(p.place_id)}" data-place-name="${esc(p.name || '')}">${ui('从缓存移除', 'Remove from cache')} ✕</button>
     </p>
   </header>
@@ -266,11 +267,12 @@ function renderDetail(data) {
     <div class="ask-shop-answer"></div>
   </section>
   ${facts.length ? `<section class="detail-section"><dl class="facts detail-facts">${facts.join('')}</dl></section>` : ''}
-  <section class="detail-section">
+  <section class="detail-section"><div data-report-slot>
     ${rep
     ? `<div class="report-meta-line">${ui('最新报告', 'Latest report')}${rep.profile ? ` · ${esc(rep.profile)}` : ''}${rep.model ? ` · <span class="model-tag">${esc(rep.model)}</span>` : ''} · ${esc(relTime(rep.created_at))}</div>
        ${renderReportTranslateControls(rep)}<article class="report"><div class="report-body">${mdToHtml(rep.md)}</div></article>`
-    : `<div data-report-slot><div class="empty small">${ui('这家店还没有报告。', 'This place has no report yet.')} <button type="button" class="btn-ghost" data-generate-report="${esc(p.place_id)}" data-place-name="${esc(p.name || '')}" data-place-address="${esc(p.address || '')}">${ui('生成报告', 'Generate report')} →</button></div></div>`}
+    : `<div class="empty small">${ui('这家店还没有报告。', 'This place has no report yet.')} <button type="button" class="btn-ghost" data-generate-report="${esc(p.place_id)}" data-place-name="${esc(p.name || '')}" data-place-address="${esc(p.address || '')}">${ui('生成报告', 'Generate report')} →</button></div>`}
+    </div>
   </section>
   <details class="detail-reviews">
     <summary>${ui(`评价原文 reviews · ${reviews.length} 条`, `Reviews · ${reviews.length}`)}</summary>
@@ -413,6 +415,7 @@ async function openDetail(placeId) {
     const data = await apiGet(`/api/places/${encodeURIComponent(placeId)}`);
     state.detail = data;
     body.innerHTML = renderDetail(data);
+    applyReportTranslationPreference(body);
     body.scrollTop = 0;
     loadQaHistory(placeId); // past Q&A for this shop, re-askable
   } catch (err) {
@@ -641,7 +644,7 @@ function bindGlobal() {
     if (e.target.closest('#model-switch')) return toggleModelPicker();
     if (e.target.closest('#model-save')) return saveModel();
   });
-  document.addEventListener('input', (e) => { if (e.target.closest('#library-search')) { state.libraryLimit = LIBRARY_PAGE_SIZE; renderLibrary(); } }); document.addEventListener('change', (e) => { const sel = e.target.closest('.translation-target'); if (sel) setTranslationTarget(sel); if (e.target.closest(LIBRARY_FILTERS)) { state.libraryLimit = LIBRARY_PAGE_SIZE; renderLibrary(); } }); $('#photo-lightbox').addEventListener('wheel', wheelPhotoZoom, { passive: false });
+  document.addEventListener('input', (e) => { if (e.target.closest('#library-search')) { state.libraryLimit = LIBRARY_PAGE_SIZE; renderLibrary(); } }); document.addEventListener('change', (e) => { const sel = e.target.closest('.translation-target'); if (sel) setTranslationTarget(sel); const reportSel = e.target.closest('.report-translation-target'); if (reportSel) setReportTranslationTarget(reportSel); if (e.target.closest(LIBRARY_FILTERS)) { state.libraryLimit = LIBRARY_PAGE_SIZE; renderLibrary(); } }); $('#photo-lightbox').addEventListener('wheel', wheelPhotoZoom, { passive: false });
   $('#model-select').addEventListener('change', () => {
     $('#model-custom').hidden = $('#model-select').value !== CUSTOM_MODEL;
   });

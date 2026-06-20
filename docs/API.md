@@ -462,7 +462,7 @@ Example response:
 
 ```json
 {
-  "version": "0.4.53",
+  "version": "0.4.54",
   "settings": {
     "reason_model": "gemini-3-flash-preview",
     "translation_model": "gemini-3.1-flash-lite",
