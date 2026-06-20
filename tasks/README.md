@@ -10,6 +10,7 @@ This file is a navigation surface, not a second source of requirements. Keep det
 | PRD | Status | Created | Last Updated | Owner Surface | Next Action |
 | --- | --- | --- | --- | --- | --- |
 | [Agent-Readiness Governance](<2026-06-20 - prd agent-readiness-governance.md>) | Complete | 2026-06-20 | 2026-06-20 | PRD router, contract gate, agent docs | Use before PRD work; migrate legacy files only when reopened. |
+| [Cached Report Translation](<2026-06-20 - prd cached-report-translation.md>) | Draft | 2026-06-20 | 2026-06-20 | `report_translations`, `/api/reports/translate`, dossier report switch | Add RED tests, implement cache/API/UI, then update PRD to Complete after verification. |
 | [Dossier UX](prd-dossier-ux.md) | Complete | 2026-06-19 | 2026-06-19 | `web/dossier.js`, `web/app.js`, `web/app.css` | Historical owner record; preserve modal/lightbox regressions. |
 | [Language Adaptation System](prd-placeintel-language-adaptation.md) | Implemented in v0.4.40 | 2026-06-15 | 2026-06-15 | `placeintel/language.py`, `web/i18n.js`, language cache fields | Historical owner record; if reopened, migrate or backfill acceptance checkboxes. |
 | [Source Photos and Navigation Clarity](prd-placeintel-source-photos-navigation-clarity.md) | Complete | 2026-06-15 | 2026-06-15 | `placeintel/photos.py`, `web/app.js`, `web/app.css` | Historical owner record; preserve URL-only photo policy. |
