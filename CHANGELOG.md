@@ -1,5 +1,15 @@
 # Changelog — place-intel
 
+## v0.4.61 — 2026-06-21 — run scraper-pro from writable data workdir
+Moves the scraper-pro subprocess working directory out of the deployed vendor
+tree and into `DATA_DIR/vendor/google-reviews-scraper-pro/work`. The wrapper
+now loads `start.py` and vendor modules by absolute path, while relative runtime
+scratch files such as SeleniumBase `downloaded_files/` are created in writable
+data storage.
+
+This follows the v0.4.60 log-path fix after production showed SeleniumBase still
+needed a writable cwd before it could launch Chrome.
+
 ## v0.4.60 — 2026-06-21 — make scraper-pro logs path deploy-safe
 Fixes the production scraper-pro fallback where the vendor CLI tried to create
 a relative `logs/` directory inside the deployed `vendor/` tree and failed with

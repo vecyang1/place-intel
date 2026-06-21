@@ -2,6 +2,7 @@
 reviews already collected (the v0.4.49 'report jumps back to nothing' fix). Only a
 first-page failure — where nothing was collected — should propagate."""
 import unittest
+import tempfile
 from pathlib import Path
 from unittest import mock
 
@@ -108,6 +109,35 @@ class SerpApiSalvageTest(unittest.TestCase):
         self.assertTrue(Path(cfg["log_dir"]).is_absolute(), cfg["log_dir"])
         self.assertEqual(Path(cfg["log_dir"]).name, "logs")
         self.assertEqual(cfg["log_file"], "scraper.log")
+
+    def test_scraper_subprocess_runs_from_writable_data_work_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_dir = root / "data"
+            scraper_dir = root / "vendor" / "google-reviews-scraper-pro"
+            scraper_dir.mkdir(parents=True)
+            fake_proc = mock.Mock(stdout="", stderr="", returncode=0)
+            with mock.patch.object(reviews.config, "DATA_DIR", data_dir), \
+                    mock.patch.object(reviews, "SCRAPER_DIR", scraper_dir), \
+                    mock.patch.object(
+                        reviews,
+                        "SCRAPER_PYTHON",
+                        scraper_dir / ".venv" / "bin" / "python",
+                    ), \
+                    mock.patch.object(
+                        reviews.subprocess,
+                        "run",
+                        return_value=fake_proc,
+                    ) as run:
+                reviews._run_scraper_pro(_place(), max_reviews=90)
+
+        cmd = run.call_args.args[0]
+        self.assertEqual(
+            run.call_args.kwargs["cwd"],
+            data_dir.resolve() / "vendor" / "google-reviews-scraper-pro" / "work",
+        )
+        self.assertIn(str(scraper_dir), cmd[2])
+        self.assertIn(str(scraper_dir / "start.py"), cmd[2])
 
 
 if __name__ == "__main__":

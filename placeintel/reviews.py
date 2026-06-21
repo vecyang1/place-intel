@@ -155,6 +155,8 @@ def _run_scraper_pro(
     place: Place, max_reviews: int | None, target_url: str | None = None
 ) -> None:
     config.ensure_dirs()
+    work_dir = _scraper_work_dir()
+    work_dir.mkdir(parents=True, exist_ok=True)
     scraper_config = _build_scraper_config(place, max_reviews, target_url)
     with tempfile.TemporaryDirectory(prefix="placeintel-scraper-") as tmp_dir:
         config_path = Path(tmp_dir) / "config.yaml"
@@ -170,8 +172,9 @@ def _run_scraper_pro(
             "from seleniumbase import config as sb_config; "
             "sb_config.multi_proxy = True; "
             "import sys, runpy; "
+            f"sys.path.insert(0, {str(SCRAPER_DIR)!r}); "
             "sys.argv = ['start.py'] + sys.argv[1:]; "
-            "runpy.run_path('start.py', run_name='__main__')"
+            f"runpy.run_path({str(SCRAPER_DIR / 'start.py')!r}, run_name='__main__')"
         )
         cmd = [str(SCRAPER_PYTHON), "-c", bootstrap, "scrape",
                "--config", str(config_path)]
@@ -179,7 +182,7 @@ def _run_scraper_pro(
         try:
             proc = subprocess.run(
                 cmd,
-                cwd=SCRAPER_DIR,
+                cwd=work_dir,
                 capture_output=True,
                 text=True,
                 timeout=SCRAPER_TIMEOUT_S,
@@ -242,6 +245,10 @@ def _scraper_db_path() -> Path:
 
 def _scraper_log_dir() -> Path:
     return (config.DATA_DIR / "vendor" / "google-reviews-scraper-pro" / "logs").resolve()
+
+
+def _scraper_work_dir() -> Path:
+    return (config.DATA_DIR / "vendor" / "google-reviews-scraper-pro" / "work").resolve()
 
 
 def _scraper_internal_place_ids(conn: sqlite3.Connection, maps_url: str) -> list[str]:
