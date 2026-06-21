@@ -44,6 +44,42 @@ class SerpApiSalvageTest(unittest.TestCase):
 
         self.assertEqual(len(got), 20)  # page-1 reviews kept, not lost to the page-2 raise
 
+    def test_first_serpapi_page_only_is_not_treated_as_complete_cache(self):
+        place = _place()
+        place.review_count = 300
+
+        def fake_get(params, page):
+            if page == 1:
+                return _page1_payload(8)
+            raise RuntimeError("SerpAPI request failed on page 2: Read timed out")
+
+        with mock.patch.object(reviews, "_serpapi_get", side_effect=fake_get):
+            with self.assertRaises(reviews.PartialReviewsError):
+                reviews._fetch_via_serpapi(place, max_reviews=300)
+
+    def test_unknown_total_with_next_page_failure_is_partial(self):
+        place = _place()
+
+        def fake_get(params, page):
+            if page == 1:
+                return _page1_payload(8)
+            raise RuntimeError("SerpAPI request failed on page 2: Read timed out")
+
+        with mock.patch.object(reviews, "_serpapi_get", side_effect=fake_get):
+            with self.assertRaises(reviews.PartialReviewsError):
+                reviews._fetch_via_serpapi(place, max_reviews=300)
+
+    def test_unknown_total_without_next_page_allows_small_review_sets(self):
+        place = _place()
+
+        def fake_get(params, page):
+            return {"reviews": [{"review_id": f"small-{i}"} for i in range(5)]}
+
+        with mock.patch.object(reviews, "_serpapi_get", side_effect=fake_get):
+            got = reviews._fetch_via_serpapi(place, max_reviews=300)
+
+        self.assertEqual(len(got), 5)
+
     def test_first_page_failure_still_raises(self):
         def fake_get(params, page):
             raise RuntimeError("SerpAPI request failed on page 1: Read timed out")
@@ -51,6 +87,17 @@ class SerpApiSalvageTest(unittest.TestCase):
         with mock.patch.object(reviews, "_serpapi_get", side_effect=fake_get):
             with self.assertRaises(RuntimeError):
                 reviews._fetch_via_serpapi(_place(), max_reviews=300)
+
+    def test_scraper_target_url_repairs_place_id_only_maps_url(self):
+        place = _place()
+        place.name = "Melody Boutique Villa Hoi An"
+        place.place_id = "ChIJ8_test"
+        place.maps_url = "https://www.google.com/maps/place/?q=place_id:ChIJ8_test"
+
+        target = reviews._scraper_target_url(place)
+
+        self.assertIn("/maps/place/Melody+Boutique+Villa+Hoi+An/", target)
+        self.assertIn("q=place_id:ChIJ8_test", target)
 
 
 if __name__ == "__main__":

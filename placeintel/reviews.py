@@ -16,6 +16,7 @@ import logging
 import sqlite3
 import subprocess
 import tempfile
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -37,10 +38,15 @@ SERPAPI_TIMEOUT_S = 60
 # When max_reviews is None we still cap pagination to protect API credits.
 SERPAPI_DEFAULT_MAX_PAGES = 10
 SERPAPI_PAGE_SIZE = 20
+SERPAPI_INITIAL_PAGE_SIZE = 8
 
 
 class ScraperProError(RuntimeError):
     """Primary (scraper-pro) path failed; caller should fall back to SerpAPI."""
+
+
+class PartialReviewsError(RuntimeError):
+    """Review fetch returned only a known-underfilled first page."""
 
 
 def fetch_reviews(
@@ -84,7 +90,7 @@ def fetch_reviews(
 def _primary_blockers(place: Place) -> list[str]:
     """Reasons the scraper-pro path cannot run (empty list == runnable)."""
     blockers: list[str] = []
-    if not place.maps_url:
+    if not _scraper_target_url(place):
         blockers.append("place.maps_url is missing")
     if not SCRAPER_PYTHON.exists():
         blockers.append(f"venv python not found at {SCRAPER_PYTHON}")
@@ -94,12 +100,36 @@ def _primary_blockers(place: Place) -> list[str]:
 
 
 def _fetch_via_scraper_pro(place: Place, max_reviews: int | None) -> list[Review]:
-    _run_scraper_pro(place, max_reviews)
-    return _read_scraper_db(place)
+    target_url = _scraper_target_url(place)
+    _run_scraper_pro(place, max_reviews, target_url)
+    return _read_scraper_db(place, target_url)
 
 
-def _build_scraper_config(place: Place, max_reviews: int | None) -> dict[str, Any]:
+def _scraper_target_url(place: Place) -> str | None:
+    """Return a Google Maps URL that scraper-pro can search from reliably."""
+    maps_url = place.maps_url or ""
+    if _maps_url_has_place_name(maps_url):
+        return maps_url
+    if not place.name or not place.place_id:
+        return maps_url or None
+    name = urllib.parse.quote_plus(place.name)
+    pid = urllib.parse.quote(str(place.place_id), safe=":")
+    return f"https://www.google.com/maps/place/{name}/?q=place_id:{pid}"
+
+
+def _maps_url_has_place_name(maps_url: str) -> bool:
+    parsed = urllib.parse.urlparse(maps_url)
+    marker = "/maps/place/"
+    if marker not in parsed.path:
+        return False
+    return bool(parsed.path.split(marker, 1)[1].strip("/"))
+
+
+def _build_scraper_config(
+    place: Place, max_reviews: int | None, target_url: str | None = None
+) -> dict[str, Any]:
     """Minimal config.yaml content (keys per vendor config.sample.yaml)."""
+    target_url = target_url or _scraper_target_url(place)
     return {
         "headless": True,
         "sort_by": "newest",
@@ -113,16 +143,18 @@ def _build_scraper_config(place: Place, max_reviews: int | None) -> dict[str, An
         "db_path": str(SCRAPER_DB_PATH),  # persistent: incremental runs stay cheap
         "businesses": [
             {
-                "url": place.maps_url,
+                "url": target_url,
                 "custom_params": {"company": place.place_id},
             }
         ],
     }
 
 
-def _run_scraper_pro(place: Place, max_reviews: int | None) -> None:
+def _run_scraper_pro(
+    place: Place, max_reviews: int | None, target_url: str | None = None
+) -> None:
     config.ensure_dirs()
-    scraper_config = _build_scraper_config(place, max_reviews)
+    scraper_config = _build_scraper_config(place, max_reviews, target_url)
     with tempfile.TemporaryDirectory(prefix="placeintel-scraper-") as tmp_dir:
         config_path = Path(tmp_dir) / "config.yaml"
         config_path.write_text(
@@ -165,7 +197,7 @@ def _run_scraper_pro(place: Place, max_reviews: int | None) -> None:
         raise ScraperProError(f"exit code {proc.returncode}: {tail}")
 
 
-def _read_scraper_db(place: Place) -> list[Review]:
+def _read_scraper_db(place: Place, target_url: str | None = None) -> list[Review]:
     """Map rows for THIS place from the scraper's SQLite db into Review objects."""
     if not SCRAPER_DB_PATH.exists():
         raise ScraperProError(f"scraper db never created at {SCRAPER_DB_PATH}")
@@ -175,10 +207,18 @@ def _read_scraper_db(place: Place) -> list[Review]:
         raise ScraperProError(f"cannot open scraper db: {exc}") from exc
     conn.row_factory = sqlite3.Row
     try:
-        internal_ids = _scraper_internal_place_ids(conn, place.maps_url or "")
+        urls = []
+        for url in (target_url, place.maps_url):
+            if url and url not in urls:
+                urls.append(url)
+        internal_ids: list[str] = []
+        for url in urls:
+            for internal_id in _scraper_internal_place_ids(conn, url):
+                if internal_id not in internal_ids:
+                    internal_ids.append(internal_id)
         if not internal_ids:
             raise ScraperProError(
-                f"no scraper-db place row matches url {place.maps_url!r}"
+                f"no scraper-db place row matches urls {urls!r}"
             )
         marks = ",".join("?" for _ in internal_ids)
         rows = conn.execute(
@@ -260,6 +300,7 @@ def _fetch_via_serpapi(place: Place, max_reviews: int | None) -> list[Review]:
     params: dict[str, str] = {
         "engine": "google_maps_reviews",
         "data_id": str(data_id),
+        "hl": "en",
         "sort_by": "newestFirst",
         "api_key": api_key,
     }
@@ -272,6 +313,14 @@ def _fetch_via_serpapi(place: Place, max_reviews: int | None) -> list[Review]:
             # on the newest 20 beats reverting the user to an empty dossier. Only a
             # first-page failure (nothing collected) has nothing to salvage, so re-raise.
             if collected:
+                if serpapi_first_page_only_gap(
+                    place, len(collected), max_reviews, had_next_page=True
+                ):
+                    raise PartialReviewsError(
+                        f"SerpAPI stopped after its first {len(collected)} reviews "
+                        f"for {place.name}; Google lists {place.review_count or 'more'} "
+                        "and the next reviews page failed"
+                    )
                 logger.warning(
                     "SerpAPI page %d failed — salvaging %d reviews already collected for %s",
                     page, len(collected), place.place_id,
@@ -285,6 +334,12 @@ def _fetch_via_serpapi(place: Place, max_reviews: int | None) -> list[Review]:
             break
         next_token = (payload.get("serpapi_pagination") or {}).get("next_page_token")
         if not next_token:
+            if serpapi_first_page_only_gap(place, len(collected), max_reviews):
+                raise PartialReviewsError(
+                    f"SerpAPI returned only its first {len(collected)} reviews for "
+                    f"{place.name} and no next_page_token; Google lists "
+                    f"{place.review_count or 'more'}"
+                )
             break
         params = {**params, "next_page_token": next_token}
     logger.info("SerpAPI yielded %d reviews for %s", len(collected), place.place_id)
@@ -350,6 +405,23 @@ def _serp_images(item: dict[str, Any]) -> list:
         if url:
             images.append(url)
     return images
+
+
+def serpapi_first_page_only_gap(
+    place: Place,
+    review_count: int,
+    max_reviews: int | None,
+    *,
+    had_next_page: bool = False,
+) -> bool:
+    """True when an 8-review SerpAPI first page is known to be underfilled."""
+    if review_count <= 0 or review_count > SERPAPI_INITIAL_PAGE_SIZE:
+        return False
+    requested_more = max_reviews is None or max_reviews > review_count
+    listed_more = had_next_page or (
+        place.review_count is not None and place.review_count > review_count
+    )
+    return requested_more and listed_more
 
 
 # ---------------------------------------------------------------------------

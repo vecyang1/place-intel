@@ -126,12 +126,20 @@ def _deep_dive(conn: sqlite3.Connection, places: list[cache.Place], profile: dic
                refresh: bool, skip_reports: bool, result: ScoutResult,
                emit: Callable[..., None]) -> None:
     review_failures: set[str] = set()
+    partial_review_failures: set[str] = set()
     for place in places:
         try:
             fresh = cache.place_is_fresh(conn, place.place_id)
             cached_reviews = cache.get_reviews(conn, place.place_id)
-            if refresh or not fresh or not cached_reviews:
-                emit("reviews", f"抓取「{place.name}」的评价（最多 {max_reviews} 条）…")
+            first_page_only = reviews.serpapi_first_page_only_gap(
+                place, len(cached_reviews), max_reviews
+            )
+            if refresh or not fresh or not cached_reviews or first_page_only:
+                if first_page_only and cached_reviews and not refresh:
+                    emit("reviews", f"「{place.name}」缓存只有 {len(cached_reviews)} / "
+                         f"{place.review_count or '?'} 条，继续补抓评价…")
+                else:
+                    emit("reviews", f"抓取「{place.name}」的评价（最多 {max_reviews} 条）…")
                 got = reviews.fetch_reviews(place, max_reviews=max_reviews,
                                             force_serpapi=force_serpapi)
                 new = cache.upsert_reviews(conn, got)
@@ -140,12 +148,20 @@ def _deep_dive(conn: sqlite3.Connection, places: list[cache.Place], profile: dic
                 emit("reviews", f"「{place.name}」：缓存仍新鲜，{len(cached_reviews)} 条评价")
         except Exception as exc:  # one bad place must not kill the scout
             review_failures.add(place.place_id)
+            if isinstance(exc, reviews.PartialReviewsError):
+                partial_review_failures.add(place.place_id)
             result.errors.append(f"reviews:{place.name}: {exc}")
             emit("reviews", f"「{place.name}」评价抓取失败：{exc}")
             cached_after_failure = cache.get_reviews(conn, place.place_id)
             if cached_after_failure:
-                emit("reviews", f"「{place.name}」评价抓取失败，使用已缓存 "
-                     f"{len(cached_after_failure)} 条评价继续生成报告")
+                if (place.place_id in partial_review_failures
+                        and reviews.serpapi_first_page_only_gap(
+                            place, len(cached_after_failure), max_reviews)):
+                    emit("reviews", f"「{place.name}」只有 {len(cached_after_failure)} 条缓存评价，"
+                         "疑似 SerpAPI 首屏结果；不使用这批不完整缓存生成报告")
+                else:
+                    emit("reviews", f"「{place.name}」评价抓取失败，使用已缓存 "
+                         f"{len(cached_after_failure)} 条评价继续生成报告")
 
     try:
         indexed = embed.index_pending(conn)
@@ -170,6 +186,13 @@ def _deep_dive(conn: sqlite3.Connection, places: list[cache.Place], profile: dic
                     )
                 emit("report", f"「{place.name}」没有缓存评价可分析；"
                      "评价抓取失败或未返回内容，跳过报告")
+                continue
+            if (place.place_id in partial_review_failures
+                    and reviews.serpapi_first_page_only_gap(
+                        place, len(available_reviews), max_reviews)):
+                emit("report", f"「{place.name}」只有 {len(available_reviews)} 条缓存评价，"
+                     f"低于 Google 在列 {place.review_count or '?'} 条；跳过报告，"
+                     "请稍后重试或启用 scraper-pro")
                 continue
             existing = cache.latest_report(conn, place.place_id, profile["name"], report_lang=report_lang)
             if existing is None and profile["name"] == "generic":

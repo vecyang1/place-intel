@@ -87,6 +87,44 @@ class PipelineReviewFailureFallbackTest(unittest.TestCase):
                                 for stage, msg in events))
             conn.close()
 
+    def test_first_page_only_cache_is_refetched_and_not_used_as_report_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            conn = cache.connect(data_dir / "placeintel.db")
+            place = _place()
+            cache.upsert_place(conn, place)
+            for idx in range(8):
+                cache.upsert_reviews(conn, [
+                    cache.Review(
+                        review_id=f"flow-first-page-{idx}",
+                        place_id="flow",
+                        rating=5,
+                        text=f"Useful but first-page-only review {idx}.",
+                        review_date=f"2026-06-{idx + 1:02d}",
+                        source="serpapi",
+                    )
+                ])
+            result = pipeline.ScoutResult(query="HoiAn Flow", location=None, profile="generic")
+            events = []
+
+            with mock.patch.object(pipeline.config, "DATA_DIR", data_dir), \
+                    mock.patch.object(pipeline.reviews, "fetch_reviews",
+                                      side_effect=pipeline.reviews.PartialReviewsError(
+                                          "SerpAPI returned only its first 8 reviews",
+                                      )) as fetch_reviews, \
+                    mock.patch.object(pipeline.embed, "index_pending", return_value=0), \
+                    mock.patch.object(pipeline.analyze, "analyze_place") as analyze_place:
+                pipeline._deep_dive(
+                    conn, [place], _profile(), 300, "zh", True, False, False,
+                    result, lambda stage, msg, data=None: events.append((stage, msg)),
+                )
+
+            fetch_reviews.assert_called_once()
+            analyze_place.assert_not_called()
+            self.assertTrue(any("只有 8 条" in msg or "only 8" in msg for _, msg in events))
+            self.assertTrue(any(err.startswith("reviews:HoiAn Flow:") for err in result.errors))
+            conn.close()
+
 
 if __name__ == "__main__":
     unittest.main()

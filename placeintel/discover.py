@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -265,7 +266,7 @@ def _serpapi_result_to_place(item: dict) -> Place | None:
         log.warning("Skipping SerpAPI result %r: no place_id/data_id", name)
         return None
     gps = item.get("gps_coordinates") or {}
-    fallback_url = f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+    fallback_url = _serpapi_maps_url(name, place_id)
     maps_url = item.get("link") or fallback_url
     return Place(
         place_id=str(place_id), name=str(name),
@@ -278,6 +279,12 @@ def _serpapi_result_to_place(item: dict) -> Place | None:
         price_level=item.get("price") or None, maps_url=maps_url,
         source="serpapi", raw=dict(item),  # raw keeps data_id for reviews module
     )
+
+
+def _serpapi_maps_url(name: str, place_id: str) -> str:
+    encoded_name = urllib.parse.quote_plus(str(name))
+    encoded_place_id = urllib.parse.quote(str(place_id), safe=":")
+    return f"https://www.google.com/maps/place/{encoded_name}/?q=place_id:{encoded_place_id}"
 
 
 # -- shared helpers ----------------------------------------------------------

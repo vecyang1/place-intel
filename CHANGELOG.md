@@ -1,5 +1,25 @@
 # Changelog — place-intel
 
+## v0.4.57 — 2026-06-21 — do not accept SerpAPI's 8-review first page as a complete cache
+Fixes the production/mobile symptom where newly fetched places often showed
+exactly 8 cached reviews even when Google listed many more. SerpAPI's Google
+Maps Reviews API returns an initial page of 8 reviews before pagination; when
+that next page timed out or failed, the pipeline was treating the first page as
+a usable completed cache and could generate reports from only those 8 reviews.
+
+The SerpAPI fallback now raises a first-page-only `PartialReviewsError` instead
+of silently saving an underfilled result as complete. The deep-dive pipeline
+detects existing 8-review first-page caches, retries review fetches even when
+the place row is otherwise fresh, and refuses to generate a report from that
+known-incomplete cache if the retry still fails. SerpAPI-discovered places now
+also keep a name-rich Google Maps URL when the API result lacks a link, giving
+the primary scraper a usable `/maps/place/<name>/...` target instead of a bare
+`place_id` query URL.
+
+Added regression coverage for the SerpAPI first-page guard, scraper-friendly
+fallback Maps URLs, and the report pipeline refusing to analyze known
+first-page-only caches.
+
 ## v0.4.56 — 2026-06-21 — handle first-page review fetch resets without misleading no-report errors
 Fixes the report-generation failure mode seen when SerpAPI resets on page 1
 for a cached place. The shared deep-dive pipeline now re-reads the SQLite
