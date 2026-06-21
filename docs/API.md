@@ -114,13 +114,17 @@ Response:
 
 ### `POST /api/shop`
 
-Starts a single-place deep dive. `target` may be a plain name or Google Maps URL.
+Starts a single-place deep dive. `target` may be a plain name or Google Maps
+URL. When refreshing or regenerating a dossier for an already cached place,
+send `place_id` as well; the backend will use that exact cached place and skip
+rediscovery, avoiding ambiguous-name drift.
 
 Request:
 
 ```json
 {
   "target": "D'Class Guitar",
+  "place_id": "cached-place-id",
   "near": "Hoi An",
   "max_reviews": 300,
   "report_lang": "en",

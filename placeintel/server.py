@@ -62,6 +62,7 @@ class ScoutRequest(BaseModel):
 
 class ShopRequest(BaseModel):
     target: str = Field(min_length=1, max_length=600)
+    place_id: str | None = Field(default=None, max_length=200)
     near: str | None = Field(default=None, max_length=200)
     profile: str | None = Field(default=None, max_length=80)
     max_reviews: int = Field(default=300, ge=1, le=MAX_REVIEWS_CAP)
@@ -170,6 +171,7 @@ def _run_shop(job_id: str, req: ShopRequest, on_event) -> None:
             target=req.target, near=req.near, profile_name=req.profile,
             max_reviews=req.max_reviews, report_lang=req.report_lang,
             refresh=req.refresh, on_event=on_event, language_hint=req.language_hint,
+            place_id=req.place_id,
         )
         _finish_job(job_id, result=result)
     except Exception as exc:

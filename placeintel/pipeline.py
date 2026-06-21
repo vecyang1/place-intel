@@ -317,7 +317,8 @@ def scout_single(target: str, near: str | None = None, profile_name: str | None 
                  force_serpapi: bool = False, refresh: bool = False,
                  skip_reports: bool = False, use_ai: bool = True,
                  on_event: OnEvent = None, _plan: dict | None = None,
-                 language_hint: str | None = None) -> ScoutResult:
+                 language_hint: str | None = None,
+                 place_id: str | None = None) -> ScoutResult:
     """Single-shop mode: shop name or Google Maps URL → focused report on THAT shop."""
     config.ensure_dirs()
     emit = _emitter(on_event)
@@ -352,7 +353,17 @@ def scout_single(target: str, near: str | None = None, profile_name: str | None 
     conn = cache.connect()
 
     place: cache.Place | None = None
-    if not refresh:
+    if place_id:
+        row = cache.get_place(conn, place_id)
+        if not row:
+            result.errors.append(f"unknown cached place_id {place_id}")
+            emit("done", f"缓存中没有 place_id={place_id} 的店铺")
+            conn.close()
+            return result
+        place = _place_from_row(row)
+        name = place.name
+        emit("search", f"缓存命中：「{place.name}」（place_id 精确）")
+    elif not refresh:
         rows = cache.find_places_by_name(conn, name)
         if rows:
             place = _place_from_row(rows[0])
@@ -366,6 +377,7 @@ def scout_single(target: str, near: str | None = None, profile_name: str | None 
         except Exception as exc:
             result.errors.append(f"discover: {exc}")
             emit("done", f"定位失败：{exc}")
+            conn.close()
             return result
         for p in found:
             cache.upsert_place(conn, p)
@@ -373,6 +385,7 @@ def scout_single(target: str, near: str | None = None, profile_name: str | None 
         if place is None:
             result.errors.append(f"no match for {name!r}")
             emit("done", f"没找到匹配「{name}」的店铺")
+            conn.close()
             return result
         emit("search", f"锁定目标：「{place.name}」 ★{place.rating or '?'} "
              f"({place.review_count or '?'} 条评价)")
@@ -380,6 +393,7 @@ def scout_single(target: str, near: str | None = None, profile_name: str | None 
     result.places = [_place_summary(place, place.source)]
     _deep_dive(conn, [place], profile, max_reviews, report_lang,
                force_serpapi, refresh, skip_reports, result, emit)
+    conn.close()
     emit("done", f"完成：{len(result.reports)} 份报告"
          + (f"，{len(result.errors)} 个警告" if result.errors else ""))
     return result

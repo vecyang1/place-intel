@@ -955,7 +955,11 @@ test('dossier partial review cache offers an in-place refresh action', async ({ 
   await expect(page.locator('#detail-body .detail-fresh')).toContainText('1 / 210');
   await expect(page.locator('#detail-body [data-report-refresh="reviews"]')).toBeVisible();
   await page.locator('#detail-body [data-report-refresh="reviews"]').click();
-  expect(shopBody).toMatchObject({ target: 'HoiAn Flow | Kite Surf Wind Center', refresh: true });
+  expect(shopBody).toMatchObject({
+    target: 'HoiAn Flow | Kite Surf Wind Center',
+    place_id: 'partial-cache',
+    refresh: true,
+  });
 });
 
 test('dossier report can translate to Chinese from cache and restore original', async ({ page }) => {

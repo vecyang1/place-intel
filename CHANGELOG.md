@@ -1,5 +1,20 @@
 # Changelog — place-intel
 
+## v0.4.59 — 2026-06-21 — refresh dossier reviews by exact cached place id
+Hardens the dossier "Fetch more reviews" and inline report-generation path so
+it refreshes the place the user is actually viewing. `/api/shop` now accepts an
+optional `place_id`; when present, the pipeline loads that cached place directly
+and skips Google Maps rediscovery, then applies the normal review/report flow.
+
+This prevents ambiguous names such as "Bay Mau Coconut Forest" from drifting to
+a nearby similarly named result like "Bay Mau Coconut Forest Tour" during a
+dossier refresh. The web dossier now includes the current `place_id` in its
+`/api/shop` job body, while keeping the name/address as readable context.
+
+Added backend coverage for exact-place refresh without rediscovery, a durable
+job regression proving the server passes `place_id` through, and a Playwright
+regression proving the dossier refresh action sends the exact place id.
+
 ## v0.4.58 — 2026-06-21 — make scraper-pro storage path subprocess-safe
 Fixes the Bay Mau Coconut Forest failure where scraper-pro died before scraping
 with `sqlite3.OperationalError: unable to open database file`, forcing the app

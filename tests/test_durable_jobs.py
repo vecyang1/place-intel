@@ -50,6 +50,23 @@ class DurableJobsTest(unittest.TestCase):
         self.assertEqual(job["request"]["query"], "guitar lesson")
         self.assertEqual(job["events"], [])
 
+    def test_run_shop_passes_exact_place_id_to_pipeline(self) -> None:
+        req = server.ShopRequest(
+            target="Bay Mau Coconut Forest",
+            place_id="exact-bay-mau",
+            refresh=True,
+            max_reviews=90,
+        )
+        result = server.pipeline.ScoutResult(query=req.target, location=None, profile="generic")
+
+        with mock.patch.object(server.pipeline, "scout_single", return_value=result) as scout_single, \
+                mock.patch.object(server, "_finish_job") as finish_job:
+            server._run_shop("job-exact", req, lambda event: None)
+
+        scout_single.assert_called_once()
+        self.assertEqual(scout_single.call_args.kwargs["place_id"], "exact-bay-mau")
+        finish_job.assert_called_once_with("job-exact", result=result)
+
     def test_job_events_are_persisted_append_only(self) -> None:
         self._patch_db()
         job_id, on_event = server._new_job("shop", {"target": "Lazy Gecko"})
