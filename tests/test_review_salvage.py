@@ -2,6 +2,7 @@
 reviews already collected (the v0.4.49 'report jumps back to nothing' fix). Only a
 first-page failure — where nothing was collected — should propagate."""
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from placeintel import reviews
@@ -98,6 +99,12 @@ class SerpApiSalvageTest(unittest.TestCase):
 
         self.assertIn("/maps/place/Melody+Boutique+Villa+Hoi+An/", target)
         self.assertIn("q=place_id:ChIJ8_test", target)
+
+    def test_scraper_config_uses_absolute_db_path_for_vendor_cwd(self):
+        cfg = reviews._build_scraper_config(_place(), max_reviews=90)
+
+        self.assertTrue(Path(cfg["db_path"]).is_absolute(), cfg["db_path"])
+        self.assertEqual(Path(cfg["db_path"]).name, "scraper_pro_reviews.db")
 
 
 if __name__ == "__main__":

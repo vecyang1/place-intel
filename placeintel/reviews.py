@@ -30,7 +30,6 @@ logger = logging.getLogger(__name__)
 
 SCRAPER_DIR = config.VENDOR_DIR / "google-reviews-scraper-pro"
 SCRAPER_PYTHON = SCRAPER_DIR / ".venv" / "bin" / "python"
-SCRAPER_DB_PATH = config.DATA_DIR / "scraper_pro_reviews.db"
 SCRAPER_TIMEOUT_S = 30 * 60
 
 SERPAPI_URL = "https://serpapi.com/search"
@@ -140,7 +139,7 @@ def _build_scraper_config(
         "use_mongodb": False,
         "use_s3": False,
         "max_reviews": int(max_reviews) if max_reviews else 0,  # 0 = unlimited
-        "db_path": str(SCRAPER_DB_PATH),  # persistent: incremental runs stay cheap
+        "db_path": str(_scraper_db_path()),  # persistent: incremental runs stay cheap
         "businesses": [
             {
                 "url": target_url,
@@ -199,10 +198,11 @@ def _run_scraper_pro(
 
 def _read_scraper_db(place: Place, target_url: str | None = None) -> list[Review]:
     """Map rows for THIS place from the scraper's SQLite db into Review objects."""
-    if not SCRAPER_DB_PATH.exists():
-        raise ScraperProError(f"scraper db never created at {SCRAPER_DB_PATH}")
+    db_path = _scraper_db_path()
+    if not db_path.exists():
+        raise ScraperProError(f"scraper db never created at {db_path}")
     try:
-        conn = sqlite3.connect(f"file:{SCRAPER_DB_PATH}?mode=ro", uri=True)
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     except sqlite3.Error as exc:
         raise ScraperProError(f"cannot open scraper db: {exc}") from exc
     conn.row_factory = sqlite3.Row
@@ -232,6 +232,10 @@ def _read_scraper_db(place: Place, target_url: str | None = None) -> list[Review
     reviews = [_scraper_row_to_review(dict(row), place.place_id) for row in rows]
     logger.info("scraper-pro yielded %d reviews for %s", len(reviews), place.place_id)
     return reviews
+
+
+def _scraper_db_path() -> Path:
+    return (config.DATA_DIR / "scraper_pro_reviews.db").resolve()
 
 
 def _scraper_internal_place_ids(conn: sqlite3.Connection, maps_url: str) -> list[str]:

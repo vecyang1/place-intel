@@ -1,5 +1,22 @@
 # Changelog — place-intel
 
+## v0.4.58 — 2026-06-21 — make scraper-pro storage path subprocess-safe
+Fixes the Bay Mau Coconut Forest failure where scraper-pro died before scraping
+with `sqlite3.OperationalError: unable to open database file`, forcing the app
+into the SerpAPI fallback and then into the known 8-review first-page failure.
+
+Root cause: the project `.env` can set `PLACEINTEL_DATA_DIR=data`, and the
+vendored scraper runs with `cwd=vendor/google-reviews-scraper-pro`. Passing the
+relative `data/scraper_pro_reviews.db` path into that subprocess made SQLite
+open the vendor-local `data/` directory, which does not exist. The scraper
+config and reader now resolve the scraper DB to an absolute path before crossing
+the subprocess boundary.
+
+Added a regression asserting the scraper config always passes an absolute DB
+path. Live local E2E proof: `placeintel shop "Bay Mau Coconut Forest" --near
+"Hoi An, Vietnam" --max-reviews 90 --refresh` now returns 90 scraper-pro
+reviews, embeds 77 new vectors, and produces a report with `90 analyzed`.
+
 ## v0.4.57 — 2026-06-21 — do not accept SerpAPI's 8-review first page as a complete cache
 Fixes the production/mobile symptom where newly fetched places often showed
 exactly 8 cached reviews even when Google listed many more. SerpAPI's Google
