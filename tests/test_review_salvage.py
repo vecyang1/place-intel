@@ -105,6 +105,9 @@ class SerpApiSalvageTest(unittest.TestCase):
 
         self.assertTrue(Path(cfg["db_path"]).is_absolute(), cfg["db_path"])
         self.assertEqual(Path(cfg["db_path"]).name, "scraper_pro_reviews.db")
+        self.assertTrue(Path(cfg["log_dir"]).is_absolute(), cfg["log_dir"])
+        self.assertEqual(Path(cfg["log_dir"]).name, "logs")
+        self.assertEqual(cfg["log_file"], "scraper.log")
 
 
 if __name__ == "__main__":

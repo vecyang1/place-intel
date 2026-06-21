@@ -1,5 +1,15 @@
 # Changelog — place-intel
 
+## v0.4.60 — 2026-06-21 — make scraper-pro logs path deploy-safe
+Fixes the production scraper-pro fallback where the vendor CLI tried to create
+a relative `logs/` directory inside the deployed `vendor/` tree and failed with
+`PermissionError`. The generated scraper config now sends both SQLite storage
+and rotating logs to absolute writable paths under PlaceIntel's data directory.
+
+This keeps the primary scraper usable under systemd/read-only deploy layouts and
+prevents the app from dropping back to SerpAPI's known 8-review first page when
+the vendor log directory is unwritable.
+
 ## v0.4.59 — 2026-06-21 — refresh dossier reviews by exact cached place id
 Hardens the dossier "Fetch more reviews" and inline report-generation path so
 it refreshes the place the user is actually viewing. `/api/shop` now accepts an

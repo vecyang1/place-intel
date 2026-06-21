@@ -140,6 +140,8 @@ def _build_scraper_config(
         "use_s3": False,
         "max_reviews": int(max_reviews) if max_reviews else 0,  # 0 = unlimited
         "db_path": str(_scraper_db_path()),  # persistent: incremental runs stay cheap
+        "log_dir": str(_scraper_log_dir()),
+        "log_file": "scraper.log",
         "businesses": [
             {
                 "url": target_url,
@@ -236,6 +238,10 @@ def _read_scraper_db(place: Place, target_url: str | None = None) -> list[Review
 
 def _scraper_db_path() -> Path:
     return (config.DATA_DIR / "scraper_pro_reviews.db").resolve()
+
+
+def _scraper_log_dir() -> Path:
+    return (config.DATA_DIR / "vendor" / "google-reviews-scraper-pro" / "logs").resolve()
 
 
 def _scraper_internal_place_ids(conn: sqlite3.Connection, maps_url: str) -> list[str]:
