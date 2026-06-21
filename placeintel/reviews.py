@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import sqlite3
 import subprocess
 import tempfile
@@ -157,8 +158,19 @@ def _run_scraper_pro(
     config.ensure_dirs()
     work_dir = _scraper_work_dir()
     driver_dir = _scraper_driver_dir()
+    home_dir = _scraper_home_dir()
     work_dir.mkdir(parents=True, exist_ok=True)
     driver_dir.mkdir(parents=True, exist_ok=True)
+    (home_dir / ".cache").mkdir(parents=True, exist_ok=True)
+    (home_dir / ".config").mkdir(parents=True, exist_ok=True)
+    (home_dir / ".local" / "share").mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env.update({
+        "HOME": str(home_dir),
+        "XDG_CACHE_HOME": str(home_dir / ".cache"),
+        "XDG_CONFIG_HOME": str(home_dir / ".config"),
+        "XDG_DATA_HOME": str(home_dir / ".local" / "share"),
+    })
     scraper_config = _build_scraper_config(place, max_reviews, target_url)
     with tempfile.TemporaryDirectory(prefix="placeintel-scraper-") as tmp_dir:
         config_path = Path(tmp_dir) / "config.yaml"
@@ -193,6 +205,7 @@ def _run_scraper_pro(
                 cmd,
                 cwd=work_dir,
                 capture_output=True,
+                env=env,
                 text=True,
                 timeout=SCRAPER_TIMEOUT_S,
             )
@@ -262,6 +275,10 @@ def _scraper_work_dir() -> Path:
 
 def _scraper_driver_dir() -> Path:
     return (config.DATA_DIR / "vendor" / "google-reviews-scraper-pro" / "drivers").resolve()
+
+
+def _scraper_home_dir() -> Path:
+    return (config.DATA_DIR / "vendor" / "google-reviews-scraper-pro" / "home").resolve()
 
 
 def _scraper_internal_place_ids(conn: sqlite3.Connection, maps_url: str) -> list[str]:

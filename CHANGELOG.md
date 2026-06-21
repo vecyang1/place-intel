@@ -1,5 +1,11 @@
 # Changelog — place-intel
 
+## v0.4.63 — 2026-06-21 — give scraper Chrome a writable home
+Sets scraper-pro subprocess `HOME`, `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`, and
+`XDG_DATA_HOME` to writable directories under `DATA_DIR`. The production service
+user had `HOME=/opt/gmr`, which Chrome could not write, causing crashpad/local
+state failures before SeleniumBase could connect to the browser.
+
 ## v0.4.62 — 2026-06-21 — keep SeleniumBase driver cache writable
 Points SeleniumBase `NEW_DRIVER_DIR` at
 `DATA_DIR/vendor/google-reviews-scraper-pro/drivers` before scraper-pro imports

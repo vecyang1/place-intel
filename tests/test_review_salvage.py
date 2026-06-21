@@ -147,6 +147,14 @@ class SerpApiSalvageTest(unittest.TestCase):
             self.assertIn(str(scraper_dir), cmd[2])
             self.assertIn(str(scraper_dir / "start.py"), cmd[2])
             self.assertIn("NEW_DRIVER_DIR", cmd[2])
+            env = run.call_args.kwargs["env"]
+            self.assertEqual(
+                Path(env["HOME"]),
+                data_dir.resolve() / "vendor" / "google-reviews-scraper-pro" / "home",
+            )
+            self.assertEqual(Path(env["XDG_CACHE_HOME"]).name, ".cache")
+            self.assertEqual(Path(env["XDG_CONFIG_HOME"]).name, ".config")
+            self.assertEqual(Path(env["XDG_DATA_HOME"]).name, "share")
 
 
 if __name__ == "__main__":
