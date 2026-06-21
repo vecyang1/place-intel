@@ -886,6 +886,46 @@ test('no-report dossier can start a focused report job from inside the modal', a
   await expect(page.locator('#detail-body .report-body')).toContainText('Report');
 });
 
+test('no-report dossier explains empty review cache instead of promising cache reuse', async ({ page }) => {
+  const now = Date.now() / 1000;
+  const place = {
+    place_id: 'empty-cache-fail', name: 'Empty Cache Fail', category: 'Surf school',
+    rating: 4.8, review_count: 210, cached_reviews: 0, address: 'Hoi An',
+    last_refreshed: now, favorite: false, refresh_enabled: false,
+  };
+  await preferChineseBeforeLoad(page);
+  await page.route('**/api/places', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify([place]) }));
+  await page.route('**/api/searches', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/places/empty-cache-fail', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ place, reviews: [], report: null }),
+  }));
+  await page.route('**/api/shop', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ job_id: 'empty-cache-fail-job' }),
+  }));
+  await page.route('**/api/jobs/empty-cache-fail-job/events*', (route) => route.fulfill({ status: 204, body: '' }));
+  await page.route('**/api/jobs/empty-cache-fail-job', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      status: 'done',
+      events: [{ id: 1, t: now, stage: 'done', msg: '完成：0 份报告，1 个警告' }],
+      result: {
+        query: 'Empty Cache Fail', mode: 'single', places: [place], reports: [],
+        errors: ['reviews:Empty Cache Fail: SerpAPI request failed on page 1: reset'],
+      },
+    }),
+  }));
+
+  await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
+  await page.locator('[data-open-place="empty-cache-fail"]').click();
+  await page.locator('[data-report-action="generate"][data-generate-report="empty-cache-fail"]').click();
+
+  const fail = page.locator('#detail-body .report-fail');
+  await expect(fail).toContainText('没有拿到可分析评价');
+  await expect(fail).not.toContainText('已完成的步骤会命中缓存');
+});
+
 test('dossier partial review cache offers an in-place refresh action', async ({ page }) => {
   const now = Date.now() / 1000;
   let shopBody = null;

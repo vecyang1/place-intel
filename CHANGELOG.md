@@ -1,5 +1,20 @@
 # Changelog — place-intel
 
+## v0.4.56 — 2026-06-21 — handle first-page review fetch resets without misleading no-report errors
+Fixes the report-generation failure mode seen when SerpAPI resets on page 1
+for a cached place. The shared deep-dive pipeline now re-reads the SQLite
+review cache after any review-fetch exception: if cached reviews exist, it
+continues report generation from those reviews and emits an explicit
+"using cached reviews" progress event; if no analyzable reviews exist, it skips
+the report cleanly instead of calling `analyze_place()` and adding a second,
+misleading `no cached reviews` error.
+
+The dossier's no-report message now avoids promising that completed steps will
+hit cache when the review cache is empty. It explains that cached reviews are
+reused automatically when present, otherwise the user needs to retry the review
+fetch. Added backend regression coverage for both empty-cache and cached-review
+fallback paths plus a Playwright check for the corrected no-report copy.
+
 ## v0.4.55 — 2026-06-21 — stabilize dossier report actions and UI smoke language
 Hardens the dossier action contract used by the deploy smoke suite. The
 in-dossier "generate report" action and the partial-cache "fetch more reviews"

@@ -23,8 +23,8 @@ function reportFailHtml(placeId, name, address, errors) {
   const why = (errors || []).map((e) => `<li>${esc(e)}</li>`).join('');
   return `<div class="error-box report-fail">`
     + `<span class="error-label">${ui('未生成报告', 'no report')}</span>`
-    + `<p>${ui('抓取或分析中途失败，这次没有生成报告。多半是评价抓取超时——直接重试，已完成的步骤会命中缓存。',
-        'Generation failed partway, so no report was produced — usually a review-scrape timeout. Just retry; completed steps hit the cache.')}</p>`
+    + `<p>${ui('这次没有拿到可分析评价，所以没有生成报告。若本地已有评价缓存，系统会自动用缓存继续；否则请重试抓取评价。',
+        'No analyzable reviews were available, so no report was produced. If cached reviews exist, they will be reused automatically; otherwise retry the review fetch.')}</p>`
     + (why ? `<details class="result-errors" open><summary>${ui('原因', 'Why')}</summary><ul>${why}</ul></details>` : '')
     + `<button type="button" class="btn-ghost" data-generate-report="${esc(placeId)}" data-report-action="generate"`
     + ` data-place-name="${esc(name || '')}" data-place-address="${esc(address || '')}">${ui('重试生成', 'Retry')} →</button>`

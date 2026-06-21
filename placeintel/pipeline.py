@@ -125,6 +125,7 @@ def _deep_dive(conn: sqlite3.Connection, places: list[cache.Place], profile: dic
                max_reviews: int | None, report_lang: str, force_serpapi: bool,
                refresh: bool, skip_reports: bool, result: ScoutResult,
                emit: Callable[..., None]) -> None:
+    review_failures: set[str] = set()
     for place in places:
         try:
             fresh = cache.place_is_fresh(conn, place.place_id)
@@ -138,8 +139,13 @@ def _deep_dive(conn: sqlite3.Connection, places: list[cache.Place], profile: dic
             else:
                 emit("reviews", f"「{place.name}」：缓存仍新鲜，{len(cached_reviews)} 条评价")
         except Exception as exc:  # one bad place must not kill the scout
+            review_failures.add(place.place_id)
             result.errors.append(f"reviews:{place.name}: {exc}")
             emit("reviews", f"「{place.name}」评价抓取失败：{exc}")
+            cached_after_failure = cache.get_reviews(conn, place.place_id)
+            if cached_after_failure:
+                emit("reviews", f"「{place.name}」评价抓取失败，使用已缓存 "
+                     f"{len(cached_after_failure)} 条评价继续生成报告")
 
     try:
         indexed = embed.index_pending(conn)
@@ -156,6 +162,15 @@ def _deep_dive(conn: sqlite3.Connection, places: list[cache.Place], profile: dic
     reports_dir.mkdir(exist_ok=True)
     for place in places:
         try:
+            available_reviews = cache.get_reviews(conn, place.place_id)
+            if not available_reviews:
+                if place.place_id not in review_failures:
+                    result.errors.append(
+                        f"reviews:{place.name}: no cached reviews available after fetch"
+                    )
+                emit("report", f"「{place.name}」没有缓存评价可分析；"
+                     "评价抓取失败或未返回内容，跳过报告")
+                continue
             existing = cache.latest_report(conn, place.place_id, profile["name"], report_lang=report_lang)
             if existing is None and profile["name"] == "generic":
                 # generic = "just give me intel" — any recent report satisfies it
