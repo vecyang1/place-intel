@@ -87,6 +87,51 @@ class PipelineReviewFailureFallbackTest(unittest.TestCase):
                                 for stage, msg in events))
             conn.close()
 
+    def test_successful_scraper_fetch_removes_partial_serpapi_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp)
+            conn = cache.connect(data_dir / "placeintel.db")
+            place = _place()
+            cache.upsert_place(conn, place)
+            cache.upsert_reviews(conn, [
+                cache.Review(
+                    review_id=f"serp-first-{idx}",
+                    place_id="flow",
+                    rating=5,
+                    text=f"First page duplicate {idx}",
+                    review_date=f"2026-06-{idx + 1:02d}",
+                    source="serpapi",
+                )
+                for idx in range(8)
+            ])
+            fetched = [
+                cache.Review(
+                    review_id=f"gsp-full-{idx}",
+                    place_id="flow",
+                    rating=5,
+                    text=f"Full scraper review {idx}",
+                    review_date=f"2026-06-{idx + 1:02d}",
+                    source="scraper-pro",
+                )
+                for idx in range(12)
+            ]
+            result = pipeline.ScoutResult(query="HoiAn Flow", location=None, profile="generic")
+            events = []
+
+            with mock.patch.object(pipeline.config, "DATA_DIR", data_dir), \
+                    mock.patch.object(pipeline.reviews, "fetch_reviews", return_value=fetched), \
+                    mock.patch.object(pipeline.embed, "index_pending", return_value=0):
+                pipeline._deep_dive(
+                    conn, [place], _profile(), 300, "zh", False, False, True,
+                    result, lambda stage, msg, data=None: events.append((stage, msg)),
+                )
+
+            rows = cache.get_reviews(conn, "flow")
+            self.assertEqual(len(rows), 12)
+            self.assertEqual({row["source"] for row in rows}, {"scraper-pro"})
+            self.assertTrue(any("清理 8 条 SerpAPI" in msg for _, msg in events))
+            conn.close()
+
     def test_first_page_only_cache_is_refetched_and_not_used_as_report_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             data_dir = Path(tmp)

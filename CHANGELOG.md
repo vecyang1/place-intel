@@ -1,5 +1,11 @@
 # Changelog — place-intel
 
+## v0.4.64 — 2026-06-21 — remove stale SerpAPI rows after full scraper fetch
+Prevents reports from double-counting SerpAPI's old 8-review first page after a
+successful scraper-pro refresh. When scraper-pro returns more than SerpAPI's
+initial page size, the pipeline removes stale SerpAPI rows for that place before
+embedding/reporting, so report coverage matches the real full scrape.
+
 ## v0.4.63 — 2026-06-21 — give scraper Chrome a writable home
 Sets scraper-pro subprocess `HOME`, `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`, and
 `XDG_DATA_HOME` to writable directories under `DATA_DIR`. The production service

@@ -311,6 +311,22 @@ def upsert_reviews(conn: sqlite3.Connection, reviews: list[Review]) -> int:
     return new_count
 
 
+def delete_reviews_by_source(conn: sqlite3.Connection, place_id: str, source: str) -> int:
+    rows = conn.execute(
+        "SELECT review_id FROM reviews WHERE place_id=? AND source=?",
+        (place_id, source),
+    ).fetchall()
+    if not rows:
+        return 0
+    review_ids = [row["review_id"] for row in rows]
+    marks = ",".join("?" for _ in review_ids)
+    conn.execute(f"DELETE FROM review_vectors WHERE review_id IN ({marks})", review_ids)
+    conn.execute(f"DELETE FROM review_translations WHERE review_id IN ({marks})", review_ids)
+    conn.execute(f"DELETE FROM reviews WHERE review_id IN ({marks})", review_ids)
+    conn.commit()
+    return len(review_ids)
+
+
 def place_is_fresh(conn: sqlite3.Connection, place_id: str) -> bool:
     row = conn.execute(
         "SELECT last_refreshed FROM places WHERE place_id=?", (place_id,)

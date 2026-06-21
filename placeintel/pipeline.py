@@ -143,6 +143,11 @@ def _deep_dive(conn: sqlite3.Connection, places: list[cache.Place], profile: dic
                 got = reviews.fetch_reviews(place, max_reviews=max_reviews,
                                             force_serpapi=force_serpapi)
                 new = cache.upsert_reviews(conn, got)
+                if (len(got) > reviews.SERPAPI_INITIAL_PAGE_SIZE
+                        and any(r.source == "scraper-pro" for r in got)):
+                    removed = cache.delete_reviews_by_source(conn, place.place_id, "serpapi")
+                    if removed:
+                        emit("reviews", f"「{place.name}」清理 {removed} 条 SerpAPI 首屏旧缓存")
                 emit("reviews", f"「{place.name}」：{len(got)} 条评价（新增 {new} 条）")
             else:
                 emit("reviews", f"「{place.name}」：缓存仍新鲜，{len(cached_reviews)} 条评价")
