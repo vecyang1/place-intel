@@ -1,5 +1,12 @@
 # Changelog — place-intel
 
+## v0.4.62 — 2026-06-21 — keep SeleniumBase driver cache writable
+Points SeleniumBase `NEW_DRIVER_DIR` at
+`DATA_DIR/vendor/google-reviews-scraper-pro/drivers` before scraper-pro imports
+its driver launcher. This prevents ChromeDriver downloads/patches from writing
+inside the vendored virtualenv's `site-packages/seleniumbase/drivers` directory,
+which is not writable under the production systemd user.
+
 ## v0.4.61 — 2026-06-21 — run scraper-pro from writable data workdir
 Moves the scraper-pro subprocess working directory out of the deployed vendor
 tree and into `DATA_DIR/vendor/google-reviews-scraper-pro/work`. The wrapper

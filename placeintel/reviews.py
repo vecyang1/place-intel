@@ -156,7 +156,9 @@ def _run_scraper_pro(
 ) -> None:
     config.ensure_dirs()
     work_dir = _scraper_work_dir()
+    driver_dir = _scraper_driver_dir()
     work_dir.mkdir(parents=True, exist_ok=True)
+    driver_dir.mkdir(parents=True, exist_ok=True)
     scraper_config = _build_scraper_config(place, max_reviews, target_url)
     with tempfile.TemporaryDirectory(prefix="placeintel-scraper-") as tmp_dir:
         config_path = Path(tmp_dir) / "config.yaml"
@@ -168,9 +170,16 @@ def _run_scraper_pro(
         # port: its 9222 probe misreads half-dead listeners (e.g. a devtools-MCP
         # Chrome holding 9222 but refusing connections) as "free" and collides.
         # sb_config.multi_proxy=True short-circuits straight to free_port().
+        # NEW_DRIVER_DIR keeps chromedriver downloads out of read-only site-packages.
         bootstrap = (
+            "from pathlib import Path; "
             "from seleniumbase import config as sb_config; "
+            "from seleniumbase.config import settings as sb_settings; "
+            f"driver_dir = {str(driver_dir)!r}; "
+            "Path(driver_dir).mkdir(parents=True, exist_ok=True); "
             "sb_config.multi_proxy = True; "
+            "sb_settings.NEW_DRIVER_DIR = driver_dir; "
+            "sb_config.settings = sb_settings; "
             "import sys, runpy; "
             f"sys.path.insert(0, {str(SCRAPER_DIR)!r}); "
             "sys.argv = ['start.py'] + sys.argv[1:]; "
@@ -249,6 +258,10 @@ def _scraper_log_dir() -> Path:
 
 def _scraper_work_dir() -> Path:
     return (config.DATA_DIR / "vendor" / "google-reviews-scraper-pro" / "work").resolve()
+
+
+def _scraper_driver_dir() -> Path:
+    return (config.DATA_DIR / "vendor" / "google-reviews-scraper-pro" / "drivers").resolve()
 
 
 def _scraper_internal_place_ids(conn: sqlite3.Connection, maps_url: str) -> list[str]:

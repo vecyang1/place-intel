@@ -131,13 +131,22 @@ class SerpApiSalvageTest(unittest.TestCase):
                     ) as run:
                 reviews._run_scraper_pro(_place(), max_reviews=90)
 
-        cmd = run.call_args.args[0]
-        self.assertEqual(
-            run.call_args.kwargs["cwd"],
-            data_dir.resolve() / "vendor" / "google-reviews-scraper-pro" / "work",
-        )
-        self.assertIn(str(scraper_dir), cmd[2])
-        self.assertIn(str(scraper_dir / "start.py"), cmd[2])
+            cmd = run.call_args.args[0]
+            self.assertEqual(
+                run.call_args.kwargs["cwd"],
+                data_dir.resolve() / "vendor" / "google-reviews-scraper-pro" / "work",
+            )
+            self.assertTrue(
+                (
+                    data_dir.resolve()
+                    / "vendor"
+                    / "google-reviews-scraper-pro"
+                    / "drivers"
+                ).is_dir()
+            )
+            self.assertIn(str(scraper_dir), cmd[2])
+            self.assertIn(str(scraper_dir / "start.py"), cmd[2])
+            self.assertIn("NEW_DRIVER_DIR", cmd[2])
 
 
 if __name__ == "__main__":
