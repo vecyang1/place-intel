@@ -258,6 +258,11 @@ def _read_scraper_db(place: Place, target_url: str | None = None) -> list[Review
             f"SELECT * FROM reviews WHERE place_id IN ({marks}) AND is_deleted = 0",
             internal_ids,
         ).fetchall()
+        if not rows and (place.review_count or 0) > 0:
+            raise ScraperProError(
+                f"scraper-pro returned zero review rows for {place.name}; "
+                f"Google lists {place.review_count} reviews"
+            )
     except sqlite3.Error as exc:
         raise ScraperProError(f"scraper db query failed: {exc}") from exc
     finally:

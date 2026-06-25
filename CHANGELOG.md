@@ -1,5 +1,17 @@
 # Changelog — place-intel
 
+## v0.4.66 — 2026-06-25 — fall back when scraper-pro hits Google consent
+Fixes production Shop jobs where scraper-pro successfully exited after landing
+on Google's consent interstitial instead of the business page. The vendor DB
+recorded that consent page with zero review rows, so PlaceIntel previously
+trusted the empty primary result and skipped report generation.
+
+When scraper-pro maps the requested URL but returns zero rows for a place that
+Google lists with reviews, PlaceIntel now treats the primary scrape as failed
+and activates the existing SerpAPI fallback. This keeps exact-place Shop
+refreshes from ending as "0 reviews" when the VPS browser is blocked by a
+consent page.
+
 ## v0.4.65 — 2026-06-25 — expand short Maps URLs and remember review caps
 Fixes Shop submissions that use `maps.app.goo.gl` short links. The planner now
 expands short Maps URLs before planning, extracts the redirected business name

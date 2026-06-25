@@ -3,6 +3,7 @@ reviews already collected (the v0.4.49 'report jumps back to nothing' fix). Only
 first-page failure — where nothing was collected — should propagate."""
 import unittest
 import tempfile
+import sqlite3
 from pathlib import Path
 from unittest import mock
 
@@ -113,6 +114,59 @@ class SerpApiSalvageTest(unittest.TestCase):
         target = reviews._scraper_target_url(place)
 
         self.assertEqual(target, place.maps_url)
+
+    def test_scraper_db_zero_rows_for_listed_place_raises_for_fallback(self):
+        target_url = (
+            "https://www.google.com/maps/place/X%C3%B3m+M%C3%A8o+Coffee/data="
+            "!4m7!3m6!1s0x3142192f0319d6eb:0xf873e96faa231d34"
+        )
+        place = _place()
+        place.name = "Xóm Mèo Coffee"
+        place.review_count = 674
+        place.maps_url = target_url
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "scraper.db"
+            conn = sqlite3.connect(db_path)
+            conn.executescript(
+                """
+                CREATE TABLE places (
+                  place_id TEXT PRIMARY KEY,
+                  place_name TEXT,
+                  original_url TEXT NOT NULL,
+                  resolved_url TEXT,
+                  total_reviews INTEGER
+                );
+                CREATE TABLE place_aliases (
+                  alias_id TEXT PRIMARY KEY,
+                  canonical_id TEXT NOT NULL,
+                  original_url TEXT
+                );
+                CREATE TABLE reviews (
+                  review_id TEXT PRIMARY KEY,
+                  place_id TEXT NOT NULL,
+                  is_deleted INTEGER DEFAULT 0
+                );
+                """
+            )
+            conn.execute(
+                """INSERT INTO places
+                   (place_id, place_name, original_url, resolved_url, total_reviews)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (
+                    "0x3142192f0319d6eb:0",
+                    "Bevor Sie zu Google Maps weitergehen",
+                    target_url,
+                    "https://consent.google.com/m?continue=https%3A%2F%2Fmaps.google.com",
+                    0,
+                ),
+            )
+            conn.commit()
+            conn.close()
+
+            with mock.patch.object(reviews, "_scraper_db_path", return_value=db_path):
+                with self.assertRaisesRegex(reviews.ScraperProError, "zero review rows"):
+                    reviews._read_scraper_db(place, target_url)
 
     def test_scraper_config_uses_absolute_db_path_for_vendor_cwd(self):
         cfg = reviews._build_scraper_config(_place(), max_reviews=90)
