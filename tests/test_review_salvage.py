@@ -101,6 +101,19 @@ class SerpApiSalvageTest(unittest.TestCase):
         self.assertIn("/maps/place/Melody+Boutique+Villa+Hoi+An/", target)
         self.assertIn("q=place_id:ChIJ8_test", target)
 
+    def test_scraper_target_url_keeps_expanded_short_link_with_ftid(self):
+        place = _place()
+        place.name = "Xóm Mèo Coffee"
+        place.place_id = "0x3142192f0319d6eb:0xf873e96faa231d34"
+        place.maps_url = (
+            "https://www.google.com/maps?q=X%C3%B3m+M%C3%A8o+Coffee"
+            "&ftid=0x3142192f0319d6eb:0xf873e96faa231d34"
+        )
+
+        target = reviews._scraper_target_url(place)
+
+        self.assertEqual(target, place.maps_url)
+
     def test_scraper_config_uses_absolute_db_path_for_vendor_cwd(self):
         cfg = reviews._build_scraper_config(_place(), max_reviews=90)
 

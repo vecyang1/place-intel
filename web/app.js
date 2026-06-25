@@ -14,9 +14,7 @@ function toDate(v) {
   const d = typeof v === 'number' && Number.isFinite(v) ? new Date(v > 1e12 ? v : v * 1000) : new Date(v);
   return Number.isNaN(d.getTime()) ? null : d;
 }
-function relTime(v) {
-  return PI18N.relTime(v, toDate);
-}
+function relTime(v) { return PI18N.relTime(v, toDate); }
 function fmtClock(v) { return PI18N.fmtClock(v, toDate); }
 function stars(rating) { const n = Number(rating); return rating != null && Number.isFinite(n) ? `★ ${n.toFixed(1)}` : '★ —'; }
 function fmtInt(n) { return PI18N.fmtInt(n); }
@@ -43,8 +41,7 @@ function mdToHtml(md) {
     } else if (!line.trim()) { closeList(); }
     else { closeList(); out.push(`<p>${mdInline(line)}</p>`); }
   }
-  closeList();
-  return out.join('');
+  closeList(); return out.join('');
 }
 const FETCH_TIMEOUT_MS = 120000; // generous: covers slow AI reasoning, still bails on a hung backend
 const fetchT = (path, opts = {}) => fetch(path, { ...opts, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
@@ -67,10 +64,15 @@ const POLL_MS = 2000, MAX_POLL_FAILS = 5;
 const txTarget = () => PI18N.translationTarget();
 const txLabel = (target) => PI18N.labels[target] || target.toUpperCase();
 const txButtonLabel = (target) => `${ui('译文', 'Translate')} ${txLabel(target)}`;
+const REVIEW_MAX_KEY = 'placeintel.maxReviews', DEFAULT_MAX_REVIEWS = 300;
 const TAB_NAMES = ['scout', 'shop', 'library', 'ask'];
 const tabFromHash = () => (TAB_NAMES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'scout');
 const SEARCH_ROW_CHIP_LIMIT = 8, LIBRARY_PAGE_SIZE = 12, LIBRARY_FILTERS = '#library-sort,#library-category,#library-freshness,#library-risk,#library-language,#library-cached,#library-report';
 const state = { tab: 'scout', profiles: [], places: [], libraryLoaded: false, libraryLimit: LIBRARY_PAGE_SIZE, libraryCompare: [], compareDetails: {}, compareLoading: false, jobs: { scout: null, shop: null }, detail: null, dossierJob: null, detailReturnFocus: null, photoReturnFocus: null, photoGallery: [], photoIndex: 0, photoZoom: 1, photoPreloads: [], meta: null, config: null, translationTarget: txTarget(), reportOriginals: {}, searches: [], commandMode: 'scout', commandManual: false }; // meta={version, reason/translate/embed}
+function savedMaxReviews() { try { return clampInt(localStorage.getItem(REVIEW_MAX_KEY), 20, 5000, DEFAULT_MAX_REVIEWS); } catch { return DEFAULT_MAX_REVIEWS; } }
+function syncMaxReviews(v = savedMaxReviews()) { ['#scout-maxr', '#shop-maxr'].forEach((id) => { const el = $(id); if (el) el.value = String(v); }); }
+function rememberMaxReviews(value) { const n = clampInt(value, 20, 5000, savedMaxReviews()); try { localStorage.setItem(REVIEW_MAX_KEY, String(n)); } catch { /* storage unavailable */ } syncMaxReviews(n); return n; }
+function currentMaxReviews() { return rememberMaxReviews($('#shop-maxr')?.value || $('#scout-maxr')?.value || savedMaxReviews()); }
 function loadingHtml(msg) { return `<p class="loading">${esc(msg)} <span class="dots">●●●</span></p>`; }
 function errorHtml(msg) { return `<div class="error-box"><span class="error-label">出错 error</span>${esc(msg)}</div>`; }
 function emptyHtml(msg, gotoTab, gotoLabel) { const btn = gotoTab ? `<button type="button" class="btn-ghost" data-goto="${esc(gotoTab)}">${esc(gotoLabel || t('goto.scout'))}</button>` : ''; return `<div class="empty">${esc(msg)}${btn}</div>`; }
@@ -137,10 +139,7 @@ function renderResult(result) {
     parts.push(`<details class="result-cut"><summary>${ui(`AI 排除了 ${cut.length} 家（为什么）`, `AI excluded ${cut.length} shops (why)`)}</summary>${renderVerdicts(result.filtered)}</details>`);
   }
   parts.push(reports.map(renderReportArticle).join(''));
-  if (errors.length) {
-    parts.push(`<details class="result-errors" open><summary>${ui('警告', 'Warnings')} ${errors.length}</summary><ul>${
-      errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></details>`);
-  }
+  if (errors.length) parts.push(`<details class="result-errors" open><summary>${ui('警告', 'Warnings')} ${errors.length}</summary><ul>${errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></details>`);
   return parts.join('');
 }
 function photoSourcesHtml(photos, variant = 'strip', placeId = '') { const limit = variant === 'strip' ? 12 : 1, big = variant === 'card' || variant === 'compare', opensDossier = Boolean(big && placeId), xs = (Array.isArray(photos) ? photos : photos ? [photos] : []).filter((p) => safeUrl(p?.url || p?.thumb_url)).slice(0, limit); if (!xs.length) return variant === 'strip' ? '' : `<div class="photo-strip photo-${esc(variant)}"><span class="source-photo is-empty"><span class="photo-label">${ui('没有来源图片', 'no source photo')}</span></span></div>`; return `<div class="photo-strip photo-${esc(variant)}">${xs.map((p) => { const url = safeUrl(p.url) || safeUrl(p.thumb_url), src = safeUrl(p.thumb_url) || url, label = p.kind === 'review' ? ui('评价图片', 'review photo') : ui('来源图片', 'source photo'), meta = [label, p.source, p.author, p.date].filter(Boolean).join(' · '), imgSrc = big ? hiRes(src, 800) : src, trigger = opensDossier ? `data-open-place="${esc(placeId)}" aria-label="${esc(ui('打开档案', 'Open dossier'))}"` : `data-photo-url="${esc(url)}" data-photo-src="${esc(src)}" data-photo-caption="${esc(meta)}" aria-label="${esc(`${ui('打开', 'Open')} ${meta}`)}"`; return `<button type="button" class="source-photo${opensDossier ? ' opens-dossier' : ''}" ${trigger}><img class="source-photo-img" src="${esc(imgSrc)}" alt="${esc(meta)}" loading="lazy" decoding="async" onerror="this.closest('.source-photo')?.classList.add('is-broken')"><span class="photo-label">${esc(label)}</span></button>`; }).join('')}</div>`; }
@@ -489,7 +488,7 @@ function bindForms() {
     e.preventDefault();
     const query = $('#scout-query').value.trim();
     if (!query) return flashInvalid($('#scout-query'));
-    const body = { query, top: clampInt($('#scout-top').value, 1, 8, 3), max_reviews: clampInt($('#scout-maxr').value, 20, 5000, 300), ...langPayload('report') };
+    const body = { query, top: clampInt($('#scout-top').value, 1, 8, 3), max_reviews: rememberMaxReviews($('#scout-maxr').value), ...langPayload('report') };
     const near = $('#scout-near').value.trim();
     if (state.commandMode === 'ask') { switchTab('ask'); $('#ask-question').value = query; return runAsk(query, null, $('#ask-answer'), false); }
     if (state.commandMode === 'shop') {
@@ -512,7 +511,7 @@ function bindForms() {
     if (!target) return flashInvalid($('#shop-target'));
     const body = {
       target,
-      max_reviews: clampInt($('#shop-maxr').value, 20, 5000, 300),
+      max_reviews: rememberMaxReviews($('#shop-maxr').value),
       ...langPayload('report'),
     };
     const near = $('#shop-near').value.trim();
@@ -521,6 +520,7 @@ function bindForms() {
     if ($('#shop-refresh').checked) body.refresh = true;
     startJob('shop', '/api/shop', body);
   });
+  ['#scout-maxr', '#shop-maxr'].forEach((id) => $(id)?.addEventListener('input', (e) => rememberMaxReviews(e.target.value)));
   const askForm = $('#ask-form');
   askForm.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -775,6 +775,6 @@ async function saveModel() {
     status.textContent = ui(`✗ 未保存：${err.message}`, `✗ Not saved: ${err.message}`);
   } finally { btn.disabled = false; }
 }
-function init() { bindForms(); bindGlobal(); switchTab(tabFromHash(), false); window.addEventListener('hashchange', () => switchTab(tabFromHash(), false)); loadProfiles(); loadMeta(); }
+function init() { syncMaxReviews(); bindForms(); bindGlobal(); switchTab(tabFromHash(), false); window.addEventListener('hashchange', () => switchTab(tabFromHash(), false)); loadProfiles(); loadMeta(); }
 init();
-window.__pi = { state, esc, mdToHtml, relTime, stars, fmtClock, safeUrl, detectReviewLang, render: { event: renderEvent, planCard: renderPlanCard, verdicts: renderVerdicts, result: renderResult, report: renderReportArticle, libraryGrid: renderLibraryGrid, shopCard: renderShopCard, searchRow: renderSearchRow, detail: renderDetail, review: renderReviewCard, hours: renderHours, languageLens: renderLanguageLens }, openDetail, closeDetail, switchTab, loadLibrary, loadScoutPast, startJob };
+window.__pi = { state, esc, mdToHtml, relTime, stars, fmtClock, safeUrl, detectReviewLang, currentMaxReviews, render: { event: renderEvent, planCard: renderPlanCard, verdicts: renderVerdicts, result: renderResult, report: renderReportArticle, libraryGrid: renderLibraryGrid, shopCard: renderShopCard, searchRow: renderSearchRow, detail: renderDetail, review: renderReviewCard, hours: renderHours, languageLens: renderLanguageLens }, openDetail, closeDetail, switchTab, loadLibrary, loadScoutPast, startJob };

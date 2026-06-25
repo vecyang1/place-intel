@@ -66,6 +66,46 @@ test('home has no console errors, no horizontal overflow, and visible first acti
   expect(metrics.placeholderColor).not.toBe('rgba(0, 0, 0, 0)');
 });
 
+test('changed max review default is remembered for Shop, Scout, and dossier jobs', async ({ page }) => {
+  let shopBody = null;
+  await preferEnglishBeforeLoad(page);
+  await page.route('**/api/profiles', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/config', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      version: '0.4.test',
+      language: { app_defaults: { ui_language: 'auto', answer_language: 'auto', report_language: 'auto', translation_target: 'auto' } },
+      settings: { reason_model: 'reason-model', translation_model: 'translate-model', default_answer_language: 'auto', default_report_language: 'auto', translation_target: 'auto', evidence_language: 'report', cache_ttl_days: 14 },
+      providers: { reason: { model: 'reason-model', provider: 'VectorEngine' }, translate: { model: 'translate-model', provider: 'VectorEngine' }, embed: { model: 'embed-model', provider: 'Google 官方' } },
+      runtime: { data_dir: { configured: true, path_visible: false }, port: 9618 },
+      feature_status: {},
+      health: { cheap_url: '/api/health', deep_url: '/api/health/deep' },
+    }),
+  }));
+  await page.route('**/api/shop', (route) => {
+    shopBody = route.request().postDataJSON();
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ job_id: 'remember-max-job' }) });
+  });
+  await page.route('**/api/jobs/remember-max-job/events*', (route) => route.fulfill({ status: 204, body: '' }));
+  await page.route('**/api/jobs/remember-max-job', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ status: 'done', events: [], result: { places: [], reports: [], errors: [] } }),
+  }));
+
+  await page.goto('http://127.0.0.1:9618/#shop', { waitUntil: 'networkidle' });
+  await page.locator('#shop-target').fill('Xóm Mèo Coffee');
+  await page.locator('#shop-advanced summary').click();
+  await page.locator('#shop-maxr').fill('600');
+  await page.locator('#shop-submit').click();
+
+  expect(shopBody).toMatchObject({ target: 'Xóm Mèo Coffee', max_reviews: 600 });
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('placeintel.maxReviews'))).toBe('600');
+
+  await page.reload({ waitUntil: 'networkidle' });
+  await expect(page.locator('#shop-maxr')).toHaveValue('600');
+  await expect(page.locator('#scout-maxr')).toHaveValue('600');
+});
+
 test('system panel exposes safe settings and health without leaking secrets', async ({ page }) => {
   await page.route('**/api/meta', (route) => route.fulfill({
     contentType: 'application/json',

@@ -21,6 +21,7 @@ import re
 import urllib.parse
 from functools import lru_cache
 
+import requests
 from google import genai
 from google.genai import types
 
@@ -37,6 +38,7 @@ _PLACE_PATH_RE = re.compile(r"/maps/place/([^/@?]+)")
 _CID_RE = re.compile(r"[?&]cid=(\d+)")
 _HEX_PAIR_RE = re.compile(r"(0x[0-9a-fA-F]+:0x[0-9a-fA-F]+)")
 _CJK_RE = re.compile(r"[一-鿿]")
+SHORT_MAPS_TIMEOUT_S = 10
 
 
 @lru_cache(maxsize=1)
@@ -66,15 +68,47 @@ def parse_maps_url(text: str) -> dict | None:
     if not match:
         return None
     url = match.group(0)
-    info: dict = {"url": url}
-    path_match = _PLACE_PATH_RE.search(url)
+    resolved_url = _resolve_short_maps_url(url)
+    parsed = urllib.parse.urlparse(resolved_url)
+    params = urllib.parse.parse_qs(parsed.query)
+    info: dict = {"url": resolved_url}
+    if resolved_url != url:
+        info["original_url"] = url
+    path_match = _PLACE_PATH_RE.search(resolved_url)
     if path_match:
         name = urllib.parse.unquote_plus(path_match.group(1)).replace("+", " ")
         info["name"] = name.strip()
-    cid_match = _CID_RE.search(url) or _HEX_PAIR_RE.search(url)
-    if cid_match:
-        info["cid"] = cid_match.group(1)
+    elif params.get("q"):
+        query = params["q"][0].strip()
+        if query and not query.lower().startswith("place_id:"):
+            info["name"] = query.split(",", 1)[0].strip()
+    cid = (params.get("cid") or params.get("ftid") or [None])[0]
+    if not cid:
+        cid_match = _CID_RE.search(resolved_url) or _HEX_PAIR_RE.search(resolved_url)
+        cid = cid_match.group(1) if cid_match else None
+    if cid:
+        info["cid"] = cid
     return info
+
+
+def _resolve_short_maps_url(url: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    short = parsed.netloc.lower() == "maps.app.goo.gl" or (
+        parsed.netloc.lower() == "goo.gl" and parsed.path.startswith("/maps")
+    )
+    if not short:
+        return url
+    try:
+        response = requests.get(
+            url,
+            allow_redirects=True,
+            timeout=SHORT_MAPS_TIMEOUT_S,
+            headers={"User-Agent": "placeintel/1.0 (+https://github.com/vecyang1/place-intel)"},
+        )
+        return response.url or url
+    except requests.RequestException as exc:
+        log.warning("Google Maps short URL expansion failed (%s) — using original URL", exc)
+        return url
 
 
 # -- plan ----------------------------------------------------------------------

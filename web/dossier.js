@@ -130,7 +130,7 @@ async function generateReportInline(btn) {
     es.onerror = () => { es.close(); job.es = null; if (state.dossierJob === job && job.active) pollFinal(); };
   };
 
-  const body = { target, place_id: placeId, max_reviews: clampInt($('#shop-maxr').value, 20, 5000, 300), refresh: btn.dataset.reportRefresh === 'reviews', ...langPayload('report') };
+  const body = { target, place_id: placeId, max_reviews: currentMaxReviews(), refresh: btn.dataset.reportRefresh === 'reviews', ...langPayload('report') };
   if (near) body.near = near;
   if ($('#shop-profile').value) body.profile = $('#shop-profile').value;
   try {

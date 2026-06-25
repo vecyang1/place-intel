@@ -74,6 +74,31 @@ def _place_from_row(row: sqlite3.Row) -> cache.Place:
     )
 
 
+def _place_from_url_info(url_info: dict | None) -> cache.Place | None:
+    if not url_info or not url_info.get("cid") or not url_info.get("name"):
+        return None
+    raw = {"data_id": url_info["cid"], "maps_url": url_info["url"]}
+    if url_info.get("original_url"):
+        raw["original_url"] = url_info["original_url"]
+    return cache.Place(
+        place_id=url_info["cid"],
+        name=url_info["name"],
+        maps_url=url_info["url"],
+        source="maps-url",
+        raw=raw,
+    )
+
+
+def _enrich_place_from_url_info(place: cache.Place, url_info: dict | None) -> cache.Place:
+    if not url_info:
+        return place
+    if url_info.get("cid"):
+        place.raw = {**(place.raw or {}), "data_id": url_info["cid"]}
+    if url_info.get("url") and url_info.get("cid"):
+        place.maps_url = url_info["url"]
+    return place
+
+
 def _raw_data_id(row: sqlite3.Row) -> str | None:
     import json
     try:
@@ -372,6 +397,8 @@ def scout_single(target: str, near: str | None = None, profile_name: str | None 
         rows = cache.find_places_by_name(conn, name)
         if rows:
             place = _place_from_row(rows[0])
+            place = _enrich_place_from_url_info(place, url_info)
+            cache.upsert_place(conn, place)
             emit("search", f"缓存命中：「{place.name}」（无需重新搜索）")
 
     if place is None:
@@ -388,10 +415,17 @@ def scout_single(target: str, near: str | None = None, profile_name: str | None 
             cache.upsert_place(conn, p)
         place = planner.pick_target(name, found)
         if place is None:
-            result.errors.append(f"no match for {name!r}")
-            emit("done", f"没找到匹配「{name}」的店铺")
-            conn.close()
-            return result
+            place = _place_from_url_info(url_info)
+            if place is None:
+                result.errors.append(f"no match for {name!r}")
+                emit("done", f"没找到匹配「{name}」的店铺")
+                conn.close()
+                return result
+            cache.upsert_place(conn, place)
+            emit("search", f"使用 Maps URL 解析出的地点：「{place.name}」（Maps URL exact）")
+        else:
+            place = _enrich_place_from_url_info(place, url_info)
+            cache.upsert_place(conn, place)
         emit("search", f"锁定目标：「{place.name}」 ★{place.rating or '?'} "
              f"({place.review_count or '?'} 条评价)")
 

@@ -1,5 +1,17 @@
 # Changelog — place-intel
 
+## v0.4.65 — 2026-06-25 — expand short Maps URLs and remember review caps
+Fixes Shop submissions that use `maps.app.goo.gl` short links. The planner now
+expands short Maps URLs before planning, extracts the redirected business name
+and `ftid`/hex data id, and the single-shop pipeline preserves that exact URL
+for review fetching even when discovery supplies separate listing metadata.
+This lets scraper-pro fetch the real place instead of searching the raw short
+URL or transforming `ftid` into a weaker `place_id` query.
+
+The web app also remembers the user's max-review cap in browser storage. If the
+owner changes the advanced review count from 300 to 600, Scout, Shop, and
+in-dossier refresh/generate jobs all reuse 600 across reloads.
+
 ## v0.4.64 — 2026-06-21 — remove stale SerpAPI rows after full scraper fetch
 Prevents reports from double-counting SerpAPI's old 8-review first page after a
 successful scraper-pro refresh. When scraper-pro returns more than SerpAPI's

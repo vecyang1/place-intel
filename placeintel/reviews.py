@@ -108,7 +108,7 @@ def _fetch_via_scraper_pro(place: Place, max_reviews: int | None) -> list[Review
 def _scraper_target_url(place: Place) -> str | None:
     """Return a Google Maps URL that scraper-pro can search from reliably."""
     maps_url = place.maps_url or ""
-    if _maps_url_has_place_name(maps_url):
+    if _maps_url_has_place_name(maps_url) or _maps_url_has_query_identity(maps_url):
         return maps_url
     if not place.name or not place.place_id:
         return maps_url or None
@@ -123,6 +123,12 @@ def _maps_url_has_place_name(maps_url: str) -> bool:
     if marker not in parsed.path:
         return False
     return bool(parsed.path.split(marker, 1)[1].strip("/"))
+
+
+def _maps_url_has_query_identity(maps_url: str) -> bool:
+    parsed = urllib.parse.urlparse(maps_url)
+    params = urllib.parse.parse_qs(parsed.query)
+    return bool(params.get("q") and (params.get("ftid") or params.get("cid")))
 
 
 def _build_scraper_config(
