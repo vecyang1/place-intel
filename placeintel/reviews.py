@@ -74,6 +74,17 @@ def fetch_reviews(
         return _order_and_cap(_fetch_via_serpapi(place, max_reviews), max_reviews, newest_first)
 
     target_url = _scraper_target_url(place)
+    try:
+        existing = _read_scraper_db(place, target_url)
+        if existing:
+            logger.info(
+                "reusing %d existing scraper-pro reviews for %s before launching Chrome",
+                len(existing), place.place_id,
+            )
+            return _order_and_cap(existing, max_reviews, newest_first)
+    except ScraperProError:
+        pass
+
     if _scraper_has_known_empty_review_rows(place, target_url):
         logger.warning(
             "scraper-pro has a known zero-row scrape for %s despite %s listed reviews "

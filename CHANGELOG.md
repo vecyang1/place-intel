@@ -1,5 +1,12 @@
 # Changelog — place-intel
 
+## v0.4.69 — 2026-06-25 — reuse existing scraper-pro rows before Chrome
+Completes the Xóm Mèo production fix. If scraper-pro's persistent DB already
+contains review rows for the target URL, PlaceIntel now reads and returns those
+rows before launching another Chrome scrape. This lets a retry use the 240
+scraper-pro rows already collected on production immediately, instead of
+starting a new browser run and risking another long consent/selector session.
+
 ## v0.4.68 — 2026-06-25 — match scraper-pro resolved URLs
 Fixes the final Xóm Mèo production mapping issue. The vendor scraper may store
 the submitted Google Maps URL in `places.resolved_url` while keeping a different
