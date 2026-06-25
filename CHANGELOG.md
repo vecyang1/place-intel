@@ -1,5 +1,16 @@
 # Changelog — place-intel
 
+## v0.4.68 — 2026-06-25 — match scraper-pro resolved URLs
+Fixes the final Xóm Mèo production mapping issue. The vendor scraper may store
+the submitted Google Maps URL in `places.resolved_url` while keeping a different
+canonical URL in `places.original_url`; PlaceIntel only matched `original_url`,
+so it missed review rows that were already present in the vendor DB and fell
+back to SerpAPI's small first page.
+
+The scraper DB mapper now matches `places.original_url`, `places.resolved_url`,
+and `place_aliases.original_url`, allowing the 240 Xóm Mèo scraper-pro rows
+already collected on production to be ingested instead of being ignored.
+
 ## v0.4.67 — 2026-06-25 — skip repeated empty scraper-pro retries
 Follow-up to v0.4.66. Production showed that a 600-review retry could spend a
 long time re-running scraper-pro against a URL already known in the vendor DB as

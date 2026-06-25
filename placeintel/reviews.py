@@ -341,11 +341,11 @@ def _scraper_internal_place_ids(conn: sqlite3.Connection, maps_url: str) -> list
     """The scraper keys reviews by its own URL-derived id; match via original_url."""
     rows = conn.execute(
         """
-        SELECT place_id FROM places WHERE original_url = ?
+        SELECT place_id FROM places WHERE original_url = ? OR resolved_url = ?
         UNION
         SELECT canonical_id FROM place_aliases WHERE original_url = ?
         """,
-        (maps_url, maps_url),
+        (maps_url, maps_url, maps_url),
     ).fetchall()
     return [row["place_id"] for row in rows]
 

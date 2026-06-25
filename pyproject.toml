@@ -1,6 +1,6 @@
 [project]
 name = "placeintel"
-version = "0.4.67"
+version = "0.4.68"
 description = "Google Maps place + review intelligence: scrape, cache, embed, reason. Walk in armed."
 requires-python = ">=3.10"
 dependencies = [

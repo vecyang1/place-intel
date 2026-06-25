@@ -168,6 +168,69 @@ class SerpApiSalvageTest(unittest.TestCase):
                 with self.assertRaisesRegex(reviews.ScraperProError, "zero review rows"):
                     reviews._read_scraper_db(place, target_url)
 
+    def test_scraper_db_matches_vendor_resolved_url(self):
+        target_url = (
+            "https://www.google.com/maps/place/X%C3%B3m+M%C3%A8o+Coffee/data="
+            "!4m7!3m6!1s0x3142192f0319d6eb:0xf873e96faa231d34"
+        )
+        original_url = (
+            "https://www.google.com/maps/place/X%C3%B3m+M%C3%A8o+Coffee/@16.0462064,"
+            "108.2370407,17z/data=!3m1!4b1!4m6!3m5!1s0x3142192f0319d6eb:"
+            "0xf873e96faa231d34!8m2!3d16.0462064!4d108.2370407"
+        )
+        place = _place()
+        place.name = "Xóm Mèo Coffee"
+        place.review_count = 674
+        place.maps_url = target_url
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "scraper.db"
+            conn = sqlite3.connect(db_path)
+            conn.executescript(
+                """
+                CREATE TABLE places (
+                  place_id TEXT PRIMARY KEY,
+                  place_name TEXT,
+                  original_url TEXT NOT NULL,
+                  resolved_url TEXT,
+                  total_reviews INTEGER
+                );
+                CREATE TABLE place_aliases (
+                  alias_id TEXT PRIMARY KEY,
+                  canonical_id TEXT NOT NULL,
+                  original_url TEXT
+                );
+                CREATE TABLE reviews (
+                  review_id TEXT PRIMARY KEY,
+                  place_id TEXT NOT NULL,
+                  is_deleted INTEGER DEFAULT 0,
+                  rating REAL,
+                  review_text TEXT
+                );
+                """
+            )
+            conn.execute(
+                """INSERT INTO places
+                   (place_id, place_name, original_url, resolved_url, total_reviews)
+                   VALUES (?, ?, ?, ?, ?)""",
+                ("0x3142192f0319d6eb:0", "Xóm Mèo Coffee", original_url, target_url, 674),
+            )
+            conn.execute(
+                """INSERT INTO reviews
+                   (review_id, place_id, is_deleted, rating, review_text)
+                   VALUES (?, ?, 0, 5, ?)""",
+                ("r-resolved", "0x3142192f0319d6eb:0", '{"en": "Resolved URL match."}'),
+            )
+            conn.commit()
+            conn.close()
+
+            with mock.patch.object(reviews, "_scraper_db_path", return_value=db_path):
+                got = reviews._read_scraper_db(place, target_url)
+
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0].review_id, "gsp:r-resolved")
+        self.assertEqual(got[0].text, "Resolved URL match.")
+
     def test_fetch_reviews_skips_known_empty_scraper_db_row(self):
         target_url = (
             "https://www.google.com/maps/place/X%C3%B3m+M%C3%A8o+Coffee/data="
