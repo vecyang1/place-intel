@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from placeintel import reviews
-from placeintel.cache import Place
+from placeintel.cache import Place, Review
 
 
 def _place() -> Place:
@@ -167,6 +167,70 @@ class SerpApiSalvageTest(unittest.TestCase):
             with mock.patch.object(reviews, "_scraper_db_path", return_value=db_path):
                 with self.assertRaisesRegex(reviews.ScraperProError, "zero review rows"):
                     reviews._read_scraper_db(place, target_url)
+
+    def test_fetch_reviews_skips_known_empty_scraper_db_row(self):
+        target_url = (
+            "https://www.google.com/maps/place/X%C3%B3m+M%C3%A8o+Coffee/data="
+            "!4m7!3m6!1s0x3142192f0319d6eb:0xf873e96faa231d34"
+        )
+        place = _place()
+        place.name = "Xóm Mèo Coffee"
+        place.review_count = 674
+        place.maps_url = target_url
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "scraper.db"
+            conn = sqlite3.connect(db_path)
+            conn.executescript(
+                """
+                CREATE TABLE places (
+                  place_id TEXT PRIMARY KEY,
+                  place_name TEXT,
+                  original_url TEXT NOT NULL,
+                  resolved_url TEXT,
+                  total_reviews INTEGER
+                );
+                CREATE TABLE place_aliases (
+                  alias_id TEXT PRIMARY KEY,
+                  canonical_id TEXT NOT NULL,
+                  original_url TEXT
+                );
+                CREATE TABLE reviews (
+                  review_id TEXT PRIMARY KEY,
+                  place_id TEXT NOT NULL,
+                  is_deleted INTEGER DEFAULT 0
+                );
+                """
+            )
+            conn.execute(
+                """INSERT INTO places
+                   (place_id, place_name, original_url, resolved_url, total_reviews)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (
+                    "0x3142192f0319d6eb:0",
+                    "Xóm Mèo Coffee",
+                    target_url,
+                    target_url,
+                    0,
+                ),
+            )
+            conn.commit()
+            conn.close()
+
+            fallback = [Review(review_id="serp:xom-1", place_id=place.place_id)]
+            with mock.patch.object(reviews, "_scraper_db_path", return_value=db_path), \
+                    mock.patch.object(reviews, "_primary_blockers", return_value=[]), \
+                    mock.patch.object(
+                        reviews, "_run_scraper_pro",
+                        side_effect=AssertionError("scraper-pro should be skipped"),
+                    ), \
+                    mock.patch.object(
+                        reviews, "_fetch_via_serpapi", return_value=fallback,
+                    ) as serpapi:
+                got = reviews.fetch_reviews(place, max_reviews=600)
+
+        self.assertEqual(got, fallback)
+        serpapi.assert_called_once_with(place, 600)
 
     def test_scraper_config_uses_absolute_db_path_for_vendor_cwd(self):
         cfg = reviews._build_scraper_config(_place(), max_reviews=90)

@@ -73,6 +73,15 @@ def fetch_reviews(
         )
         return _order_and_cap(_fetch_via_serpapi(place, max_reviews), max_reviews, newest_first)
 
+    target_url = _scraper_target_url(place)
+    if _scraper_has_known_empty_review_rows(place, target_url):
+        logger.warning(
+            "scraper-pro has a known zero-row scrape for %s despite %s listed reviews "
+            "— using SerpAPI fallback",
+            place.place_id, place.review_count,
+        )
+        return _order_and_cap(_fetch_via_serpapi(place, max_reviews), max_reviews, newest_first)
+
     try:
         reviews = _fetch_via_scraper_pro(place, max_reviews)
         return _order_and_cap(reviews, max_reviews, newest_first)
@@ -270,6 +279,42 @@ def _read_scraper_db(place: Place, target_url: str | None = None) -> list[Review
     reviews = [_scraper_row_to_review(dict(row), place.place_id) for row in rows]
     logger.info("scraper-pro yielded %d reviews for %s", len(reviews), place.place_id)
     return reviews
+
+
+def _scraper_has_known_empty_review_rows(place: Place, target_url: str | None) -> bool:
+    """True when a previous scraper-pro run mapped this URL but collected nothing."""
+    if not target_url or not (place.review_count or 0) > 0:
+        return False
+    db_path = _scraper_db_path()
+    if not db_path.exists():
+        return False
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return False
+    conn.row_factory = sqlite3.Row
+    try:
+        urls = []
+        for url in (target_url, place.maps_url):
+            if url and url not in urls:
+                urls.append(url)
+        internal_ids: list[str] = []
+        for url in urls:
+            for internal_id in _scraper_internal_place_ids(conn, url):
+                if internal_id not in internal_ids:
+                    internal_ids.append(internal_id)
+        if not internal_ids:
+            return False
+        marks = ",".join("?" for _ in internal_ids)
+        count = conn.execute(
+            f"SELECT COUNT(*) AS n FROM reviews WHERE place_id IN ({marks}) AND is_deleted = 0",
+            internal_ids,
+        ).fetchone()["n"]
+        return int(count or 0) == 0
+    except sqlite3.Error:
+        return False
+    finally:
+        conn.close()
 
 
 def _scraper_db_path() -> Path:

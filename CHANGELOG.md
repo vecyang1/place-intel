@@ -1,5 +1,16 @@
 # Changelog — place-intel
 
+## v0.4.67 — 2026-06-25 — skip repeated empty scraper-pro retries
+Follow-up to v0.4.66. Production showed that a 600-review retry could spend a
+long time re-running scraper-pro against a URL already known in the vendor DB as
+a zero-row scrape. PlaceIntel now checks the persistent scraper DB before
+launching Chrome; if the target URL is already mapped but has zero review rows
+while Google lists reviews, it skips the primary scraper and goes straight to
+SerpAPI fallback.
+
+This makes repeated no-report retries recover promptly instead of waiting on a
+doomed browser session first.
+
 ## v0.4.66 — 2026-06-25 — fall back when scraper-pro hits Google consent
 Fixes production Shop jobs where scraper-pro successfully exited after landing
 on Google's consent interstitial instead of the business page. The vendor DB
