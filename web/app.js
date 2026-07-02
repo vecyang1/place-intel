@@ -64,14 +64,14 @@ const POLL_MS = 2000, MAX_POLL_FAILS = 5;
 const txTarget = () => PI18N.translationTarget();
 const txLabel = (target) => PI18N.labels[target] || target.toUpperCase();
 const txButtonLabel = (target) => `${ui('译文', 'Translate')} ${txLabel(target)}`;
-const REVIEW_MAX_KEY = 'placeintel.maxReviews', DEFAULT_MAX_REVIEWS = 300;
+const REVIEW_MAX_KEY = 'placeintel.maxReviews.v2', DEFAULT_MAX_REVIEWS = 300; try { localStorage.removeItem('placeintel.maxReviews'); } catch { /* v1 key held keystroke-clamped caps (e.g. stuck 20) — retire it */ }
 const TAB_NAMES = ['scout', 'shop', 'library', 'ask'];
 const tabFromHash = () => (TAB_NAMES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'scout');
 const SEARCH_ROW_CHIP_LIMIT = 8, LIBRARY_PAGE_SIZE = 12, LIBRARY_FILTERS = '#library-sort,#library-category,#library-freshness,#library-risk,#library-language,#library-cached,#library-report';
 const state = { tab: 'scout', profiles: [], places: [], libraryLoaded: false, libraryLimit: LIBRARY_PAGE_SIZE, libraryCompare: [], compareDetails: {}, compareLoading: false, jobs: { scout: null, shop: null }, detail: null, dossierJob: null, detailReturnFocus: null, photoReturnFocus: null, photoGallery: [], photoIndex: 0, photoZoom: 1, photoPreloads: [], meta: null, config: null, translationTarget: txTarget(), reportOriginals: {}, searches: [], commandMode: 'scout', commandManual: false }; // meta={version, reason/translate/embed}
-function savedMaxReviews() { try { return clampInt(localStorage.getItem(REVIEW_MAX_KEY), 20, 5000, DEFAULT_MAX_REVIEWS); } catch { return DEFAULT_MAX_REVIEWS; } }
+function savedMaxReviews() { try { const raw = localStorage.getItem(REVIEW_MAX_KEY); return raw === null ? DEFAULT_MAX_REVIEWS : clampInt(raw, 20, 5000, DEFAULT_MAX_REVIEWS); } catch { return DEFAULT_MAX_REVIEWS; } } // getItem()=null → Number(null)=0 → clamped to 20, not the 300 default
 function syncMaxReviews(v = savedMaxReviews()) { ['#scout-maxr', '#shop-maxr'].forEach((id) => { const el = $(id); if (el) el.value = String(v); }); }
-function rememberMaxReviews(value) { const n = clampInt(value, 20, 5000, savedMaxReviews()); try { localStorage.setItem(REVIEW_MAX_KEY, String(n)); } catch { /* storage unavailable */ } syncMaxReviews(n); return n; }
+function rememberMaxReviews(value) { const raw = Math.round(Number(value)), n = clampInt(value, 20, 5000, savedMaxReviews()); if (raw >= 20 && raw <= 5000) { try { localStorage.setItem(REVIEW_MAX_KEY, String(raw)); } catch { /* storage unavailable */ } } syncMaxReviews(n); return n; }
 function currentMaxReviews() { return rememberMaxReviews($('#shop-maxr')?.value || $('#scout-maxr')?.value || savedMaxReviews()); }
 function loadingHtml(msg) { return `<p class="loading">${esc(msg)} <span class="dots">●●●</span></p>`; }
 function errorHtml(msg) { return `<div class="error-box"><span class="error-label">出错 error</span>${esc(msg)}</div>`; }
@@ -520,7 +520,7 @@ function bindForms() {
     if ($('#shop-refresh').checked) body.refresh = true;
     startJob('shop', '/api/shop', body);
   });
-  ['#scout-maxr', '#shop-maxr'].forEach((id) => $(id)?.addEventListener('input', (e) => rememberMaxReviews(e.target.value)));
+  ['#scout-maxr', '#shop-maxr'].forEach((id) => $(id)?.addEventListener('change', (e) => rememberMaxReviews(e.target.value)));
   const askForm = $('#ask-form');
   askForm.addEventListener('submit', (e) => {
     e.preventDefault();

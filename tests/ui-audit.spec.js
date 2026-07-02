@@ -92,14 +92,19 @@ test('changed max review default is remembered for Shop, Scout, and dossier jobs
     body: JSON.stringify({ status: 'done', events: [], result: { places: [], reports: [], errors: [] } }),
   }));
 
+  // A stale v1 key (keystroke-clamped caps, e.g. a stuck "20") must be purged
+  // on load instead of silently overriding the 300 default.
+  await page.addInitScript(() => { try { localStorage.setItem('placeintel.maxReviews', '20'); } catch { /* storage unavailable */ } });
   await page.goto('http://127.0.0.1:9618/#shop', { waitUntil: 'networkidle' });
   await page.locator('#shop-target').fill('Xóm Mèo Coffee');
   await page.locator('#shop-advanced summary').click();
+  await expect(page.locator('#shop-maxr')).toHaveValue('300');
+  expect(await page.evaluate(() => localStorage.getItem('placeintel.maxReviews'))).toBeNull();
   await page.locator('#shop-maxr').fill('600');
   await page.locator('#shop-submit').click();
 
   expect(shopBody).toMatchObject({ target: 'Xóm Mèo Coffee', max_reviews: 600 });
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('placeintel.maxReviews'))).toBe('600');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('placeintel.maxReviews.v2'))).toBe('600');
 
   await page.reload({ waitUntil: 'networkidle' });
   await expect(page.locator('#shop-maxr')).toHaveValue('600');

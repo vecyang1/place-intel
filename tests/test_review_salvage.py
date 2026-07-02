@@ -91,6 +91,23 @@ class SerpApiSalvageTest(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 reviews._fetch_via_serpapi(_place(), max_reviews=300)
 
+    def test_small_cap_paginates_past_the_8_item_first_page(self):
+        # SerpAPI's first google_maps_reviews page carries only 8 items; a
+        # 20-per-page estimate made max_reviews=20 stop after page 1 with 8.
+        place = _place()
+        place.review_count = 289
+
+        def fake_get(params, page):
+            if page == 1:
+                return _page1_payload(8)
+            return {"reviews": [{"review_id": f"p2-{i}"} for i in range(20)]}
+
+        with mock.patch.object(reviews, "_serpapi_get", side_effect=fake_get) as get:
+            got = reviews._fetch_via_serpapi(place, max_reviews=20)
+
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(len(got), 28)  # caller's _order_and_cap trims to 20
+
     def test_scraper_target_url_repairs_place_id_only_maps_url(self):
         place = _place()
         place.name = "Melody Boutique Villa Hoi An"
@@ -408,6 +425,11 @@ class SerpApiSalvageTest(unittest.TestCase):
             self.assertIn(str(scraper_dir), cmd[2])
             self.assertIn(str(scraper_dir / "start.py"), cmd[2])
             self.assertIn("NEW_DRIVER_DIR", cmd[2])
+            # EU datacenter IPs get Google's consent interstitial ("Bevor Sie zu
+            # Google Maps weitergehen") and the vendor's dismissal only matches
+            # English buttons — the bootstrap must pre-seed consent cookies.
+            self.assertIn("SOCS", cmd[2])
+            self.assertIn("setup_driver", cmd[2])
             env = run.call_args.kwargs["env"]
             self.assertEqual(
                 Path(env["HOME"]),

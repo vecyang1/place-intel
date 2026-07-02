@@ -209,20 +209,39 @@ def _run_scraper_pro(
         # Chrome holding 9222 but refusing connections) as "free" and collides.
         # sb_config.multi_proxy=True short-circuits straight to free_port().
         # NEW_DRIVER_DIR keeps chromedriver downloads out of read-only site-packages.
-        bootstrap = (
-            "from pathlib import Path; "
-            "from seleniumbase import config as sb_config; "
-            "from seleniumbase.config import settings as sb_settings; "
-            f"driver_dir = {str(driver_dir)!r}; "
-            "Path(driver_dir).mkdir(parents=True, exist_ok=True); "
-            "sb_config.multi_proxy = True; "
-            "sb_settings.NEW_DRIVER_DIR = driver_dir; "
-            "sb_config.settings = sb_settings; "
-            "import sys, runpy; "
-            f"sys.path.insert(0, {str(SCRAPER_DIR)!r}); "
-            "sys.argv = ['start.py'] + sys.argv[1:]; "
-            f"runpy.run_path({str(SCRAPER_DIR / 'start.py')!r}, run_name='__main__')"
-        )
+        # setup_driver is wrapped to pre-seed Google consent cookies (SOCS=CAI):
+        # EU datacenter IPs get the "Bevor Sie zu Google Maps weitergehen"
+        # interstitial and the vendor's dismissal only matches English buttons,
+        # so every scrape recorded the consent page with zero review rows.
+        bootstrap = f'''
+from pathlib import Path
+from seleniumbase import config as sb_config
+from seleniumbase.config import settings as sb_settings
+driver_dir = {str(driver_dir)!r}
+Path(driver_dir).mkdir(parents=True, exist_ok=True)
+sb_config.multi_proxy = True
+sb_settings.NEW_DRIVER_DIR = driver_dir
+sb_config.settings = sb_settings
+import sys, runpy
+sys.path.insert(0, {str(SCRAPER_DIR)!r})
+try:
+    import modules.scraper as _scraper_mod
+    _original_setup_driver = _scraper_mod.GoogleReviewsScraper.setup_driver
+    def _consent_seeded_setup_driver(self, headless):
+        driver = _original_setup_driver(self, headless)
+        try:
+            driver.get("https://www.google.com/robots.txt")
+            driver.add_cookie(dict(name="SOCS", value="CAI", domain=".google.com"))
+            driver.add_cookie(dict(name="CONSENT", value="PENDING+987", domain=".google.com"))
+        except Exception as exc:
+            print("consent cookie seeding failed:", exc, file=sys.stderr)
+        return driver
+    _scraper_mod.GoogleReviewsScraper.setup_driver = _consent_seeded_setup_driver
+except Exception as exc:
+    print("consent patch skipped:", exc, file=sys.stderr)
+sys.argv = ["start.py"] + sys.argv[1:]
+runpy.run_path({str(SCRAPER_DIR / "start.py")!r}, run_name="__main__")
+'''
         cmd = [str(SCRAPER_PYTHON), "-c", bootstrap, "scrape",
                "--config", str(config_path)]
         logger.info("Running scraper-pro for %s: %s", place.place_id, " ".join(cmd))
@@ -409,7 +428,10 @@ def _fetch_via_serpapi(place: Place, max_reviews: int | None) -> list[Review]:
             max_pages, max_pages * SERPAPI_PAGE_SIZE,
         )
     else:
-        max_pages = max(1, -(-max_reviews // SERPAPI_PAGE_SIZE))  # ceil division
+        # First page carries only SERPAPI_INITIAL_PAGE_SIZE items — a flat
+        # 20-per-page estimate stops one page short for small caps (8 ≠ 20).
+        remaining = max(0, max_reviews - SERPAPI_INITIAL_PAGE_SIZE)
+        max_pages = 1 + -(-remaining // SERPAPI_PAGE_SIZE)  # ceil division
 
     params: dict[str, str] = {
         "engine": "google_maps_reviews",

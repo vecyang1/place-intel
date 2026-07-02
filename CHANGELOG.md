@@ -1,5 +1,25 @@
 # Changelog — place-intel
 
+## v0.4.70 — 2026-07-02 — bypass EU consent wall + true 300-review default
+Fixes the production "0 reviews" failures at their root. VPS journal + vendor
+scraper logs showed every scraper-pro run on the EU VPS landed on Google's
+GDPR interstitial ("Bevor Sie zu Google Maps weitergehen") — the vendor's
+cookie dismissal only matches English "Accept" buttons — so each scrape
+recorded the consent page with zero review rows and fell back to SerpAPI,
+draining the 250/month quota (190 used) until fallbacks also failed with 0.
+
+- scraper-pro bootstrap now wraps `setup_driver` to pre-seed Google consent
+  cookies (`SOCS=CAI`, `CONSENT=PENDING+987`) via robots.txt before any Maps
+  navigation, so EU datacenter IPs skip the interstitial entirely.
+- SerpAPI page math accounts for its 8-item first page: a 20-review cap now
+  fetches page 2 instead of silently returning 8 reviews as "success".
+- Web: the review cap really defaults to 300 now. `savedMaxReviews()` clamped
+  `localStorage.getItem() === null` (→ `Number(null) === 0`) up to the minimum
+  20, so every fresh browser ran jobs with a 20-review cap since v0.4.65. The
+  storage key moves to `placeintel.maxReviews.v2`, the poisoned v1 key is
+  removed on load, and only committed in-range edits (change event, 20–5000)
+  are remembered — partial keystrokes no longer persist clamped values.
+
 ## v0.4.69 — 2026-06-25 — reuse existing scraper-pro rows before Chrome
 Completes the Xóm Mèo production fix. If scraper-pro's persistent DB already
 contains review rows for the target URL, PlaceIntel now reads and returns those
