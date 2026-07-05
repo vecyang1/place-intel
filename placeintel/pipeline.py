@@ -66,10 +66,20 @@ def _place_summary(p: cache.Place, source: str) -> dict:
 
 
 def _place_from_row(row: sqlite3.Row) -> cache.Place:
+    import json
+    try:
+        hours = json.loads(row["hours_json"]) if row["hours_json"] else None
+    except Exception:
+        hours = None
+    # Map EVERY listing column back — these places get re-upserted (URL enrich,
+    # post-fetch metadata persist), and missing fields would wipe the row.
     return cache.Place(
         place_id=row["place_id"], name=row["name"], category=row["category"],
-        address=row["address"], rating=row["rating"], review_count=row["review_count"],
-        maps_url=row["maps_url"], source=row["source"] or "cache",
+        address=row["address"], lat=row["lat"], lng=row["lng"],
+        rating=row["rating"], review_count=row["review_count"],
+        phone=row["phone"], website=row["website"], hours=hours,
+        price_level=row["price_level"], maps_url=row["maps_url"],
+        source=row["source"] or "cache",
         raw={"data_id": _raw_data_id(row)},
     )
 
@@ -167,6 +177,9 @@ def _deep_dive(conn: sqlite3.Connection, places: list[cache.Place], profile: dic
                     emit("reviews", f"抓取「{place.name}」的评价（最多 {max_reviews} 条）…")
                 got = reviews.fetch_reviews(place, max_reviews=max_reviews,
                                             force_serpapi=force_serpapi)
+                # fetch 可能就地补全了 rating/review_count/address（SerpAPI
+                # place_info）——URL 直达的店铺没经过搜索，靠这里拿到列表元数据
+                cache.upsert_place(conn, place)
                 new = cache.upsert_reviews(conn, got)
                 if (len(got) > reviews.SERPAPI_INITIAL_PAGE_SIZE
                         and any(r.source == "scraper-pro" for r in got)):
@@ -281,7 +294,10 @@ def scout(query: str, location: str | None = None, profile_name: str | None = No
                                    "report_lang", "mode", "target", "reasoning")})
 
     if plan.get("mode") == "single" and plan.get("target"):
-        return scout_single(plan["target"], near=location or plan.get("near"),
+        # 输入里带 Maps 链接时把原文传下去 — 只传 plan["target"]（店名）会丢掉
+        # 链接里的唯一身份，single 模式就只能按名称搜索匹配了
+        single_target = query if planner.MAPS_URL_RE.search(query) else plan["target"]
+        return scout_single(single_target, near=location or plan.get("near"),
                             profile_name=profile_name, max_reviews=max_reviews,
                             report_lang=report_lang, force_serpapi=force_serpapi,
                             refresh=refresh, skip_reports=skip_reports,
@@ -383,6 +399,7 @@ def scout_single(target: str, near: str | None = None, profile_name: str | None 
     conn = cache.connect()
 
     place: cache.Place | None = None
+    url_cid = (url_info or {}).get("cid")
     if place_id:
         row = cache.get_place(conn, place_id)
         if not row:
@@ -393,13 +410,31 @@ def scout_single(target: str, near: str | None = None, profile_name: str | None 
         place = _place_from_row(row)
         name = place.name
         emit("search", f"缓存命中：「{place.name}」（place_id 精确）")
-    elif not refresh:
-        rows = cache.find_places_by_name(conn, name)
-        if rows:
-            place = _place_from_row(rows[0])
-            place = _enrich_place_from_url_info(place, url_info)
-            cache.upsert_place(conn, place)
-            emit("search", f"缓存命中：「{place.name}」（无需重新搜索）")
+    else:
+        if url_cid:
+            # Maps 链接自带唯一身份 — 按身份查缓存，杜绝同名错配
+            row = cache.find_place_by_data_id(conn, url_cid)
+            if row:
+                place = _enrich_place_from_url_info(_place_from_row(row), url_info)
+                cache.upsert_place(conn, place)
+                name = place.name
+                emit("search", f"缓存命中：「{place.name}」（Maps URL 身份精确匹配）")
+        if place is None and not refresh:
+            rows = cache.find_places_by_name(conn, name)
+            if url_cid:
+                # 链接指明了身份：名字撞车但身份不同的缓存行（同名分店等）不能冒充
+                rows = [r for r in rows if _raw_data_id(r) in (None, url_cid)]
+            if rows:
+                place = _place_from_row(rows[0])
+                place = _enrich_place_from_url_info(place, url_info)
+                cache.upsert_place(conn, place)
+                emit("search", f"缓存命中：「{place.name}」（无需重新搜索）")
+
+    if place is None and planner.url_locks_identity(url_info):
+        # 链接已经唯一标识了店铺：直接锁定，不再搜索、不再按名称猜测匹配
+        place = _place_from_url_info(url_info)
+        cache.upsert_place(conn, place)
+        emit("search", f"Maps URL 已精确锁定「{place.name}」，跳过搜索")
 
     if place is None:
         emit("search", f"在 Google Maps 上定位「{name}」…")
@@ -413,25 +448,30 @@ def scout_single(target: str, near: str | None = None, profile_name: str | None 
             return result
         for p in found:
             cache.upsert_place(conn, p)
-        place = planner.pick_target(name, found)
+        if url_cid:
+            # 有身份就按身份挑；身份对不上时宁可用链接自带的信息，也不按名称硬配
+            place = next((p for p in found if p.place_id == url_cid
+                          or (p.raw or {}).get("data_id") == url_cid), None)
+            place = place or _place_from_url_info(url_info)
+        if place is None:
+            place = planner.pick_target(name, found)
         if place is None:
             place = _place_from_url_info(url_info)
-            if place is None:
-                result.errors.append(f"no match for {name!r}")
-                emit("done", f"没找到匹配「{name}」的店铺")
-                conn.close()
-                return result
-            cache.upsert_place(conn, place)
-            emit("search", f"使用 Maps URL 解析出的地点：「{place.name}」（Maps URL exact）")
-        else:
-            place = _enrich_place_from_url_info(place, url_info)
-            cache.upsert_place(conn, place)
+        if place is None:
+            result.errors.append(f"no match for {name!r}")
+            emit("done", f"没找到匹配「{name}」的店铺")
+            conn.close()
+            return result
+        place = _enrich_place_from_url_info(place, url_info)
+        cache.upsert_place(conn, place)
         emit("search", f"锁定目标：「{place.name}」 ★{place.rating or '?'} "
              f"({place.review_count or '?'} 条评价)")
 
     result.places = [_place_summary(place, place.source)]
     _deep_dive(conn, [place], profile, max_reviews, report_lang,
                force_serpapi, refresh, skip_reports, result, emit)
+    # 评价抓取可能补全了 rating/review_count（SerpAPI place_info）——刷新摘要
+    result.places = [_place_summary(place, place.source)]
     conn.close()
     emit("done", f"完成：{len(result.reports)} 份报告"
          + (f"，{len(result.errors)} 个警告" if result.errors else ""))

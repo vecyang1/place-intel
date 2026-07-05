@@ -91,6 +91,18 @@ def parse_maps_url(text: str) -> dict | None:
     return info
 
 
+def url_locks_identity(url_info: dict | None) -> bool:
+    """True when a parsed Maps URL uniquely identifies the shop — a hex-pair
+    data_id (0x…:0x…) plus a name. The pipeline locks on it directly: no Maps
+    search, no name-based matching."""
+    if not url_info or not url_info.get("name"):
+        return False
+    return bool(_HEX_PAIR_RE.fullmatch(url_info.get("cid") or ""))
+
+
+_short_url_cache: dict[str, str] = {}  # successes only — failures stay retryable
+
+
 def _resolve_short_maps_url(url: str) -> str:
     parsed = urllib.parse.urlparse(url)
     short = parsed.netloc.lower() == "maps.app.goo.gl" or (
@@ -98,17 +110,37 @@ def _resolve_short_maps_url(url: str) -> str:
     )
     if not short:
         return url
+    cached = _short_url_cache.get(url)
+    if cached:
+        return cached
     try:
         response = requests.get(
             url,
             allow_redirects=True,
             timeout=SHORT_MAPS_TIMEOUT_S,
             headers={"User-Agent": "placeintel/1.0 (+https://github.com/vecyang1/place-intel)"},
+            # EU IPs get bounced to the GDPR consent interstitial mid-redirect,
+            # losing the place identity in the URL — same fix as the scraper-pro
+            # consent seeding (v0.4.70).
+            cookies={"SOCS": "CAI", "CONSENT": "PENDING+987"},
         )
-        return response.url or url
+        resolved = _strip_consent_interstitial(response.url or url)
+        if resolved != url:
+            _short_url_cache[url] = resolved
+        return resolved
     except requests.RequestException as exc:
         log.warning("Google Maps short URL expansion failed (%s) — using original URL", exc)
         return url
+
+
+def _strip_consent_interstitial(url: str) -> str:
+    """consent.google.com/m?continue=<real maps url> → the real maps URL, so the
+    ftid/name in it survive expansion even when the consent cookies don't stick."""
+    parsed = urllib.parse.urlparse(url)
+    if not parsed.netloc.lower().endswith("consent.google.com"):
+        return url
+    cont = urllib.parse.parse_qs(parsed.query).get("continue")
+    return cont[0] if cont and cont[0] else url
 
 
 # -- plan ----------------------------------------------------------------------
@@ -121,7 +153,8 @@ def _fallback_plan(user_text: str, near: str | None) -> dict:
         "mode": "single" if url_info else "discover",
         "target": (url_info or {}).get("name") or (url_info or {}).get("url"),
         "near": near,
-        "queries": [user_text],
+        # 链接已唯一锁定店铺时不会执行任何搜索 — 别在计划里展示假的搜索词
+        "queries": [] if url_locks_identity(url_info) else [user_text],
         "scrape_lang": "en",
         "profile": profiles.guess_profile(user_text),
         "report_lang": language.detect_text_language(user_text) or "en",
@@ -173,6 +206,8 @@ rating/price wishes in them; those belong in "relevance"."""
             plan["profile"] = profiles.guess_profile(user_text)
         queries = [q for q in plan.get("queries") or [] if isinstance(q, str) and q.strip()]
         plan["queries"] = queries[:3] or [user_text]
+        if url_locks_identity(url_info):
+            plan["queries"] = []  # 链接已唯一锁定店铺 — 不会执行任何搜索
         plan["report_lang"] = language.normalize_language_tag(plan.get("report_lang")) or language.detect_text_language(user_text) or "en"
         plan["ai"] = True
         return plan

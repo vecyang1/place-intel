@@ -931,6 +931,25 @@ def find_places_by_name(conn: sqlite3.Connection, name: str) -> list[sqlite3.Row
     return matches
 
 
+def find_place_by_data_id(conn: sqlite3.Connection, data_id: str) -> sqlite3.Row | None:
+    """Exact-identity lookup: place_id match, else the data_id kept in raw_json.
+    A Google Maps URL carries this id, so a hit here can never be a same-name
+    mismatch the way find_places_by_name can."""
+    row = conn.execute("SELECT * FROM places WHERE place_id=?", (data_id,)).fetchone()
+    if row:
+        return row
+    for row in conn.execute(
+        "SELECT * FROM places WHERE raw_json LIKE ? ORDER BY last_refreshed DESC",
+        (f"%{data_id}%",),
+    ):
+        try:
+            if json.loads(row["raw_json"] or "{}").get("data_id") == data_id:
+                return row
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return None
+
+
 def recent_search(
     conn: sqlite3.Connection, query: str, location: str | None, max_age_days: float = 7,
 ) -> dict | None:

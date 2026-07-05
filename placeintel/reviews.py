@@ -297,10 +297,12 @@ def _read_scraper_db(place: Place, target_url: str | None = None) -> list[Review
             f"SELECT * FROM reviews WHERE place_id IN ({marks}) AND is_deleted = 0",
             internal_ids,
         ).fetchall()
-        if not rows and (place.review_count or 0) > 0:
+        if not rows and place.review_count != 0:
+            # review_count None = unknown (URL-locked place that skipped
+            # discovery) — treat zero rows as a failed scrape, not "no reviews".
             raise ScraperProError(
                 f"scraper-pro returned zero review rows for {place.name}; "
-                f"Google lists {place.review_count} reviews"
+                f"Google lists {place.review_count or 'an unknown number of'} reviews"
             )
     except sqlite3.Error as exc:
         raise ScraperProError(f"scraper db query failed: {exc}") from exc
@@ -313,8 +315,8 @@ def _read_scraper_db(place: Place, target_url: str | None = None) -> list[Review
 
 def _scraper_has_known_empty_review_rows(place: Place, target_url: str | None) -> bool:
     """True when a previous scraper-pro run mapped this URL but collected nothing."""
-    if not target_url or not (place.review_count or 0) > 0:
-        return False
+    if not target_url or place.review_count == 0:
+        return False  # a known zero-review place legitimately yields zero rows
     db_path = _scraper_db_path()
     if not db_path.exists():
         return False
@@ -444,6 +446,10 @@ def _fetch_via_serpapi(place: Place, max_reviews: int | None) -> list[Review]:
     for page in range(1, max_pages + 1):
         try:
             payload = _serpapi_get(params, page)
+            if page == 1:
+                # URL-locked places skip discovery, so listing metadata (rating,
+                # review_count, address) arrives here via place_info instead.
+                _backfill_place_info(place, payload)
         except RuntimeError:
             # A later page timing out must not void reviews already in hand — a report
             # on the newest 20 beats reverting the user to an empty dossier. Only a
@@ -480,6 +486,28 @@ def _fetch_via_serpapi(place: Place, max_reviews: int | None) -> list[Review]:
         params = {**params, "next_page_token": next_token}
     logger.info("SerpAPI yielded %d reviews for %s", len(collected), place.place_id)
     return collected
+
+
+def _backfill_place_info(place: Place, payload: dict[str, Any]) -> None:
+    """Fill listing gaps in *place* from google_maps_reviews' place_info block.
+    Only missing fields are touched — discovered places keep their search data."""
+    info = payload.get("place_info")
+    if not isinstance(info, dict):
+        return
+    if place.rating is None and info.get("rating") is not None:
+        try:
+            place.rating = float(info["rating"])
+        except (TypeError, ValueError):
+            pass
+    if place.review_count is None and info.get("reviews") is not None:
+        try:
+            place.review_count = int(info["reviews"])
+        except (TypeError, ValueError):
+            pass
+    if not place.address and info.get("address"):
+        place.address = str(info["address"])
+    if not place.name and info.get("title"):
+        place.name = str(info["title"])
 
 
 def _serpapi_get(params: dict[str, str], page: int) -> dict[str, Any]:
