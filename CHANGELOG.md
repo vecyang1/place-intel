@@ -1,5 +1,31 @@
 # Changelog — place-intel
 
+## v0.4.71 — 2026-07-05 — Maps share links lock the shop by identity, no search
+A pasted `maps.app.goo.gl` share link already names ONE exact place (its
+`ftid`/`cid` identity), yet single-shop mode still ran a Google Maps text
+search and matched by name (fuzzy + LLM pick) — visibly redundant, and the
+source of occasional wrong-shop matches (same-name branches, lookalikes).
+
+- `scout_single` now resolves URL inputs by identity: cache lookup by the
+  URL's `data_id` first (new `cache.find_place_by_data_id`), then a direct
+  lock on the place parsed from the URL — no search, no name guessing.
+  When a search still runs (no usable identity in the URL), candidates are
+  matched by `cid` before any name-based pick, and name-matched cache rows
+  with a *conflicting* identity are rejected instead of silently reused.
+- `scout()` passes the original URL through to single mode; it used to
+  forward only the parsed shop NAME, dropping the link's identity entirely.
+- Listing metadata (★rating / review count / address) for URL-locked places
+  is backfilled from SerpAPI's `place_info` during the review fetch and
+  persisted, so skipping discovery doesn't blind the report or the
+  first-page-gap guards. scraper-pro's zero-row consent-wall check now also
+  fires when the listed review count is unknown.
+- Short-link expansion seeds Google consent cookies and recovers the real
+  URL from `consent.google.com/m?continue=…` bounces (EU VPS), so the
+  identity in the link survives expansion; expansions are memoized (the
+  same link was resolved up to 3× per job).
+- The plan card no longer advertises "searches run" for identity-locked
+  links — no search happens.
+
 ## v0.4.70 — 2026-07-02 — bypass EU consent wall + true 300-review default
 Fixes the production "0 reviews" failures at their root. VPS journal + vendor
 scraper logs showed every scraper-pro run on the EU VPS landed on Google's
