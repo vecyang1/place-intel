@@ -9,11 +9,52 @@ from __future__ import annotations
 import time
 import shutil
 import subprocess
+from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from . import __version__, cache, config
 
 Check = dict[str, object]
+
+
+class _StaticAssetParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.references: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = dict(attrs)
+        if tag == "link" and "stylesheet" in (values.get("rel") or "").split():
+            ref = values.get("href")
+        elif tag == "script":
+            ref = values.get("src")
+        else:
+            return
+        if ref:
+            self.references.append(ref)
+
+
+def _referenced_static_assets(index_html: str) -> list[str]:
+    parser = _StaticAssetParser()
+    parser.feed(index_html)
+    assets = []
+    for reference in parser.references:
+        parsed = urlsplit(reference)
+        if parsed.scheme or parsed.netloc:
+            continue
+        path = unquote(parsed.path)
+        if not path.startswith("/static/"):
+            continue
+        relative = Path(path.removeprefix("/static/"))
+        if not relative.name or relative.is_absolute() or ".." in relative.parts:
+            raise RuntimeError(f"unsafe static asset path: {reference}")
+        if relative.suffix not in {".css", ".js"}:
+            continue
+        name = relative.as_posix()
+        if name not in assets:
+            assets.append(name)
+    return assets
 
 
 def _now_ms(start: float) -> int:
@@ -66,8 +107,12 @@ def _data_dir_check() -> tuple[str, dict]:
 
 def _static_web_check() -> tuple[str, dict]:
     web_dir = config.PROJECT_DIR / "web"
+    index_path = web_dir / "index.html"
+    if not index_path.exists():
+        raise RuntimeError("index.html missing")
+    index_html = index_path.read_text(encoding="utf-8")
     files = {}
-    for name in ("index.html", "app.css", "app.js", "i18n.js"):
+    for name in ["index.html", *_referenced_static_assets(index_html)]:
         path = web_dir / name
         if not path.exists():
             raise RuntimeError(f"{name} missing")

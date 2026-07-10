@@ -9,7 +9,7 @@ This file is a navigation surface, not a second source of requirements. Keep det
 
 | PRD | Status | Created | Last Updated | Owner Surface | Next Action |
 | --- | --- | --- | --- | --- | --- |
-| [Production Trust Hardening](<2026-07-11 - prd production-trust-hardening.md>) | Draft | 2026-07-11 | 2026-07-11 | bounded jobs, usage/ops, vector/report provenance, evidence validation, launch metrics, test isolation | Execute US-001 through US-006 with TDD; keep auth in its related PRD. |
+| [Production Trust Hardening](<2026-07-11 - prd production-trust-hardening.md>) | In Progress | 2026-07-11 | 2026-07-11 | bounded jobs, usage/ops, vector/report provenance, evidence validation, launch metrics, test isolation | Task 1 implemented and locally verified; independent task review next. Keep auth in its related PRD. |
 | [GMR Supabase Auth](<2026-07-10 - prd gmr-supabase-auth.md>) | Paused — credential-gated | 2026-07-10 | 2026-07-10 | `placeintel/server.py`, web auth UI, Supabase Auth config, deploy-smoke, docs | Resume only after Supabase Management/project/JWT, Google OAuth, SMTP/Resend, and Cloudflare/DNS/deploy credential classes are available or intentionally waived. |
 | [Agent-Readiness Governance](<2026-06-20 - prd agent-readiness-governance.md>) | Complete | 2026-06-20 | 2026-06-20 | PRD router, contract gate, agent docs | Use before PRD work; migrate legacy files only when reopened. |
 | [Cached Report Translation](<2026-06-20 - prd cached-report-translation.md>) | Complete | 2026-06-20 | 2026-06-20 | `report_translations`, `/api/reports/translate`, dossier report switch | Preserve original report markdown; extend only through the cached display-translation contract. |

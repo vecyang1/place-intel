@@ -2,7 +2,7 @@
 
 Created: 2026-07-11
 Last Updated: 2026-07-11
-Status: Draft
+Status: In Progress
 Feature Type: Full-stack production reliability, evidence integrity, and launch measurement
 Owner: Codex
 Deployment Profile: hybrid
@@ -486,10 +486,15 @@ Production release proof requires:
 
 ## Build Progress
 
-- 2026-07-11: Source-backed audit, baseline tests, design owner, and design spec completed. Implementation not started.
+- 2026-07-11: Source-backed audit, baseline tests, design owner, and design spec completed.
+- 2026-07-11: Task 1 implemented and locally verified under red-green TDD:
+  root Playwright discovery owns exactly 39 tests, purpose-owned CSS/JS assets
+  remain below 800 lines, and cheap doctor validates the asset graph derived
+  from `index.html`. Independent task review is next; Task 2 has not started.
 
 ## Revision History
 
 | Date | Version | Change | Author |
 | --- | --- | --- | --- |
+| 2026-07-11 | v0.2 | Marked In Progress after locally verified Task 1 frontend/test isolation milestone. | Codex |
 | 2026-07-11 | v0.1 | Conversation-synthesis PRD from parallel product, reliability/security, and AI-evidence audits. | Codex |

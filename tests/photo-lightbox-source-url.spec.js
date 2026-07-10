@@ -40,7 +40,8 @@ test('photo lightbox quotes source URL and can browse more URL-only images', asy
   }));
 
   await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
-  await page.locator('[data-open-place="many-photos"]').click();
+  await page.locator('#library-grid .shop-card').filter({ hasText: 'Many Photos Cafe' })
+    .locator('.btn-ghost[data-open-place="many-photos"]').click();
 
   const stripButtons = page.locator('#detail-body .photo-strip .source-photo');
   await expect(stripButtons).toHaveCount(8);
@@ -65,7 +66,7 @@ test('photo lightbox quotes source URL and can browse more URL-only images', asy
   await expect(page.locator('#photo-lightbox-count')).toHaveText('7/8');
 });
 
-test('library card photo opens the full place gallery without opening dossier first', async ({ page }) => {
+test('library card photo opens dossier before its strip opens the full gallery', async ({ page }) => {
   const now = Date.now() / 1000;
   const fullImageRequests = [];
   const photos = Array.from({ length: 8 }, (_, i) => ({
@@ -115,7 +116,12 @@ test('library card photo opens the full place gallery without opening dossier fi
   await page.goto('http://127.0.0.1:9618/#library', { waitUntil: 'networkidle' });
   await page.locator('#library-grid .shop-card').filter({ hasText: 'Card Many Photos Cafe' }).locator('.source-photo').click();
 
-  await expect(page.locator('#detail-overlay')).toBeHidden();
+  await expect(page.locator('#detail-overlay')).toBeVisible();
+  await expect(page.locator('#photo-lightbox')).toBeHidden();
+  const stripButtons = page.locator('#detail-body .photo-strip .source-photo');
+  await expect(stripButtons).toHaveCount(8);
+  await stripButtons.first().click();
+
   await expect(page.locator('#photo-lightbox')).toBeVisible();
   await expect(page.locator('#photo-lightbox-count')).toHaveText('1/8');
   await expect(page.locator('#photo-lightbox-source')).toHaveText('https://images.example/card-source-1.jpg');

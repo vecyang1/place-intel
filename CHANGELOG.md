@@ -1,6 +1,6 @@
 # Changelog — place-intel
 
-## Unreleased — architecture documentation
+## Unreleased — production trust hardening
 
 - Added `docs/architecture.md` as the system-map owner for product flows,
   modules, storage, integrations, runtime/deploy boundaries, invariants, and
@@ -11,6 +11,13 @@
   unchanged until those milestones land.
 - Linked the architecture owner from `README.md`, `FILE_MAP_INDEX.md`, and
   `VAULT.md`; runtime behavior and public contracts are unchanged.
+- Added root-scoped Playwright discovery for the 39 intended browser tests,
+  excluding duplicated `.claude/worktrees` tests from normal runs.
+- Split the no-build frontend into purpose-owned CSS assets and extracted the
+  durable job/SSE/polling lifecycle into `web/jobs.js` without changing the
+  existing selectors, declarations, or `window.__pi.startJob` contract.
+- Cheap doctor now validates every local CSS/JS asset linked by `index.html`
+  instead of relying on a fixed historical filename list.
 
 ## v0.4.70 — 2026-07-02 — bypass EU consent wall + true 300-review default
 Fixes the production "0 reviews" failures at their root. VPS journal + vendor

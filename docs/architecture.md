@@ -211,9 +211,11 @@ API responses. Provider-facing exception text is redacted before persistence.
 
 ## Web and Job Architecture
 
-The SPA is a bounded no-build surface: `web/index.html`, `app.css`, `app.js`,
-`dossier.js`, and `i18n.js` are served directly by FastAPI. Top-level views keep
-the `#scout`, `#shop`, `#library`, and `#ask` deep-link contract.
+The SPA is a bounded no-build surface served directly by FastAPI. `index.html`
+loads base styles first, then purpose-owned `jobs.css`, `workspace.css`,
+`dossier.css`, and `system.css`; scripts load `i18n.js`, `dossier.js`, `jobs.js`,
+then `app.js`. Top-level views keep the `#scout`, `#shop`, `#library`, and `#ask`
+deep-link contract, and every HTML/CSS/JS asset stays below 800 lines.
 
 Scout and Shop requests create a `jobs` row before a daemon worker thread starts.
 Every pipeline event appends to `job_events`. Browsers consume resumable SSE with

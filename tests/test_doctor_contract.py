@@ -19,6 +19,53 @@ from placeintel import cli, config, server
 
 
 class DoctorContractTest(unittest.TestCase):
+    def test_static_web_check_validates_referenced_local_assets(self) -> None:
+        from placeintel import doctor
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            web = root / "web"
+            web.mkdir()
+            (web / "index.html").write_text(
+                '<link rel="stylesheet" href="/static/app.css?v=1">\n'
+                '<link rel="stylesheet" href="/static/extra.css">\n'
+                '<script src="/static/app.js?v=1"></script>\n'
+                '<script src="/static/extra.js"></script>\n',
+                encoding="utf-8",
+            )
+            for name in ["app.css", "extra.css", "app.js", "extra.js", "i18n.js"]:
+                (web / name).write_text("/* bounded */\n", encoding="utf-8")
+
+            with mock.patch.object(config, "PROJECT_DIR", root):
+                _, data = doctor._static_web_check()
+
+        self.assertEqual(
+            set(data["files"]),
+            {"index.html", "app.css", "extra.css", "app.js", "extra.js"},
+        )
+
+    def test_static_web_check_rejects_over_budget_referenced_asset(self) -> None:
+        from placeintel import doctor
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            web = root / "web"
+            web.mkdir()
+            (web / "index.html").write_text(
+                '<link rel="stylesheet" href="/static/app.css">\n'
+                '<link rel="stylesheet" href="/static/oversize.css">\n'
+                '<script src="/static/app.js"></script>\n',
+                encoding="utf-8",
+            )
+            (web / "app.css").write_text("/* bounded */\n", encoding="utf-8")
+            (web / "app.js").write_text("'use strict';\n", encoding="utf-8")
+            (web / "i18n.js").write_text("'use strict';\n", encoding="utf-8")
+            (web / "oversize.css").write_text("rule\n" * 800, encoding="utf-8")
+
+            with mock.patch.object(config, "PROJECT_DIR", root):
+                with self.assertRaisesRegex(RuntimeError, "oversize.css has 800 lines"):
+                    doctor._static_web_check()
+
     def test_cheap_health_reports_local_state_without_live_calls(self) -> None:
         from placeintel import doctor
 
