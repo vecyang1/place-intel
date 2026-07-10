@@ -1,5 +1,17 @@
 # Changelog — place-intel
 
+## Unreleased — architecture documentation
+
+- Added `docs/architecture.md` as the system-map owner for product flows,
+  modules, storage, integrations, runtime/deploy boundaries, invariants, and
+  update triggers.
+- Added the production-trust-hardening PRD, approved design spec, and reviewed
+  TDD execution plan for bounded jobs, private operations, AI provenance,
+  source-verifiable reports, and reproducible release proof. Runtime behavior is
+  unchanged until those milestones land.
+- Linked the architecture owner from `README.md`, `FILE_MAP_INDEX.md`, and
+  `VAULT.md`; runtime behavior and public contracts are unchanged.
+
 ## v0.4.70 — 2026-07-02 — bypass EU consent wall + true 300-review default
 Fixes the production "0 reviews" failures at their root. VPS journal + vendor
 scraper logs showed every scraper-pro run on the EU VPS landed on Google's

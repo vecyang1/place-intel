@@ -55,6 +55,7 @@ npm run test:web   # requires the local web app on http://127.0.0.1:9618
 ```
 
 Agent and ops contracts:
+- System architecture: [`docs/architecture.md`](docs/architecture.md)
 - HTTP API: [`docs/API.md`](docs/API.md)
 - Agent CLI: [`docs/agent-cli.md`](docs/agent-cli.md)
 - Operations runbook: [`docs/operations.md`](docs/operations.md)
