@@ -1,8 +1,9 @@
 # Account-scoped Google Takeout saved-place intake
 
-**Status:** complete
+**Status:** complete — local and protected remote verified
 **Owner:** PlaceIntel saved-place domain
-**Scope:** local/private Takeout ingestion only; no Google mutation, upload, or external enrichment.
+**Scope:** local-first and protected-private Takeout ingestion; no Google
+mutation, third-party data upload, or external enrichment.
 
 ## Problem
 
@@ -52,3 +53,9 @@ memberships.
 - Repeating either archive under its own source label produced zero new logical
   records. The aggregate private corpus is 89 collections, 4,075 items, and
   4,144 memberships.
+- The private deployment completed from the private repository before remote
+  intake. The host database was backed up first; archives were staged only in a
+  permission-restricted memory directory, imported with opaque source labels,
+  and removed automatically. The replay created zero records for both sources.
+- The final protected inventory matched the aggregate corpus; SQLite integrity,
+  cheap doctor, and deployment smoke all passed at version 0.4.73.

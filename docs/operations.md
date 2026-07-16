@@ -232,6 +232,29 @@ Operational rules:
   owner and is already covered by the normal backup/restore path.
 - Import never edits, deletes, shares, or reorganizes Google Maps lists.
 
+### Protected VPS synchronization
+
+When the private VPS needs the saved-place corpus, deploy the importer code
+from the private repository first, then run the same CLI import on the
+protected host. Do **not** commit an archive, copy the local `data/` directory,
+or use a full-database restore merely to add saved places: that could replace
+unrelated cached dossiers, jobs, and settings.
+
+1. Verify the deployed app version with `placeintel deploy-smoke`.
+2. Create a remote `placeintel backup --format json` before changing data.
+3. Stage the two private ZIPs only in a permission-restricted temporary memory
+   directory on the host. Use opaque source labels, run `saved-import` once
+   per archive, then remove both ZIPs and the temporary directory in an
+   `EXIT` cleanup path.
+4. Repeat each exact import once; every created collection, item, and
+   membership count must be zero on the replay.
+5. Reconcile per-source and aggregate `saved-inventory` counts, run the cheap
+   doctor, re-run deployment smoke, and assert no temporary ZIP remains.
+
+This transfer is a protected operational data sync, not a deployment artifact:
+the private repository and public code mirror must continue to exclude Takeout
+archives and runtime `data/` files.
+
 Input limits are configuration-driven and validated as positive integers:
 
 | Variable | Default | Meaning |
