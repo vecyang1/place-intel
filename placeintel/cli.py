@@ -92,6 +92,11 @@ def _add_format_arg(parser: argparse.ArgumentParser, *, ndjson: bool = False) ->
 
 def _normalize_agent_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     global_format = getattr(args, "global_format", None)
+    if (
+        getattr(args, "command", None) in {"saved-import", "saved-inventory"}
+        and global_format == "ndjson"
+    ):
+        parser.error("--format ndjson is not supported by saved-place commands")
     if not hasattr(args, "format"):
         args.format = global_format or "text"
     elif global_format and args.format == "text":
@@ -958,6 +963,14 @@ def main(argv: list[str] | None = None) -> int:
     rf.add_argument("--profile", choices=profiles.list_profiles() + [None], default=None)
     _add_format_arg(rf, ndjson=True)
     rf.set_defaults(func=_cmd_refresh_favorites)
+
+    from . import saved_cli
+    saved_cli.register(
+        sub,
+        add_format_arg=_add_format_arg,
+        json_payload=_json_payload,
+        print_json=_print_json,
+    )
 
     try:
         args = parser.parse_args(argv)

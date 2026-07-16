@@ -6,6 +6,9 @@
 data/
 output/
 node_modules/
+[Tt]akeout/
+[Tt]akeout-*.zip
+private-imports/
 
 # Playwright / test output
 test-results/

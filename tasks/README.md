@@ -1,6 +1,6 @@
 # PlaceIntel PRD Router
 
-Last Updated: 2026-07-11
+Last Updated: 2026-07-16
 Owner Surface: `tasks/` PRDs, `AGENTS.md`, `VAULT.md`, `progress.md`, `CHANGELOG.md`
 
 This file is a navigation surface, not a second source of requirements. Keep detailed requirements inside the PRD files. Historical PRDs keep their legacy filenames to preserve links; new PRDs must use `YYYY-MM-DD - prd feature-slug.md` and pass `scripts/validate-prd-contract.sh`.
@@ -9,6 +9,7 @@ This file is a navigation surface, not a second source of requirements. Keep det
 
 | PRD | Status | Created | Last Updated | Owner Surface | Next Action |
 | --- | --- | --- | --- | --- | --- |
+| [Saved Places Intelligence](<2026-07-14 - prd saved-places-intelligence.md>) | 🔨 US-001 real Takeout E2E complete; US-002–004 pending | 2026-07-14 | 2026-07-16 | private Google Takeout import, saved corpus, resolution states, saved-only recommendation | Real archive import and repeat-import reconciliation passed locally. Continue only with the opt-in bounded resolver in the [implementation plan](../docs/superpowers/plans/2026-07-14-saved-places-intelligence.md). |
 | [Production Trust Hardening](<2026-07-11 - prd production-trust-hardening.md>) | In Progress | 2026-07-11 | 2026-07-11 | bounded jobs, usage/ops, vector/report provenance, evidence validation, launch metrics, test isolation | Task 1 implemented and locally verified; independent task review next. Keep auth in its related PRD. |
 | [GMR Supabase Auth](<2026-07-10 - prd gmr-supabase-auth.md>) | Paused — credential-gated | 2026-07-10 | 2026-07-10 | `placeintel/server.py`, web auth UI, Supabase Auth config, deploy-smoke, docs | Resume only after Supabase Management/project/JWT, Google OAuth, SMTP/Resend, and Cloudflare/DNS/deploy credential classes are available or intentionally waived. |
 | [Agent-Readiness Governance](<2026-06-20 - prd agent-readiness-governance.md>) | Complete | 2026-06-20 | 2026-06-20 | PRD router, contract gate, agent docs | Use before PRD work; migrate legacy files only when reopened. |

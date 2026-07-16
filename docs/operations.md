@@ -191,6 +191,62 @@ Public-safe deployment surfaces:
 | protected domain | authenticated browser access | proxy auth outside repo |
 | public mirror | code-only repository | no deploy/runtime secrets |
 
+## Private Google Takeout Saved-Place Import
+
+Use Google's narrow Takeout route:
+
+<https://takeout.google.com/settings/takeout/custom/save,local_actions>
+
+Select the intended account, keep `Saved` and `Maps (your places)` selected,
+choose a one-time ZIP export, and deliberately press **Create export** only when
+ready. Download the completed archive to a private path outside this repository.
+The import itself needs no Google OAuth client, API key, Docker, browser, or AI:
+
+```bash
+.venv/bin/placeintel saved-import "/private/path/takeout.zip" --source-label account-a --format json
+.venv/bin/placeintel saved-inventory --source-label account-a --format json
+```
+
+Operational rules:
+
+- Do not extract the archive just to import it. CSV rows are iterated directly;
+  GeoJSON is held one bounded member at a time after archive-path validation.
+- Do not place Takeout data under git. Common `Takeout/`, `takeout-*.zip`, and
+  `private-imports/` paths are ignored as a secondary guardrail.
+- First reconcile inventory counts and repeat the same import once; the second
+  result must show zero newly created collections, items, and memberships.
+- Use a distinct opaque `--source-label` for each account; do not put email
+  addresses into CLI arguments, receipts, logs, or documentation. The label
+  scopes same-named collections but preserves deduplicated logical items.
+- To scope an existing unlabelled real import without copying its memberships,
+  rerun its exact archive with `--source-label <alias> --adopt-unlabeled`.
+  Every prior source-file digest must match or the operation fails atomically.
+- Some current localized Takeout exports do not retain the English
+  `Saved Places` filename. The importer accepts only the strict saved-place
+  point schema and rejects the adjacent review GeoJSON; do not rename or
+  extract files merely to make filenames match.
+- Record the JSON `skipped` count with the import receipt. It covers only blank
+  or tag-only source placeholders with no place identity; rows with other
+  orphaned content still fail atomically for operator review.
+- Raw exports are not deployed. The SQLite database is the durable application
+  owner and is already covered by the normal backup/restore path.
+- Import never edits, deletes, shares, or reorganizes Google Maps lists.
+
+Input limits are configuration-driven and validated as positive integers:
+
+| Variable | Default | Meaning |
+| --- | ---: | --- |
+| `PLACEINTEL_SAVED_IMPORT_MAX_FILES` | `5000` | files inspected in a directory/ZIP |
+| `PLACEINTEL_SAVED_IMPORT_MAX_ROWS` | `250000` | saved rows accepted per import |
+| `PLACEINTEL_SAVED_IMPORT_MAX_FILE_MB` | `25` | uncompressed bytes for one supported member |
+| `PLACEINTEL_SAVED_IMPORT_MAX_TOTAL_MB` | `1024` | total uncompressed bytes inspected |
+
+Change these only in `.env` or the runtime secret/config owner; do not edit
+parser code for one archive.
+
+Reference schemas: [Saved CSV](https://developers.google.com/data-portability/schema-reference/save)
+and [Maps (your places) starred GeoJSON](https://developers.google.com/data-portability/schema-reference/local_actions).
+
 ## Backup and Restore Status
 
 First-class backup/restore is implemented through the CLI. Backups are

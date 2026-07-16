@@ -1,13 +1,13 @@
 # PlaceIntel Architecture
 
-Last verified: 2026-07-11 against v0.4.70 and GitNexus commit `7889902`.
+Last verified: 2026-07-16 against the v0.4.72 saved-places feature worktree.
 
 This document owns the system map for PlaceIntel. Use `README.md` for setup and
 first use, `docs/API.md` for the HTTP contract, `docs/agent-cli.md` for the
 machine-facing CLI contract, and `docs/operations.md` for deployment and
 recovery procedures.
 
-## Purpose and Boundaries
+## App Summary
 
 PlaceIntel turns a natural-language need, shop name, or exact Google Maps URL
 into evidence-backed place intelligence. It discovers candidate places, gathers
@@ -25,7 +25,7 @@ no app-level authentication and binds to loopback by default. Remote access must
 stay behind a protected reverse proxy until an application auth contract is
 implemented and verified.
 
-## System Overview
+## System Diagram
 
 ```mermaid
 flowchart LR
@@ -35,6 +35,8 @@ flowchart LR
     API --> JOBS["SQLite jobs and job_events"]
     JOBS --> PIPE["Shared pipeline"]
     CLI --> PIPE
+    CLI --> SAVED["Saved-place import and inventory"]
+    TAKEOUT["Private Google Takeout CSV / GeoJSON / ZIP"] --> SAVED
 
     PIPE --> PLAN["AI planner and relevance filter"]
     PLAN --> DISC["Place discovery"]
@@ -46,6 +48,7 @@ flowchart LR
     REV -. fallback .-> SERP
 
     PIPE --> DB[("placeintel.db")]
+    SAVED --> DB
     REV --> VDB[("scraper_pro_reviews.db")]
     DB --> EMB["Google official embeddings"]
     DB --> REASON["VectorEngine reasoning"]
@@ -66,6 +69,7 @@ flowchart LR
 | `placeintel-web` | `placeintel/server.py` | FastAPI routes, request validation, durable job creation, worker threads, SSE, static SPA serving, and safe settings APIs. |
 | `/`, `/static/*` | `web/` | Accessible no-build SPA; consumes only documented APIs and escapes scraped/dynamic text before HTML rendering. |
 | Python calls | `placeintel/pipeline.py` | Shared `scout`, `scout_single`, `ask`, and display-translation orchestration. |
+| Saved-place CLI | `placeintel/saved_cli.py` | Offline Takeout import and local inventory using the shared CLI envelope; no archive upload or Maps mutation. |
 
 Both CLI and web call the same pipeline. Business logic must not be reimplemented
 in either adapter. The canonical progress event is:
@@ -150,6 +154,30 @@ They cache by target language plus a source-content hash. Translation never
 overwrites the scraped review text or generated source report; translated
 Markdown uses the same escaped rendering path as original Markdown.
 
+### Saved places: offline source import
+
+`saved_places.iter_takeout_rows()` reads an individual Saved CSV, a Takeout
+directory, or a ZIP without extracting it. Saved collection CSVs and Maps (your
+places) starred-place GeoJSON use explicit parsers. Localized current exports
+may not retain the English filename; those are recognized only by the strict
+saved-place point schema (`Comment`, Maps URL, coordinates) and explicitly
+exclude the adjacent review-export fields. The import validates input limits and
+archive paths, rejects symlinks, computes source hashes, and commits
+collections, logical items, memberships, and an import receipt in one SQLite
+transaction.
+
+Source data and current place truth are intentionally separate. The same
+normalized URL may belong to multiple collections, producing one saved item and
+multiple membership rows. Imports never delete absent rows or mutate Google
+Maps. Resolution and saved-only recommendation remain later, bounded consumers
+of this corpus.
+
+When more than one Takeout account is imported, the CLI accepts a constrained
+opaque `source_label` (not an email address). It scopes collection identity and
+the local import receipt while preserving shared logical items. A legacy
+unlabelled collection is only re-scoped when all source-file digests match the
+incoming archive; otherwise the import fails atomically instead of guessing.
+
 ## Module Map
 
 | Module | Owns |
@@ -167,11 +195,13 @@ Markdown uses the same escaped rendering path as original Markdown.
 | `profiles.py` | `_core.yaml` plus selected profile loading and merge. |
 | `server.py` | FastAPI boundary, durable threaded jobs, SSE, API serialization, and static SPA. |
 | `cli.py` | User/agent command surface, machine envelopes, safety flags, and process exit behavior. |
+| `saved_cli.py` | Thin parser/printing adapter for `saved-import` and `saved-inventory`. |
+| `saved_places.py` | Safe Saved CSV plus Maps `Starred places`/`Saved Places` GeoJSON/ZIP parsing, stable identities, additive SQLite schema, atomic idempotent import, and inventory. |
 | `doctor.py` | Cheap local readiness and explicit deep diagnostics. |
 | `backup.py` | Allow-list backup/restore with online SQLite backup and manifest hashes. |
 | `deploy_smoke.py` | Read-only proof of version, health, shell, Library, dossier, and protected public access. |
 
-## Data and Storage
+## Data And Storage
 
 `cache.connect()` opens SQLite in WAL mode with a 15-second busy timeout, creates
 the schema, and applies additive migrations. This supports overlapping readers
@@ -179,7 +209,7 @@ and bounded concurrent writers without introducing a separate database service.
 
 | Store | Role |
 | --- | --- |
-| `data/placeintel.db` | Canonical application cache: `places`, `reviews`, `review_vectors`, `reports`, `searches`, `qa`, `jobs`, `job_events`, `place_favorites`, `review_translations`, and `report_translations`. |
+| `data/placeintel.db` | Canonical application cache: existing place/review/report/job tables plus `saved_import_runs` (digest, opaque source label, adoption receipt), `saved_collections`, `saved_items`, and `saved_memberships`. |
 | `data/scraper_pro_reviews.db` | Persistent upstream scraper evidence and incremental state used before new browser work. |
 | `data/settings.json` | Non-secret user preferences only, including the selected reasoning model and language defaults. |
 | `data/reports/` | Generated Markdown report mirrors. |
@@ -190,11 +220,12 @@ which is the deliberate simple design while the review corpus remains below
 roughly 100,000 rows. Raw provider payloads remain in `*_json` columns for audit
 and future parser improvements.
 
-Do not hand-edit `data/` or `vendor/`. Backups include only the two databases,
+Do not hand-edit `data/` or `vendor/`. Raw Takeout archives stay outside the
+repository and are never an application store. Backups include only the two databases,
 non-secret settings, and generated reports; they exclude env files, logs, keys,
 and SQLite sidecars.
 
-## External Integrations and Provider Routing
+## Integrations And External Services
 
 | Capability | Primary | Fallback or note |
 | --- | --- | --- |
@@ -226,7 +257,7 @@ There is no external queue, Redis, or multi-process job coordinator. Scaling to
 multiple app workers would require a deliberate job-runner and ownership design;
 starting more Uvicorn workers is not a transparent scaling change.
 
-## Deployment and Security Boundary
+## Runtime And Deployment
 
 The supported production chain is GitHub push, GitHub Actions, SSH deployment,
 native systemd restart, and `placeintel deploy-smoke`. The application stays on
@@ -263,7 +294,7 @@ cross-module invariants are:
 9. Model availability is queried live and a switch is smoke-tested before save.
 10. UI dynamic/scraped content is escaped and no secret enters an API payload.
 
-## When to Update This Document
+## Update Triggers
 
 Update `docs/architecture.md` in the same change when any of these move:
 

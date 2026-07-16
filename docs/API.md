@@ -1,6 +1,6 @@
 # placeintel API Contract
 
-Last updated: 2026-06-15
+Last updated: 2026-07-14
 
 This document is the agent-readable HTTP contract for the local FastAPI app. The
 server is a single-user local/protected tool; examples use loopback URLs and do
@@ -571,6 +571,83 @@ Response:
 ```json
 {"ok": true, "reason": {}, "translate": {}, "embed": {}}
 ```
+
+## Saved Places (CLI-only)
+
+The first saved-place production slice is deliberately CLI-only. No HTTP upload
+endpoint accepts private Takeout data.
+
+### `placeintel saved-import PATH --format json`
+
+`PATH` may be an official Saved CSV, a Takeout directory, or a ZIP. The command
+reads locally, never extracts ZIP contents, never mutates Google Maps, and emits
+only hashes and counts rather than source titles, URLs, notes, or comments.
+
+```json
+{
+  "ok": true,
+  "version": "0.4.x",
+  "command": "saved-import",
+  "data": {
+    "run_id": "opaque-run-id",
+    "source_digest": "sha256",
+    "files": 3,
+    "rows": 4,
+    "skipped": 0,
+    "created": {"collections": 3, "items": 3, "memberships": 4},
+    "updated": {"collections": 0, "items": 0, "memberships": 0}
+  }
+}
+```
+
+An identical second import creates zero new logical records. It writes a new
+completed run receipt and updates the distinct collection/item/membership
+`last_seen_at` timestamps.
+
+`skipped` is the count of identity-less Google export placeholders (blank or
+tag-only rows) that cannot be connected to a place. The count is stored in the
+local run receipt. A row with other orphaned content that could indicate a
+source problem still fails safely instead of being silently discarded.
+
+Invalid, empty, unsafe, truncated, or over-limit input exits `1` with the normal
+error object. Stable codes begin with `saved_import_`; messages and next actions
+never echo the private source path or row values. A failed attempt preserves no
+partial corpus writes but does retain one local `failed` run receipt with its
+safe error code so operators can audit and retry it.
+
+### `placeintel saved-inventory --format json`
+
+```json
+{
+  "ok": true,
+  "version": "0.4.x",
+  "command": "saved-inventory",
+  "data": {
+    "totals": {"collections": 3, "items": 3, "memberships": 4},
+    "states": {"pending": 3},
+    "collections": [
+      {"name": "Date Places", "source_product": "saved", "memberships": 2}
+    ],
+    "filters": {"collection": null, "state": null, "limit": 100},
+    "matched_items": 3,
+    "items": [
+      {
+        "saved_item_id": "opaque-stable-id",
+        "title": "Lantern Café",
+        "address": null,
+        "lat": null,
+        "lng": null,
+        "state": "pending",
+        "collections": ["Date Places", "Favorites"]
+      }
+    ]
+  }
+}
+```
+
+Use `--collection NAME`, `--state STATE`, and `--limit 1..1000` for bounded
+review. The inventory contains user-readable titles and collection names but
+never membership notes, comments, source paths, or URLs.
 
 ## Backup and Restore
 

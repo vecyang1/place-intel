@@ -1,6 +1,6 @@
 # placeintel Agent CLI
 
-Last updated: 2026-06-15
+Last updated: 2026-07-16
 
 This document tells future agents how to call the CLI without scraping the web
 UI. The stable machine-readable surface is JSON for read commands and JSON or
@@ -170,6 +170,8 @@ warnings unless required.
 | `favorite <place_id>` | text, JSON | Marks or unmarks a cached place as a favorite. Refresh remains disabled unless `--refresh-enabled` is used. |
 | `favorites` | text, JSON | Lists favorited cached places; `--refresh-enabled` filters to refresh opt-ins. |
 | `refresh-favorites` | text, JSON, NDJSON | Defaults to dry-run. `--run --format ndjson` manually refreshes due opt-in favorites and streams normal pipeline events. |
+| `saved-import <csv-dir-or-zip>` | text, JSON | Offline, idempotent Google Takeout import. `--source-label` scopes same-named collections from multiple accounts; JSON returns only safe receipt counts and opaque labels. |
+| `saved-inventory` | text, JSON | Local collection/item/membership/state inventory; supports exact `--collection`, `--state`, `--source-label`, and bounded `--limit`; performs no provider or browser calls. |
 
 ## Language Contract
 
@@ -201,6 +203,20 @@ output language by default and tagged with the original language; use
 `--evidence-lang original` on `report` to preserve original quoted evidence.
 
 ## Agent Recipes
+
+Import a private Takeout archive without extracting or uploading it:
+
+```bash
+.venv/bin/placeintel saved-import "/private/path/takeout.zip" --source-label account-a --format json
+.venv/bin/placeintel saved-inventory --source-label account-a --collection "Date Places" --state pending --limit 100 --format json
+```
+
+Agents must pass the user-approved local path, keep the archive outside git,
+and use inventory counts before any later live resolution. `--source-label`
+must be an opaque alias, never an account email. To migrate a proven matching
+older unlabelled import once, pass `--adopt-unlabeled` with the same archive and
+label; a digest mismatch fails atomically. Never print, copy, or send source
+notes/comments to a provider.
 
 Check if local read-only work is safe:
 

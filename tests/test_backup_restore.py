@@ -9,7 +9,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from placeintel import cache, cli, config
+from placeintel import cache, cli, config, saved_places
+
+
+SAVED_FIXTURES = Path(__file__).parent / "fixtures" / "saved_takeout"
 
 
 class BackupRestoreTest(unittest.TestCase):
@@ -38,6 +41,7 @@ class BackupRestoreTest(unittest.TestCase):
         conn = cache.connect()
         cache.upsert_place(conn, cache.Place(place_id="place-1", name="D'Class Guitar"))
         cache.save_report(conn, "place-1", "generic", "test-model", {"summary": "ok"}, "# Report", 1)
+        saved_places.import_takeout(conn, SAVED_FIXTURES)
         conn.close()
         (data_dir / "settings.json").write_text('{"reason_model":"test-model"}', encoding="utf-8")
         reports = data_dir / "reports"
@@ -123,6 +127,7 @@ class BackupRestoreTest(unittest.TestCase):
         self.assertGreaterEqual(payload["data"]["restored_files"], 3)
         conn = cache.connect()
         self.assertEqual(cache.get_place(conn, "place-1")["name"], "D'Class Guitar")
+        self.assertEqual(saved_places.inventory(conn)["totals"]["items"], 3)
         conn.close()
         self.assertEqual((data_dir / "reports" / "dclass.md").read_text(encoding="utf-8"), "# Dossier\n")
         self.assertIn("test-model", (data_dir / "settings.json").read_text(encoding="utf-8"))

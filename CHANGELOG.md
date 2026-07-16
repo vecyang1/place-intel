@@ -1,5 +1,21 @@
 # Changelog — place-intel
 
+## v0.4.73 — 2026-07-16 — Google Takeout saved places
+
+- Added support for Google's current `Maps (your places)/Saved Places.json`
+  GeoJSON name alongside the earlier `Starred places` export name.
+- Identity-less blank/tag-only export placeholders are skipped with a count in
+  the local import receipt and JSON contract; rows with other orphaned content
+  still reject atomically for review.
+- `saved-import` now accepts a safe opaque `--source-label`, so two Google
+  Takeout accounts can keep identically named collections separate while exact
+  shared saved places remain deduplicated.
+- Import receipts retain the source label and legacy-adoption count. A prior
+  unlabelled archive can be scoped with `--adopt-unlabeled` only after every
+  source-file digest matches; mismatches fail atomically.
+- `saved-inventory --source-label` returns account-scoped counts and collection
+  provenance without accepting or displaying account email addresses.
+
 ## v0.4.72 — 2026-07-16 — production hardening Task 1
 
 - Added `docs/architecture.md` as the system-map owner for product flows,
