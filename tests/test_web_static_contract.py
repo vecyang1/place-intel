@@ -1,3 +1,4 @@
+import json
 import re
 import unittest
 from html import unescape
@@ -8,9 +9,36 @@ ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "web"
 
 
+def loaded_css(html: str) -> str:
+    names = re.findall(r'href="/static/([^"?]+\.css)(?:\?[^" ]*)?"', html)
+    return "\n".join((WEB / name).read_text(encoding="utf-8") for name in names)
+
+
 class WebStaticContractTest(unittest.TestCase):
+    def test_playwright_is_scoped_to_root_tests(self) -> None:
+        cfg = (ROOT / "playwright.config.js").read_text(encoding="utf-8")
+        self.assertIn("testDir: './tests'", cfg)
+        self.assertNotIn(".claude/worktrees", cfg)
+
+        package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            package["scripts"]["test:web"],
+            "playwright test --reporter=list --output=output/playwright/test-results",
+        )
+
+    def test_local_assets_load_in_dependency_order(self) -> None:
+        html = (WEB / "index.html").read_text(encoding="utf-8")
+        styles = ["app.css", "jobs.css", "workspace.css", "dossier.css", "system.css"]
+        style_positions = [html.index(name) for name in styles]
+        self.assertEqual(style_positions, sorted(style_positions))
+
+        scripts = ["i18n.js", "dossier.js", "jobs.js", "app.js"]
+        script_positions = [html.index(name) for name in scripts]
+        self.assertEqual(script_positions, sorted(script_positions))
+
     def test_no_build_web_files_stay_under_project_budget(self) -> None:
-        for path in [WEB / "index.html", WEB / "app.css", WEB / "app.js", WEB / "i18n.js", WEB / "dossier.js"]:
+        paths = sorted(path for path in WEB.iterdir() if path.suffix in {".css", ".html", ".js"})
+        for path in paths:
             with self.subTest(path=path.name):
                 line_count = len(path.read_text(encoding="utf-8").splitlines())
                 self.assertLess(
@@ -29,7 +57,7 @@ class WebStaticContractTest(unittest.TestCase):
         # Regression guard (v0.4.36 leak, v0.4.37 fix): a job paused on a hidden tab —
         # including one paused while its startJob POST is still in flight — must not open
         # an EventSource. streamJob must check job.paused before `new EventSource`.
-        js = (WEB / "app.js").read_text(encoding="utf-8")
+        js = (WEB / "jobs.js").read_text(encoding="utf-8")
         body = js[js.index("function streamJob"):][:500]
         self.assertIn("new EventSource", body, "streamJob should open the EventSource")
         self.assertLess(
@@ -42,7 +70,7 @@ class WebStaticContractTest(unittest.TestCase):
         # Companion guard: returning to a tab while the startJob POST is still in flight
         # (job.id is null) must still clear job.paused — otherwise the later
         # streamJob() call is blocked and the job freezes (stuck timeline, disabled submit).
-        js = (WEB / "app.js").read_text(encoding="utf-8")
+        js = (WEB / "jobs.js").read_text(encoding="utf-8")
         body = js[js.index("function resumeJobStream"):][:300]
         guard = body[: body.index("job.paused = false")]
         self.assertNotIn(
@@ -143,21 +171,28 @@ class WebStaticContractTest(unittest.TestCase):
                 self.assertRegex(match.group(0), r'\sname="[^"]+"')
 
     def test_interrupted_jobs_show_retry_using_cache_action(self) -> None:
-        js = (WEB / "app.js").read_text(encoding="utf-8")
+        js = (WEB / "jobs.js").read_text(encoding="utf-8")
         self.assertIn("interrupted", js)
         self.assertIn("data-retry-job", js)
         self.assertIn("用缓存重试", js)
 
     def test_jobs_use_eventsource_stream_with_polling_fallback(self) -> None:
-        js = (WEB / "app.js").read_text(encoding="utf-8")
+        js = (WEB / "jobs.js").read_text(encoding="utf-8")
         self.assertIn("EventSource", js)
         self.assertIn("/events?after=", js)
         self.assertIn("streamJob(kind)", js)
         self.assertIn("pollJob(kind)", js)
 
     def test_stale_job_submission_cannot_poll_newer_job(self) -> None:
-        js = (WEB / "app.js").read_text(encoding="utf-8")
+        js = (WEB / "jobs.js").read_text(encoding="utf-8")
         self.assertIn("state.jobs[kind] !== job", js)
+
+    def test_start_job_is_owned_by_jobs_script_and_remains_global(self) -> None:
+        jobs = (WEB / "jobs.js").read_text(encoding="utf-8")
+        app = (WEB / "app.js").read_text(encoding="utf-8")
+        self.assertIn("async function startJob", jobs)
+        self.assertNotIn("async function startJob", app)
+        self.assertRegex(app, r"window\.__pi\s*=\s*\{[^;]+startJob", re.S)
 
     def test_top_tabs_use_aligned_tracks_and_clear_mode_vocabulary(self) -> None:
         html = (WEB / "index.html").read_text(encoding="utf-8")
@@ -191,7 +226,7 @@ class WebStaticContractTest(unittest.TestCase):
 
     def test_photo_ui_uses_lazy_source_images_and_safe_links(self) -> None:
         html = (WEB / "index.html").read_text(encoding="utf-8")
-        css = (WEB / "app.css").read_text(encoding="utf-8")
+        css = loaded_css(html)
         js = (WEB / "app.js").read_text(encoding="utf-8")
 
         self.assertIn("photoSourcesHtml", js)

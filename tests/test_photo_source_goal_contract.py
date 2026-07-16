@@ -9,6 +9,13 @@ from placeintel import cache, photos
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def loaded_css(html: str) -> str:
+    names = re.findall(r'href="/static/([^"?]+\.css)(?:\?[^" ]*)?"', html)
+    return "\n".join(
+        (ROOT / "web" / name).read_text(encoding="utf-8") for name in names
+    )
+
+
 class PhotoSourceGoalContractTest(unittest.TestCase):
     def test_detail_photos_return_more_url_only_items_without_binary_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -39,7 +46,7 @@ class PhotoSourceGoalContractTest(unittest.TestCase):
 
     def test_lightbox_has_visible_exact_source_url_contract(self) -> None:
         html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
-        css = (ROOT / "web" / "app.css").read_text(encoding="utf-8")
+        css = loaded_css(html)
         js = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
 
         self.assertIn("photo-lightbox-source", html)

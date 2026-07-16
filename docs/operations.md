@@ -35,8 +35,9 @@ Cheap health checks:
 
 - SQLite opens and migrations can run.
 - Data directory is writable.
-- `web/index.html`, `web/app.css`, and `web/app.js` exist and are under the
-  AGENTS.md line budget.
+- `web/index.html` and every local CSS/JS asset it links exist and are under the
+  AGENTS.md line budget. The asset set is derived from the HTML, not duplicated
+  in a fixed health-check list.
 - Provider/model labels are visible without exposing keys.
 
 Cheap health does not call models, Chrome, Docker, scrapers, or SerpAPI.
@@ -122,6 +123,7 @@ Full local gate before a release claim:
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+node --check web/jobs.js
 node --check web/app.js
 npm run test:web
 .venv/bin/python -m compileall placeintel
@@ -148,7 +150,9 @@ The smoke is read-only and verifies:
 
 - `GET /api/meta` returns the expected app version.
 - `GET /api/health` reports `ok:true`.
-- `/` includes the versioned `app.js` asset for the expected build.
+- `/` includes the versioned `app.js` entrypoint for the expected build; cheap
+  doctor separately proves every linked local CSS/JS asset exists and is within
+  the line budget.
 - `GET /api/places` loads the Library data shape.
 - `GET /api/places/{place_id}` opens one cached dossier when the Library is not
   empty.

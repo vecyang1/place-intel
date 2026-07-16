@@ -1,0 +1,112 @@
+/* ============ states ============ */
+.loading { font-family: var(--mono); font-size: 0.85rem; color: var(--ink-55); padding: 0.8rem 0; }
+.loading .dots { color: var(--accent); animation: blink 1.2s infinite; }
+.error-box {
+  border: 1.5px solid color-mix(in oklab, var(--accent) 55%, transparent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+  padding: 0.9rem 1.1rem;
+  font-size: 0.9rem;
+  margin: 0.8rem 0;
+  line-height: 1.6;
+}
+.error-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+.report-fail button { margin-top: 0.7rem; }
+.empty {
+  border: 1.5px dashed var(--line); border-radius: var(--radius);
+  padding: 2.2rem 1.4rem; text-align: center; font-family: var(--mono);
+  font-size: 0.85rem; color: var(--ink-55); margin: 0.6rem 0 1rem;
+  display: flex; flex-direction: column; align-items: center; gap: 0.9rem;
+}
+.empty.small { padding: 1.2rem 1rem; margin: 0.6rem 0 0; }
+.noscript { padding: 2rem; text-align: center; font-family: var(--mono); }
+.colophon {
+  margin-top: 4rem;
+  border-top: 1.5px dashed var(--line);
+  padding-top: 1rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--ink-40);
+  text-align: center;
+  letter-spacing: 0.05em;
+}
+
+/* ============ motion ============ */
+@keyframes rise { from { opacity: 0; transform: translateY(7px); } }
+@keyframes fade { from { opacity: 0; } }
+@keyframes slide-in { from { transform: translateX(40px); opacity: 0; } }
+@keyframes blink { 50% { opacity: 0.15; } }
+@keyframes shake { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ============ responsive ============ */
+@media (max-width: 640px) {
+  .shell { padding: 1.6rem 0.9rem 3rem; }
+  .library-tools { grid-template-columns: 1fr 1fr; } /* pair the short selects instead of stacking all 8 */
+  .library-tools > #library-search { grid-column: 1 / -1; }
+  .advanced-grid { grid-template-columns: 1fr 1fr; }
+  .checks { grid-column: 1 / -1; }
+  .detail-body { padding: 1.1rem 1rem 3rem; }
+  .search-meta { margin-left: 0; width: 100%; }
+}
+@media (max-width: 400px) {
+  body { font-size: 15px; }
+  .advanced-grid { grid-template-columns: 1fr; }
+  .place-row { grid-template-columns: auto 1fr; }
+  .place-count { grid-column: 2; justify-self: start; }
+  .place-addr { grid-column: 1 / -1; }
+  .ask-inline { flex-direction: column; }
+  .fact { grid-template-columns: 1fr; gap: 0.1rem; }
+}
+
+/* ============ v0.3.1: model/provider transparency ============ */
+.meta-line {
+  display: inline-block; margin-top: 0.3rem;
+  font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.03em;
+  color: var(--ink-40);
+}
+.model-tag {
+  font-family: var(--mono); font-size: 0.66rem; text-transform: none;
+  letter-spacing: 0.02em; color: var(--ink-40);
+  border: 1px solid var(--line-soft); border-radius: 99px;
+  padding: 0.05rem 0.5rem; margin-left: 0.45rem; vertical-align: middle;
+}
+
+/* ============ v0.4.0: front-end model switching ============ */
+.btn-model {
+  font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.03em;
+  color: var(--ink-55); background: none; cursor: pointer;
+  border: 1px solid var(--line-soft); border-radius: 99px;
+  padding: 0.1rem 0.6rem; margin-left: 0.5rem; vertical-align: middle;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.btn-model:hover { color: var(--accent); border-color: var(--accent); }
+.btn-model:disabled { opacity: 0.5; cursor: wait; }
+
+.model-picker {
+  display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center;
+  justify-content: center; margin-top: 0.55rem;
+}
+.model-picker select, .model-picker input {
+  font-family: var(--mono); font-size: 0.7rem; color: var(--ink);
+  background: var(--paper); border: 1px solid var(--line-soft);
+  border-radius: 6px; padding: 0.25rem 0.5rem; max-width: min(60vw, 340px);
+}
+.model-picker select:focus-visible, .model-picker input:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px;
+}
+.model-status {
+  flex-basis: 100%; font-family: var(--mono); font-size: 0.66rem;
+  color: var(--ink-55); min-height: 1em;
+}
