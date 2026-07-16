@@ -18,6 +18,7 @@ class WebStaticContractTest(unittest.TestCase):
     def test_playwright_is_scoped_to_root_tests(self) -> None:
         cfg = (ROOT / "playwright.config.js").read_text(encoding="utf-8")
         self.assertIn("testDir: './tests'", cfg)
+        self.assertIn("reuseExistingServer: true", cfg)
         self.assertNotIn(".claude/worktrees", cfg)
 
         package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))

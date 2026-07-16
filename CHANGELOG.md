@@ -1,6 +1,6 @@
 # Changelog — place-intel
 
-## Unreleased — production trust hardening
+## v0.4.72 — 2026-07-16 — production hardening Task 1
 
 - Added `docs/architecture.md` as the system-map owner for product flows,
   modules, storage, integrations, runtime/deploy boundaries, invariants, and
@@ -18,6 +18,8 @@
   existing selectors, declarations, or `window.__pi.startJob` contract.
 - Cheap doctor now validates every local CSS/JS asset linked by `index.html`
   instead of relying on a fixed historical filename list.
+- Playwright may reuse an already running current-checkout server in CI, matching
+  the deployment gate that runs loopback `deploy-smoke` before browser tests.
 
 ## v0.4.71 — 2026-07-05 — Maps share links lock the shop by identity, no search
 A pasted `maps.app.goo.gl` share link already names ONE exact place (its

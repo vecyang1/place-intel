@@ -169,7 +169,8 @@ export default defineConfig({
   webServer: {
     command: '.venv/bin/placeintel-web',
     url: 'http://127.0.0.1:9618/api/health',
-    reuseExistingServer: !process.env.CI,
+    // The deploy gate starts this exact checkout for deploy-smoke first.
+    reuseExistingServer: true,
     timeout: 30_000,
   },
   projects: [{

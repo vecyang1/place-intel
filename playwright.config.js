@@ -7,7 +7,7 @@ export default defineConfig({
   webServer: {
     command: '.venv/bin/placeintel-web',
     url: 'http://127.0.0.1:9618/api/health',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: true,
     timeout: 30_000,
   },
   projects: [{
