@@ -1,6 +1,6 @@
 [project]
 name = "placeintel"
-version = "0.4.73"
+version = "0.4.74"
 description = "Google Maps place + review intelligence: scrape, cache, embed, reason. Walk in armed."
 requires-python = ">=3.10"
 dependencies = [
@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-web = ["fastapi>=0.110", "uvicorn>=0.29"]
+web = ["fastapi>=0.110", "uvicorn>=0.29", "sentry-sdk[fastapi]>=2.0"]
 
 [project.scripts]
 placeintel = "placeintel.cli:main"

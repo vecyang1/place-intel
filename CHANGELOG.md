@@ -1,6 +1,18 @@
 # Changelog — place-intel
 
-## v0.4.73 — 2026-07-16 — Google Takeout saved places
+## v0.4.74 — 2026-08-06 — Sentry error tracking
+
+- Wired Sentry (org `wi-0s`, project `place-intel`) into the web server:
+  errors + tracing via `sentry-sdk[fastapi]`, initialised before app creation
+  so the Starlette integration instruments every route.
+- Disabled by default: local runs send nothing unless `SENTRY_DSN` is set; the
+  deploy workflow injects the DSN from the `SENTRY_DSN` repo secret and pins
+  `SENTRY_ENVIRONMENT=production`. Release tagged `placeintel@<version>`.
+- `before_send` scrubs `api_key=…`-style secrets from exception text and log
+  messages via `config.redact_secrets` before events leave the box;
+  `send_default_pii` stays off.
+- Added `/api/sentry-debug` (deliberate, harmless 500) to verify the wiring end
+  to end per environment.
 
 - Added support for Google's current `Maps (your places)/Saved Places.json`
   GeoJSON name alongside the earlier `Starred places` export name.

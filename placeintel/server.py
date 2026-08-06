@@ -24,6 +24,39 @@ from pydantic import BaseModel, Field
 from . import __version__, cache, config, doctor, language, photos, pipeline, profiles
 
 log = logging.getLogger(__name__)
+
+
+def _scrub_sentry_event(event: dict, hint: dict) -> dict:
+    """before_send: requests embeds full URLs (api_key=…) in exception text, so
+    scrub every string that could carry a provider key before it leaves the box."""
+    for exc in (event.get("exception") or {}).get("values") or []:
+        if exc.get("value"):
+            exc["value"] = config.redact_secrets(exc["value"])
+    logentry = event.get("logentry") or {}
+    if logentry.get("message"):
+        logentry["message"] = config.redact_secrets(logentry["message"])
+    return event
+
+
+def _init_sentry() -> None:
+    if not config.SENTRY_DSN:
+        return
+    try:
+        import sentry_sdk
+    except ModuleNotFoundError:  # web extra installs it; bare installs stay quiet-capable
+        log.warning("SENTRY_DSN is set but sentry-sdk is not installed; error tracking off")
+        return
+    sentry_sdk.init(
+        dsn=config.SENTRY_DSN,
+        environment=config.SENTRY_ENVIRONMENT,
+        release=f"placeintel@{__version__}",
+        traces_sample_rate=config.SENTRY_TRACES_SAMPLE_RATE,
+        send_default_pii=False,
+        before_send=_scrub_sentry_event,
+    )
+
+
+_init_sentry()  # must run before FastAPI() — the Starlette integration hooks app creation
 app = FastAPI(title="placeintel", version=__version__)
 
 WEB_DIR = config.PROJECT_DIR / "web"
@@ -589,6 +622,13 @@ def update_settings(req: SettingsRequest) -> dict:
     except Exception as exc:
         raise HTTPException(400, f"模型「{req.reason_model}」冒烟测试失败：{exc}")
     return {"ok": True, **config.provider_info()}
+
+
+@app.get("/api/sentry-debug")
+def sentry_debug() -> dict:
+    """Deliberate crash to verify Sentry wiring end to end (Sentry's documented
+    check). Harmless 500; no data touched. No-op noise when Sentry is disabled."""
+    raise RuntimeError("placeintel sentry verification error")
 
 
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")

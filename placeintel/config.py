@@ -62,6 +62,12 @@ PLACE_TTL_DAYS = int(os.getenv("PLACEINTEL_PLACE_TTL_DAYS", "14"))
 # language with an original-language tag; "original" = quoted verbatim.
 EVIDENCE_LANG = os.getenv("PLACEINTEL_EVIDENCE_LANG", "report")
 
+# Sentry error tracking (org wi-0s, project place-intel). Empty DSN = disabled,
+# so local runs stay telemetry-free; the deploy workflow injects the production DSN.
+SENTRY_DSN = os.getenv("SENTRY_DSN", "")
+SENTRY_ENVIRONMENT = os.getenv("SENTRY_ENVIRONMENT", "development")
+SENTRY_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "1.0"))
+
 GOSOM_IMAGE = "gosom/google-maps-scraper"
 
 # Author-local convenience only: if keys aren't in the environment or a project

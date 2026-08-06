@@ -91,6 +91,7 @@ jobs:
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
           SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
           PLACEINTEL_REASON_MODEL: ${{ secrets.PLACEINTEL_REASON_MODEL }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: |
           set -euo pipefail
           reason_model="${PLACEINTEL_REASON_MODEL:-gemini-2.5-flash}"
@@ -100,6 +101,8 @@ jobs:
             printf 'SERPAPI_API_KEY=%s\n' "${SERPAPI_API_KEY:-}"
             printf 'PLACEINTEL_REASON_MODEL=%s\n' "$reason_model"
             printf 'PLACEINTEL_DATA_DIR=%s/app/data\n' "$PLACEINTEL_DEPLOY_DIR"
+            printf 'SENTRY_DSN=%s\n' "${SENTRY_DSN:-}"
+            printf 'SENTRY_ENVIRONMENT=%s\n' "production"
           } > .deploy.env
           chmod 600 .deploy.env
 
