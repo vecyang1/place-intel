@@ -235,6 +235,7 @@ and SQLite sidecars.
 | Report and Ask reasoning | VectorEngine Gemini-compatible API | Active model comes from verified live settings, never a baked-in UI list. |
 | Review/report translation | VectorEngine cheap translation role | Separate model and cache from report reasoning. |
 | Place identity/navigation | Google Maps URLs and ids | Short URLs are expanded with bounded, fail-open resolution. |
+| Error tracking | Sentry `wi-0s/place-intel` via `sentry-sdk[fastapi]` | Off unless `SENTRY_DSN` is set (deploy lane injects it). Exception text passes `redact_secrets` in `before_send`; no default PII. |
 
 Credentials resolve in `config.py` from environment or approved local skill
 configurations. Keys never belong in code, docs, `settings.json`, job events, or
