@@ -435,6 +435,44 @@ Run due opt-in favorites manually:
 .venv/bin/placeintel refresh-favorites --run --format ndjson
 ```
 
+## Re-acquiring expired photo URLs
+
+Provider place-photo URLs are time-limited tokens frozen at scrape time. They
+rot after roughly a month, and nothing in the app re-resolves them. When
+`photo_liveness` (deep health) reports few or no resolvable URLs, the fix is
+re-acquisition, not a code change. A server-side image proxy does **not** help:
+the server receives the same rejection the browser does.
+
+Use `scripts/refresh_photos_bulk.py`, copied to the deploy directory and run
+detached as the service user. It is idempotent (skips anything already
+resolving) and resumable, and it logs to `data/photo-refresh.log`.
+
+```bash
+setsid nohup sudo -u placeintel -E .venv/bin/python refresh_photos_bulk.py 200 \
+  > data/photo-refresh.out 2>&1 < /dev/null &
+```
+
+Two traps, both of which produce a confident green while doing nothing:
+
+- **Do not pass `place_id` to `scout_single`.** It then reuses the cached row
+  and skips discovery entirely, so the photo URLs are never re-issued. A run
+  like that returns in about a tenth of a second, reports no error, and changes
+  nothing. Re-acquisition must go by NAME.
+- **`refresh-favorites --run` is not the tool for this.** It only processes
+  places with `refresh_enabled`, which defaults to false, so it exits
+  successfully having done nothing unless places were opted in first.
+
+Cost shape, so the run is not mistaken for a hang: discovery is keyed by name
+and refreshes every match it returns, so one query can restore a whole chain.
+Measured on this library, roughly 4.6 minutes per query on the local gosom
+scraper, which is free; SerpAPI is faster but spends the monthly quota. Back up
+the database before a bulk run, and judge progress by completed `query` lines
+in the log — a live process with a scraper container exiting `0` looks
+identical to a stalled one for the first several minutes.
+
+Thumbnails sourced from review images (`kind: "review"`) are not fixed by this
+script; those need a review re-scrape, which is considerably more expensive.
+
 Operational guardrails:
 
 - `refresh_enabled` defaults to `false`.
