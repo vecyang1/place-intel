@@ -82,8 +82,8 @@ this exact path without owner auth; every request must still carry the dedicated
 ### `GET /api/health/deep`
 
 Opt-in live diagnostics. This endpoint may call provider/model endpoints, run
-an embedding ping, inspect Docker, and check local tool availability. Do not call
-it on every page load.
+an embedding ping, inspect Docker, check local tool availability, and fetch a
+small sample of stored photo URLs. Do not call it on every page load.
 
 Additional deep check names:
 
@@ -96,9 +96,23 @@ Additional deep check names:
 - `gosom_image`
 - `review_scraper`
 - `serpapi`
+- `photo_liveness`
 
 Failed deep checks are warnings unless a caller explicitly requires them through
 the CLI.
+
+`photo_liveness` samples stored provider photo URLs and returns
+`data: {"sampled": N, "alive": M}`. Provider photo URLs are time-limited
+tokens, so a cached place can keep a well-formed URL long after the asset stops
+resolving. It fails when **no** sampled URL resolves, and reports an empty
+sample as inconclusive rather than as a pass — a zero-item check that returns
+green is the failure mode this check exists to prevent.
+
+Acting on it: a failure means the stored URLs expired, not that the app is
+misconfigured. Re-acquire them with a re-scrape; a server-side image proxy does
+not help, because the server receives the same rejection the browser does. Note
+that `refresh-favorites --run` processes only places with `refresh_enabled`
+set, so it exits successfully having done nothing when none are opted in.
 
 ## Jobs
 
