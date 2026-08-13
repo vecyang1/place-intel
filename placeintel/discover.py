@@ -3,7 +3,9 @@
 Primary path: gosom/google-maps-scraper run in Docker (foreground, temp-dir
 mounts for queries/results, named volume for the Playwright cache). Fallback:
 SerpAPI google_maps engine — on any gosom failure or force_serpapi=True, and
-only if a key is discoverable via config. gosom field mapping follows the
+only when the paid path is permitted (see spend.py) and a key is discoverable
+via config. A stopped Docker daemon is a reason to stop, not to start
+spending. gosom field mapping follows the
 json struct tags of the Entry type in gmaps/entry.go (verified upstream):
 title, category, address, open_hours, web_site, phone, review_count,
 review_rating, latitude, longitude/longtitude (legacy spelling), price_range,
@@ -25,7 +27,7 @@ from typing import Any
 
 import requests
 
-from . import config
+from . import config, spend
 from .cache import Place
 
 log = logging.getLogger(__name__)
@@ -50,9 +52,17 @@ def discover(
     depth: int = 1,
     lang: str = "en",
     force_serpapi: bool = False,
+    allow_serpapi: bool | None = None,
 ) -> list[Place]:
-    """Discover places on Google Maps; returns deduplicated Place objects."""
+    """Discover places on Google Maps; returns deduplicated Place objects.
+
+    The free gosom path is primary. Falling through to SerpAPI costs money, so
+    it happens only with permission — see ``spend.require_serpapi_key``.
+    ``force_serpapi`` IS that permission: asking for the paid engine by name is
+    not the silent degradation the gate exists to stop.
+    """
     search_query = f"{query} in {location}" if location else query
+    allow = True if force_serpapi else allow_serpapi
 
     gosom_error: Exception | None = None
     if not force_serpapi:
@@ -60,14 +70,16 @@ def discover(
             return _dedupe(_discover_gosom(search_query, depth=depth, lang=lang))
         except Exception as exc:  # noqa: BLE001 — any gosom failure triggers fallback
             gosom_error = exc
-            log.warning("gosom discovery failed: %s — trying SerpAPI fallback", exc)
+            log.warning("gosom discovery failed: %s — considering SerpAPI fallback", exc)
 
-    api_key = config.serpapi_api_key()
-    if not api_key:
-        reason = f"gosom failed ({gosom_error})" if gosom_error else "force_serpapi=True"
-        raise RuntimeError(f"{reason}, and no SerpAPI key is configured") from gosom_error
-
-    return _dedupe(_discover_serpapi(search_query, lang=lang, api_key=api_key))
+    context = (
+        "free Google Maps discovery (gosom in Docker) failed"
+        if gosom_error else "force_serpapi=True"
+    )
+    return _dedupe(
+        _discover_serpapi(search_query, lang=lang, context=context,
+                          allow=allow, cause=gosom_error)
+    )
 
 
 # -- gosom / Docker path -----------------------------------------------------
@@ -222,7 +234,16 @@ def _cid_from_link(link: Any) -> str | None:
 
 # -- SerpAPI fallback path ---------------------------------------------------
 
-def _discover_serpapi(search_query: str, lang: str, api_key: str) -> list[Place]:
+def _discover_serpapi(
+    search_query: str,
+    lang: str,
+    context: str = "free Google Maps discovery unavailable",
+    allow: bool | None = None,
+    cause: BaseException | None = None,
+) -> list[Place]:
+    # The key is acquired HERE and nowhere else in this module, so no future
+    # caller can reach serpapi.com without passing the gate first.
+    api_key = spend.require_serpapi_key(context, allow=allow, cause=cause)
     params = {
         "engine": "google_maps",
         "q": search_query,

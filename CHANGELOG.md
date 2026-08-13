@@ -1,5 +1,46 @@
 # Changelog — place-intel
 
+## v0.4.78 — 2026-08-13 — the paid fallback is opt-in, and fails closed
+
+Discovery (gosom in Docker) and reviews (vendored scraper-pro) are free; SerpAPI
+is billable. The fallback fired on ANY primary failure — a stopped Docker
+daemon, a missing vendor venv — logged one warning, and spent credits. Silent
+degradation from free to paid looks exactly like success in the timeline, so the
+bill was the first place it showed up. Local cache: 1287 free / 670 paid
+reviews; production: 1454 / 328, on a box provisioned for the free lane.
+
+- `spend.py` is now the only door to the SerpAPI key. Permission resolves
+  run-flag > `PLACEINTEL_ALLOW_SERPAPI` > `allow_serpapi` in settings.json >
+  **blocked**. Without it, `PaidPathBlocked` names the free-path failure and the
+  remedy, and nothing is sent.
+- One choke point per module rather than one guard per branch: `_fetch_via_serpapi`
+  acquires the key for all four review-fallback paths, `_discover_serpapi` for
+  discovery. A guard on three of four branches is the bug this shape prevents,
+  and `SingleDoorTest` fails the build if any other module reads the key.
+- `--allow-serpapi` / `--no-serpapi` on scout and shop; `placeintel spend`
+  shows and persists the standing choice. `--force-serpapi` is an explicit
+  request for the paid engine and carries its own permission — combining it with
+  `--no-serpapi` is refused rather than silently ranked.
+- New exit code 7 / `paid_path_blocked`, recoverable, with the remedy in
+  `next_action`. Reporting a deliberate policy stop as `internal_error` (10)
+  would tell agents to file a bug and retry the identical command.
+- Web: `/api/config` reports the resolved policy and its source, shown in the
+  System panel. Deliberately read-only over HTTP — the proxy credential is
+  shared with guests, so anything a request could set, a guest could spend. The
+  deploy pins `PLACEINTEL_ALLOW_SERPAPI=0`, overridable by repo *variable*.
+- A blocked job logs a warning instead of an exception, so the guard working as
+  designed no longer pages the owner through Sentry.
+- Considered and rejected: a pre-scrape Docker readiness probe. It would fail
+  before paying to plan a doomed search, but it also fired on cache hits, where
+  the old code touched Docker not at all — turning a free instant answer into a
+  90s wait. Refusing late is cheaper than being slow always; a test pins the
+  probe out of the pipeline.
+- Gate: 219 Python tests OK under both an unset and an exported
+  `PLACEINTEL_ALLOW_SERPAPI=1` (the policy is read from the environment, so a
+  single run would have proven nothing), suite credit delta 0. E2E with Docker
+  genuinely stopped: refused, exit 7, delta 0; with `--allow-serpapi`, delta 2 —
+  the permitted lane still works.
+
 ## v0.4.77 — 2026-08-13 — sharing guards: owner-only routes and a spend ceiling
 
 The site is shared with guests through one proxy credential, which by

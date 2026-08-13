@@ -26,7 +26,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import __version__, cache, config, doctor, language, photos, pipeline, profiles
+from . import __version__, cache, config, doctor, language, photos, pipeline, profiles, spend
 from .guards import OWNER_ONLY, enforce_job_budget, require_owner  # noqa: F401  (re-exported)
 from .telemetry import (  # noqa: F401  (re-exported for existing callers and tests)
     _init_sentry, _scrub_sentry_breadcrumb, _scrub_sentry_event, _scrub_sentry_value,
@@ -163,6 +163,21 @@ def _interrupt_stale_jobs() -> None:
         log.warning("marked %s stale job(s) as interrupted", count)
 
 
+def _fail_job(job_id: str, kind: str, exc: Exception) -> None:
+    """A refused paid path is the guard working, not a crash.
+
+    Logging it with a traceback would page the owner through Sentry for a policy
+    decision the app made on purpose, which trains everyone to ignore the alert
+    that matters. Requests never carry the policy — it comes from the deploy env
+    or the owner's saved setting, so a guest cannot spend by asking nicely.
+    """
+    if isinstance(exc, spend.PaidPathBlocked):
+        log.warning("%s job %s stopped: %s", kind, job_id, exc)
+    else:
+        log.exception("%s job %s failed", kind, job_id)
+    _finish_job(job_id, error=str(exc))
+
+
 def _run_scout(job_id: str, req: ScoutRequest, on_event) -> None:
     try:
         result = pipeline.scout(
@@ -173,8 +188,7 @@ def _run_scout(job_id: str, req: ScoutRequest, on_event) -> None:
         )
         _finish_job(job_id, result=result)
     except Exception as exc:
-        log.exception("scout job %s failed", job_id)
-        _finish_job(job_id, error=str(exc))
+        _fail_job(job_id, "scout", exc)
 
 
 def _run_shop(job_id: str, req: ShopRequest, on_event) -> None:
@@ -187,8 +201,7 @@ def _run_shop(job_id: str, req: ShopRequest, on_event) -> None:
         )
         _finish_job(job_id, result=result)
     except Exception as exc:
-        log.exception("shop job %s failed", job_id)
-        _finish_job(job_id, error=str(exc))
+        _fail_job(job_id, "shop", exc)
 
 
 @app.get("/")
@@ -577,6 +590,10 @@ def config_status() -> dict:
             "data_dir": {"configured": True, "path_visible": False},
         },
         "providers": providers,
+        # Whether a failed free scrape can silently become a bill. Read-only
+        # here on purpose: the shared proxy credential cannot tell owner from
+        # guest, and production policy belongs in the deploy env file.
+        "spend_policy": spend.policy_status(),
         "feature_status": {name: feature(info) for name, info in role_map.items()},
         "health": {"cheap_url": "/api/health", "deep_url": "/api/health/deep"},
         "danger_zone": {

@@ -16,7 +16,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-from . import __version__, cache, config, photos
+from . import __version__, cache, config, photos, spend
 
 PHOTO_LIVENESS_SAMPLE = 8
 PHOTO_LIVENESS_TIMEOUT = 8
@@ -218,6 +218,19 @@ def _serpapi_check() -> tuple[str, dict]:
     return "SerpAPI fallback key configured", {"configured": True}
 
 
+def _spend_policy_check() -> tuple[str, dict]:
+    """Report whether a free-path failure can turn into a bill, and catch the
+    incoherent state where spending is permitted but impossible."""
+    status = spend.policy_status()
+    if status["allowed"] and not status["key_configured"]:
+        raise RuntimeError(
+            "paid SerpAPI fallback is allowed but no key is configured — free-path "
+            "failures will surface as a late error instead of a clean refusal"
+        )
+    verdict = "allowed" if status["allowed"] else "blocked (free paths only)"
+    return f"paid fallback {verdict}, per {status['source']}", status
+
+
 def _sample_stored_photo_urls(limit: int) -> list[str]:
     conn = cache.connect()
     try:
@@ -305,6 +318,7 @@ def cheap_health(*, live: bool = False, require: list[str] | None = None) -> dic
         _check("db", "critical", _db_check),
         _check("data_dir", "critical", _data_dir_check),
         _check("static_web", "critical", _static_web_check),
+        _check("spend_policy", "warning", _spend_policy_check),
     ]
     providers = config.provider_info()
     warnings = _provider_warnings(providers)

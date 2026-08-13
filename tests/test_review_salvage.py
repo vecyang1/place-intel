@@ -25,6 +25,9 @@ class SerpApiSalvageTest(unittest.TestCase):
     def setUp(self) -> None:
         # Pass items straight through so the test exercises pagination control flow,
         # not _serp_item_to_review's field mapping (covered elsewhere).
+        # These cases are about what the PAID path does once it is permitted, so
+        # they pass allow=True explicitly rather than relying on ambient policy —
+        # see tests/test_spend_gate.py for the permission rules themselves.
         self._patches = [
             mock.patch.object(reviews.config, "serpapi_api_key", return_value="k"),
             mock.patch.object(reviews, "_serp_item_to_review", side_effect=lambda item, pid: item),
@@ -43,7 +46,7 @@ class SerpApiSalvageTest(unittest.TestCase):
             raise RuntimeError("SerpAPI request failed on page 2: Read timed out")
 
         with mock.patch.object(reviews, "_serpapi_get", side_effect=fake_get):
-            got = reviews._fetch_via_serpapi(_place(), max_reviews=300)
+            got = reviews._fetch_via_serpapi(_place(), max_reviews=300, allow=True)
 
         self.assertEqual(len(got), 20)  # page-1 reviews kept, not lost to the page-2 raise
 
@@ -58,7 +61,7 @@ class SerpApiSalvageTest(unittest.TestCase):
 
         with mock.patch.object(reviews, "_serpapi_get", side_effect=fake_get):
             with self.assertRaises(reviews.PartialReviewsError):
-                reviews._fetch_via_serpapi(place, max_reviews=300)
+                reviews._fetch_via_serpapi(place, max_reviews=300, allow=True)
 
     def test_unknown_total_with_next_page_failure_is_partial(self):
         place = _place()
@@ -70,7 +73,7 @@ class SerpApiSalvageTest(unittest.TestCase):
 
         with mock.patch.object(reviews, "_serpapi_get", side_effect=fake_get):
             with self.assertRaises(reviews.PartialReviewsError):
-                reviews._fetch_via_serpapi(place, max_reviews=300)
+                reviews._fetch_via_serpapi(place, max_reviews=300, allow=True)
 
     def test_unknown_total_without_next_page_allows_small_review_sets(self):
         place = _place()
@@ -79,7 +82,7 @@ class SerpApiSalvageTest(unittest.TestCase):
             return {"reviews": [{"review_id": f"small-{i}"} for i in range(5)]}
 
         with mock.patch.object(reviews, "_serpapi_get", side_effect=fake_get):
-            got = reviews._fetch_via_serpapi(place, max_reviews=300)
+            got = reviews._fetch_via_serpapi(place, max_reviews=300, allow=True)
 
         self.assertEqual(len(got), 5)
 
@@ -89,7 +92,7 @@ class SerpApiSalvageTest(unittest.TestCase):
 
         with mock.patch.object(reviews, "_serpapi_get", side_effect=fake_get):
             with self.assertRaises(RuntimeError):
-                reviews._fetch_via_serpapi(_place(), max_reviews=300)
+                reviews._fetch_via_serpapi(_place(), max_reviews=300, allow=True)
 
     def test_small_cap_paginates_past_the_8_item_first_page(self):
         # SerpAPI's first google_maps_reviews page carries only 8 items; a
@@ -103,7 +106,7 @@ class SerpApiSalvageTest(unittest.TestCase):
             return {"reviews": [{"review_id": f"p2-{i}"} for i in range(20)]}
 
         with mock.patch.object(reviews, "_serpapi_get", side_effect=fake_get) as get:
-            got = reviews._fetch_via_serpapi(place, max_reviews=20)
+            got = reviews._fetch_via_serpapi(place, max_reviews=20, allow=True)
 
         self.assertEqual(get.call_count, 2)
         self.assertEqual(len(got), 28)  # caller's _order_and_cap trims to 20
@@ -310,7 +313,11 @@ class SerpApiSalvageTest(unittest.TestCase):
                 got = reviews.fetch_reviews(place, max_reviews=600)
 
         self.assertEqual(got, fallback)
-        serpapi.assert_called_once_with(place, 600)
+        serpapi.assert_called_once_with(
+            place, 600,
+            context="free review scraper returned zero rows for a place Google lists reviews for",
+            allow=None,
+        )
 
     def test_fetch_reviews_reuses_existing_scraper_db_rows_before_subprocess(self):
         target_url = (

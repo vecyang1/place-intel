@@ -6,6 +6,8 @@ PRIMARY — we write a one-off config.yaml to a temp dir, run `start.py scrape
   The scraper keys reviews by its own URL-derived place_id, so rows are mapped
   back to OUR place via its `places.original_url` column.
 FALLBACK — SerpAPI `google_maps_reviews` engine (paginated, ~20 reviews/page).
+  Billable, so it runs only with explicit permission (see spend.py). A missing
+  vendor venv is a setup problem to fix, not a reason to start paying per page.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from typing import Any
 import requests
 import yaml
 
-from . import config
+from . import config, spend
 from .cache import Place, Review
 
 logger = logging.getLogger(__name__)
@@ -54,24 +56,39 @@ def fetch_reviews(
     max_reviews: int | None = None,
     newest_first: bool = True,
     force_serpapi: bool = False,
+    allow_serpapi: bool | None = None,
 ) -> list[Review]:
     """Fetch reviews for *place*, newest-N semantics regardless of final order.
 
     Primary path runs the vendored scraper-pro when its venv exists and
-    place.maps_url is set; any primary failure logs the reason and falls back
-    to SerpAPI (requires a key — see config.serpapi_api_key()).
+    place.maps_url is set. Every way that path can fail leads to the same paid
+    fallback, so permission is checked inside :func:`_fetch_via_serpapi` rather
+    than at each of the four branches below — one gate cannot drift out of sync
+    with itself. ``force_serpapi`` is an explicit request for the paid engine
+    and therefore grants permission on its own.
     """
+    allow = True if force_serpapi else allow_serpapi
     if force_serpapi:
         logger.info("force_serpapi=True — skipping scraper-pro for %s", place.place_id)
-        return _order_and_cap(_fetch_via_serpapi(place, max_reviews), max_reviews, newest_first)
+        return _order_and_cap(
+            _fetch_via_serpapi(place, max_reviews, context="force_serpapi=True", allow=allow),
+            max_reviews, newest_first,
+        )
 
     blockers = _primary_blockers(place)
     if blockers:
+        reason = "; ".join(blockers)
         logger.info(
-            "scraper-pro unavailable for %s (%s) — using SerpAPI fallback",
-            place.place_id, "; ".join(blockers),
+            "scraper-pro unavailable for %s (%s) — considering SerpAPI fallback",
+            place.place_id, reason,
         )
-        return _order_and_cap(_fetch_via_serpapi(place, max_reviews), max_reviews, newest_first)
+        return _order_and_cap(
+            _fetch_via_serpapi(
+                place, max_reviews,
+                context=f"free review scraper unavailable ({reason})", allow=allow,
+            ),
+            max_reviews, newest_first,
+        )
 
     target_url = _scraper_target_url(place)
     try:
@@ -88,19 +105,34 @@ def fetch_reviews(
     if _scraper_has_known_empty_review_rows(place, target_url):
         logger.warning(
             "scraper-pro has a known zero-row scrape for %s despite %s listed reviews "
-            "— using SerpAPI fallback",
+            "— considering SerpAPI fallback",
             place.place_id, place.review_count,
         )
-        return _order_and_cap(_fetch_via_serpapi(place, max_reviews), max_reviews, newest_first)
+        return _order_and_cap(
+            _fetch_via_serpapi(
+                place, max_reviews,
+                context="free review scraper returned zero rows for a place Google lists reviews for",
+                allow=allow,
+            ),
+            max_reviews, newest_first,
+        )
 
+    scraper_error: ScraperProError | None = None
     try:
         reviews = _fetch_via_scraper_pro(place, max_reviews)
         return _order_and_cap(reviews, max_reviews, newest_first)
     except ScraperProError as exc:
+        scraper_error = exc
         logger.warning(
-            "scraper-pro failed for %s: %s — falling back to SerpAPI", place.place_id, exc
+            "scraper-pro failed for %s: %s — considering SerpAPI fallback", place.place_id, exc
         )
-    return _order_and_cap(_fetch_via_serpapi(place, max_reviews), max_reviews, newest_first)
+    return _order_and_cap(
+        _fetch_via_serpapi(
+            place, max_reviews, context="free review scraper failed",
+            allow=allow, cause=scraper_error,
+        ),
+        max_reviews, newest_first,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -414,13 +446,16 @@ def _scraper_row_to_review(row: dict[str, Any], place_id: str) -> Review:
 # Fallback path: SerpAPI google_maps_reviews
 # ---------------------------------------------------------------------------
 
-def _fetch_via_serpapi(place: Place, max_reviews: int | None) -> list[Review]:
-    api_key = config.serpapi_api_key()
-    if not api_key:
-        raise RuntimeError(
-            "SerpAPI fallback unavailable: no key (set SERPAPI_API_KEY or "
-            "install the serpapi-mcp skill)."
-        )
+def _fetch_via_serpapi(
+    place: Place,
+    max_reviews: int | None,
+    context: str = "free review scraper unavailable",
+    allow: bool | None = None,
+    cause: BaseException | None = None,
+) -> list[Review]:
+    # Single choke point: the key is acquired here and nowhere else in this
+    # module, so every fallback branch above is gated by construction.
+    api_key = spend.require_serpapi_key(context, allow=allow, cause=cause)
     data_id = place.raw.get("data_id") or place.place_id
     if max_reviews is None:
         max_pages = SERPAPI_DEFAULT_MAX_PAGES

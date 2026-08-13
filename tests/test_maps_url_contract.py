@@ -223,9 +223,11 @@ class SerpApiPlaceInfoBackfillTest(unittest.TestCase):
             "place_info": {"title": "Xóm Mèo Coffee", "rating": 4.8,
                            "reviews": 674, "address": "88 Mỹ An 7, Đà Nẵng"},
         }
+        # allow=True: this asserts what the paid path does once permitted. The
+        # permission rules themselves live in tests/test_spend_gate.py.
         with mock.patch.object(reviews.config, "serpapi_api_key", return_value="k"), \
                 mock.patch.object(reviews, "_serpapi_get", return_value=payload):
-            got = reviews._fetch_via_serpapi(place, max_reviews=20)
+            got = reviews._fetch_via_serpapi(place, max_reviews=20, allow=True)
 
         self.assertEqual(len(got), 20)
         self.assertEqual(place.rating, 4.8)

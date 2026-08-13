@@ -15,7 +15,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable
 
-from . import analyze, cache, config, discover, embed, language, planner, profiles, reviews
+from . import (analyze, cache, config, discover, embed, language, planner, profiles,
+               reviews, spend)
 
 log = logging.getLogger(__name__)
 
@@ -122,7 +123,9 @@ def _raw_data_id(row: sqlite3.Row) -> str | None:
 def _discover_multi(conn: sqlite3.Connection, raw_query: str, queries: list[str],
                     location: str | None, lang: str, force_serpapi: bool,
                     refresh: bool, plan: dict | None,
-                    emit: Callable[..., None]) -> tuple[list[cache.Place], str, list | None]:
+                    emit: Callable[..., None],
+                    allow_serpapi: bool | None = None,
+                    ) -> tuple[list[cache.Place], str, list | None]:
     """Run every planned query, merge + dedupe. Search cache keys on the RAW input.
     Returns (places, source, cached_verdicts) — verdicts let scout skip re-filtering."""
     if not refresh:
@@ -138,7 +141,12 @@ def _discover_multi(conn: sqlite3.Connection, raw_query: str, queries: list[str]
     for q in queries:
         emit("search", f"搜索 Google Maps：{q!r}" + (f" @ {location}" if location else ""))
         try:
-            found = discover.discover(q, location, lang=lang, force_serpapi=force_serpapi)
+            found = discover.discover(q, location, lang=lang, force_serpapi=force_serpapi,
+                                      allow_serpapi=allow_serpapi)
+        except spend.PaidPathBlocked:
+            # Not this query's problem — the whole lane is closed. Retrying the
+            # remaining queries would repeat the same refusal N times.
+            raise
         except Exception as exc:  # one query failing must not kill the rest
             emit("search", f"搜索 {q!r} 失败：{exc}")
             continue
@@ -159,7 +167,7 @@ def _discover_multi(conn: sqlite3.Connection, raw_query: str, queries: list[str]
 def _deep_dive(conn: sqlite3.Connection, places: list[cache.Place], profile: dict,
                max_reviews: int | None, report_lang: str, force_serpapi: bool,
                refresh: bool, skip_reports: bool, result: ScoutResult,
-               emit: Callable[..., None]) -> None:
+               emit: Callable[..., None], allow_serpapi: bool | None = None) -> None:
     review_failures: set[str] = set()
     partial_review_failures: set[str] = set()
     for place in places:
@@ -176,7 +184,8 @@ def _deep_dive(conn: sqlite3.Connection, places: list[cache.Place], profile: dic
                 else:
                     emit("reviews", f"抓取「{place.name}」的评价（最多 {max_reviews} 条）…")
                 got = reviews.fetch_reviews(place, max_reviews=max_reviews,
-                                            force_serpapi=force_serpapi)
+                                            force_serpapi=force_serpapi,
+                                            allow_serpapi=allow_serpapi)
                 # fetch 可能就地补全了 rating/review_count/address（SerpAPI
                 # place_info）——URL 直达的店铺没经过搜索，靠这里拿到列表元数据
                 cache.upsert_place(conn, place)
@@ -194,7 +203,11 @@ def _deep_dive(conn: sqlite3.Connection, places: list[cache.Place], profile: dic
             if isinstance(exc, reviews.PartialReviewsError):
                 partial_review_failures.add(place.place_id)
             result.errors.append(f"reviews:{place.name}: {exc}")
-            emit("reviews", f"「{place.name}」评价抓取失败：{exc}")
+            if isinstance(exc, spend.PaidPathBlocked):
+                emit("reviews", f"「{place.name}」免费评价抓取失败（{exc.context}）；"
+                     "SerpAPI 是付费兜底，本次未获授权，已跳过，未花费任何额度。")
+            else:
+                emit("reviews", f"「{place.name}」评价抓取失败：{exc}")
             cached_after_failure = cache.get_reviews(conn, place.place_id)
             if cached_after_failure:
                 if (place.place_id in partial_review_failures
@@ -279,7 +292,8 @@ def scout(query: str, location: str | None = None, profile_name: str | None = No
           top_n: int = 3, max_reviews: int | None = 300, lang: str = "en",
           report_lang: str | None = None, force_serpapi: bool = False,
           refresh: bool = False, skip_reports: bool = False, use_ai: bool = True,
-          on_event: OnEvent = None, language_hint: str | None = None) -> ScoutResult:
+          on_event: OnEvent = None, language_hint: str | None = None,
+          allow_serpapi: bool | None = None) -> ScoutResult:
     """The full 'walk in armed' pipeline. AI plans the search unless use_ai=False."""
     config.ensure_dirs()
     emit = _emitter(on_event)
@@ -302,7 +316,8 @@ def scout(query: str, location: str | None = None, profile_name: str | None = No
                             report_lang=report_lang, force_serpapi=force_serpapi,
                             refresh=refresh, skip_reports=skip_reports,
                             use_ai=use_ai, on_event=on_event, _plan=plan,
-                            language_hint=language_hint)
+                            language_hint=language_hint,
+                            allow_serpapi=allow_serpapi)
 
     location = location or plan.get("near")
     lang_choice = language.resolve_output_language(
@@ -321,7 +336,8 @@ def scout(query: str, location: str | None = None, profile_name: str | None = No
     conn = cache.connect()
 
     candidates, source, cached_verdicts = _discover_multi(
-        conn, query, plan["queries"], location, lang, force_serpapi, refresh, plan, emit)
+        conn, query, plan["queries"], location, lang, force_serpapi, refresh, plan, emit,
+        allow_serpapi=allow_serpapi)
     # Live results keep Google's relevance order; cache hits have no meaningful
     # order, so rank those by evidence volume.
     if source == "cache":
@@ -352,7 +368,8 @@ def scout(query: str, location: str | None = None, profile_name: str | None = No
     emit("search", f"候选 {len(candidates)} 家，深挖前 {min(top_n, len(candidates))} 家")
 
     _deep_dive(conn, candidates[:top_n], profile, max_reviews, report_lang,
-               force_serpapi, refresh, skip_reports, result, emit)
+               force_serpapi, refresh, skip_reports, result, emit,
+               allow_serpapi=allow_serpapi)
     emit("done", f"完成：{len(result.reports)} 份报告"
          + (f"，{len(result.errors)} 个警告" if result.errors else ""))
     return result
@@ -364,7 +381,8 @@ def scout_single(target: str, near: str | None = None, profile_name: str | None 
                  skip_reports: bool = False, use_ai: bool = True,
                  on_event: OnEvent = None, _plan: dict | None = None,
                  language_hint: str | None = None,
-                 place_id: str | None = None) -> ScoutResult:
+                 place_id: str | None = None,
+                 allow_serpapi: bool | None = None) -> ScoutResult:
     """Single-shop mode: shop name or Google Maps URL → focused report on THAT shop."""
     config.ensure_dirs()
     emit = _emitter(on_event)
@@ -440,7 +458,18 @@ def scout_single(target: str, near: str | None = None, profile_name: str | None 
         emit("search", f"在 Google Maps 上定位「{name}」…")
         try:
             found = discover.discover(name, near, lang=plan.get("scrape_lang") or "en",
-                                      force_serpapi=force_serpapi)
+                                      force_serpapi=force_serpapi,
+                                      allow_serpapi=allow_serpapi)
+        except spend.PaidPathBlocked as exc:
+            # Unlike a transient lookup failure, this produced nothing and will
+            # keep producing nothing until someone acts. Propagate so the caller
+            # reports it as a policy stop (CLI exit 7) rather than as an ordinary
+            # empty result the user is invited to retry.
+            result.errors.append(f"discover: {exc}")
+            emit("done", f"定位失败：免费搜索通道不可用（{exc.context}）；"
+                 "SerpAPI 是付费兜底，本次未获授权，已停止，未花费任何额度。")
+            conn.close()
+            raise
         except Exception as exc:
             result.errors.append(f"discover: {exc}")
             emit("done", f"定位失败：{exc}")
@@ -469,7 +498,8 @@ def scout_single(target: str, near: str | None = None, profile_name: str | None 
 
     result.places = [_place_summary(place, place.source)]
     _deep_dive(conn, [place], profile, max_reviews, report_lang,
-               force_serpapi, refresh, skip_reports, result, emit)
+               force_serpapi, refresh, skip_reports, result, emit,
+               allow_serpapi=allow_serpapi)
     # 评价抓取可能补全了 rating/review_count（SerpAPI place_info）——刷新摘要
     result.places = [_place_summary(place, place.source)]
     conn.close()

@@ -146,11 +146,29 @@ Design choices that matter:
 
 ## Requirements & keys
 
-- Docker (for free discovery) — auto-started on macOS; otherwise `--force-serpapi`
+- Docker (for free discovery) — auto-started on macOS
 - Chrome (for the review scraper)
 - Keys via `.env` or environment variables (see `.env.example`): `GOOGLE_API_KEY`
   (AIza…, embedding), `VECTORENGINE_API_KEY` (sk-…, reasoning), and optional
   `SERPAPI_API_KEY` (fallback). At least one Gemini key is required.
+
+### The paid fallback is opt-in
+
+Discovery and reviews both scrape for free first. SerpAPI is a **billable**
+fallback, so it fires only with permission — otherwise a broken free path stops
+the run and says what broke, instead of quietly buying the same data:
+
+```bash
+placeintel spend                    # what is allowed right now, and why
+placeintel spend --allow            # persist: paid fallback permitted
+placeintel spend --block            # persist: free paths only (default)
+placeintel scout "…" --allow-serpapi  # just this run
+placeintel scout "…" --no-serpapi     # just this run, overriding any setting
+```
+
+Precedence: run flag > `PLACEINTEL_ALLOW_SERPAPI` > saved setting > blocked.
+`--force-serpapi` is an explicit request for the paid engine and carries its own
+permission.
 
 ## Gotchas (hard-won)
 

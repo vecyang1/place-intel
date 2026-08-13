@@ -20,7 +20,8 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
-from . import __version__, backup as backup_mod, cache, config, deploy_smoke, doctor, profiles
+from . import (__version__, backup as backup_mod, cache, config, deploy_smoke, doctor,
+               profiles, spend)
 
 
 class CommandTimeout(Exception):
@@ -90,6 +91,18 @@ def _add_format_arg(parser: argparse.ArgumentParser, *, ndjson: bool = False) ->
                         help="output format (default: text)")
 
 
+def _add_paid_path_args(parser: argparse.ArgumentParser) -> None:
+    """Per-run permission for the billable SerpAPI fallback (default: refuse)."""
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--allow-serpapi", dest="allow_serpapi", action="store_true",
+                       default=None,
+                       help="permit the paid SerpAPI fallback for this run if the "
+                            "free scrapers fail (default: refuse and stop)")
+    group.add_argument("--no-serpapi", dest="allow_serpapi", action="store_false",
+                       help="never touch SerpAPI in this run, overriding any saved "
+                            "setting or environment variable")
+
+
 def _normalize_agent_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     global_format = getattr(args, "global_format", None)
     if (
@@ -101,6 +114,11 @@ def _normalize_agent_options(parser: argparse.ArgumentParser, args: argparse.Nam
         args.format = global_format or "text"
     elif global_format and args.format == "text":
         args.format = global_format
+    if getattr(args, "force_serpapi", False) and getattr(args, "allow_serpapi", None) is False:
+        # --force-serpapi IS consent to spend; --no-serpapi forbids it. Picking a
+        # winner silently would either spend against an explicit refusal or
+        # ignore an explicit request.
+        parser.error("--force-serpapi and --no-serpapi contradict each other")
     if getattr(args, "command", None) == "doctor" and global_format:
         if global_format == "json":
             args.json = True
@@ -149,6 +167,35 @@ def _timeout_exit(args: argparse.Namespace) -> int:
     else:
         print(payload["error"]["message"], file=sys.stderr)
     return 6
+
+
+def _paid_path_blocked_exit(args: argparse.Namespace, exc: Exception) -> int:
+    """A refused paid path is a decision, not a crash.
+
+    Reporting it as internal_error/exit 10 would tell both humans and agents to
+    file a bug and retry, when the correct response is to fix the free lane or
+    grant permission. Distinct code, recoverable=true, remedy in next_action.
+    """
+    command = getattr(args, "command", "unknown")
+    payload = _json_payload(
+        command,
+        {},
+        ok=False,
+        error={
+            "code": "paid_path_blocked",
+            "message": str(exc),
+            "recoverable": True,
+            "next_action": "Restore the free scraper (Docker / vendored scraper-pro), "
+                           "or rerun with --allow-serpapi to permit paid SerpAPI.",
+        },
+    )
+    if getattr(args, "format", "text") == "ndjson":
+        _print_ndjson({"type": "error", **payload})
+    elif getattr(args, "format", "text") == "json" or getattr(args, "json", False):
+        _print_json(payload)
+    else:
+        print(f"停止（未花费任何额度）：{exc}", file=sys.stderr)
+    return 7
 
 
 def _internal_error_exit(args: argparse.Namespace, exc: Exception) -> int:
@@ -330,6 +377,7 @@ def _cmd_scout(args: argparse.Namespace) -> int:
         report_lang=args.report_lang, force_serpapi=args.force_serpapi,
         refresh=args.refresh, skip_reports=args.no_reports,
         use_ai=not args.no_ai, on_event=on_event,
+        allow_serpapi=args.allow_serpapi,
     )
     ok = bool(result.reports or args.no_reports)
     if args.format != "text":
@@ -350,7 +398,7 @@ def _cmd_shop(args: argparse.Namespace) -> int:
         target=args.target, near=args.near, profile_name=args.profile,
         max_reviews=args.max_reviews, report_lang=args.report_lang,
         force_serpapi=args.force_serpapi, refresh=args.refresh,
-        on_event=on_event,
+        on_event=on_event, allow_serpapi=args.allow_serpapi,
     )
     ok = bool(result.reports)
     if args.format != "text":
@@ -599,6 +647,28 @@ def _cmd_model(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_spend(args: argparse.Namespace) -> int:
+    """Show — or persist — permission for the one billable scraping path."""
+    if args.allow or args.block:
+        spend.set_allowed(bool(args.allow))
+    status = spend.policy_status()
+    if args.format == "json":
+        _print_json(_json_payload("spend", status, ok=True))
+        return 0
+    verdict = "允许（会花 SerpAPI 额度）" if status["allowed"] else "拒绝（不会花任何额度）"
+    source = {
+        "run": "本次运行参数", "env": f"环境变量 {status['env_var']}",
+        "settings": f"settings.json 的 {status['setting_key']}",
+        "default": "默认值（fail closed）",
+    }[status["source"]]
+    print(f"SerpAPI 付费兜底: {verdict}")
+    print(f"来源: {source}")
+    print(f"SerpAPI key: {'已配置' if status['key_configured'] else '未配置'}")
+    if not status["allowed"]:
+        print("免费通道失败时会直接停下并说明原因，而不是偷偷改用付费接口。")
+    return 0
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     conn = cache.connect()
     place = cache.get_place(conn, args.place_id)
@@ -840,7 +910,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--max-reviews", type=int, default=300)
     s.add_argument("--lang", default="en", help="scrape language (default: AI-chosen)")
     s.add_argument("--report-lang", default=None, help="default: language you typed in")
-    s.add_argument("--force-serpapi", action="store_true")
+    s.add_argument("--force-serpapi", action="store_true",
+                   help="skip the free scrapers and buy the results from SerpAPI")
+    _add_paid_path_args(s)
     s.add_argument("--refresh", action="store_true", help="ignore caches, re-scrape")
     s.add_argument("--no-reports", action="store_true", help="scrape+cache only")
     s.add_argument("--no-ai", action="store_true", help="skip AI planning/filtering")
@@ -853,7 +925,9 @@ def main(argv: list[str] | None = None) -> int:
     sh.add_argument("--profile", choices=profiles.list_profiles() + [None], default=None)
     sh.add_argument("--max-reviews", type=int, default=300)
     sh.add_argument("--report-lang", default=None)
-    sh.add_argument("--force-serpapi", action="store_true")
+    sh.add_argument("--force-serpapi", action="store_true",
+                    help="skip the free scrapers and buy the results from SerpAPI")
+    _add_paid_path_args(sh)
     sh.add_argument("--refresh", action="store_true")
     _add_format_arg(sh, ndjson=True)
     sh.set_defaults(func=_cmd_shop)
@@ -901,6 +975,15 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--require", default="",
                    help="comma-separated required checks, e.g. db,data_dir,google,vectorengine")
     d.set_defaults(func=_cmd_doctor)
+
+    sp = sub.add_parser("spend", help="show / persist permission for the paid SerpAPI fallback")
+    sp_group = sp.add_mutually_exclusive_group()
+    sp_group.add_argument("--allow", action="store_true",
+                          help="persist: let scrapes fall back to paid SerpAPI")
+    sp_group.add_argument("--block", action="store_true",
+                          help="persist: never fall back to paid SerpAPI (default)")
+    _add_format_arg(sp)
+    sp.set_defaults(func=_cmd_spend)
 
     sc = sub.add_parser("schema", help="print core CLI/API schema references")
     _add_format_arg(sc)
@@ -985,6 +1068,8 @@ def main(argv: list[str] | None = None) -> int:
             return args.func(args)
     except CommandTimeout:
         return _timeout_exit(args)
+    except spend.PaidPathBlocked as exc:
+        return _paid_path_blocked_exit(args, exc)
     except Exception as exc:
         return _internal_error_exit(args, exc)
 

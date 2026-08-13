@@ -212,6 +212,22 @@ def save_setting(key: str, value: str) -> None:
     save_settings({key: value})
 
 
+def setting(key: str) -> str | None:
+    """Read one persisted non-secret preference; None when unset."""
+    value = _load_settings().get(key)
+    return None if value is None else str(value)
+
+
+def env_value(name: str) -> str | None:
+    """Read an environment variable AT CALL TIME.
+
+    Module-level constants freeze at import, which makes a test's result depend
+    on the shell that launched it. Policy reads must not work that way.
+    """
+    value = os.getenv(name)
+    return value if value not in (None, "") else None
+
+
 def reason_model() -> str:
     """Active reasoning model: user setting > env > default."""
     return (

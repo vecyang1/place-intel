@@ -26,6 +26,7 @@ Implemented/stable codes:
 | 3 | Deployment smoke or external runtime target unavailable/unhealthy |
 | 5 | Cache empty/no matching data |
 | 6 | Timeout/cancelled |
+| 7 | Free scraper unavailable and the paid SerpAPI fallback was not permitted; nothing was spent (`paid_path_blocked`) |
 | 10 | Internal unexpected error |
 
 Reserved code:

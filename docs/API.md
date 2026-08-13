@@ -572,6 +572,14 @@ Example response:
     "translation": {"available": true, "provider": "VectorEngine", "model": "gemini-3.1-flash-lite", "next_action": "none"},
     "embedding": {"available": true, "provider": "Google official", "model": "gemini-embedding-2-preview (768d)", "next_action": "none"}
   },
+  "spend_policy": {
+    "provider": "serpapi",
+    "allowed": false,
+    "source": "env",
+    "key_configured": true,
+    "env_var": "PLACEINTEL_ALLOW_SERPAPI",
+    "setting_key": "allow_serpapi"
+  },
   "health": {"cheap_url": "/api/health", "deep_url": "/api/health/deep"},
   "danger_zone": {
     "destructive_changes": false,
@@ -583,6 +591,15 @@ Example response:
 `feature_status.*.available` is feature-specific: missing reasoning credentials
 must not block read-only Library access, and missing embedding credentials must
 not hide already-cached dossier evidence.
+
+`spend_policy` reports whether a failed free scrape may fall back to the
+billable SerpAPI engine, and which layer decided (`run`, `env`, `settings`, or
+the fail-closed `default`). It is **read-only over HTTP**: no request field sets
+it, because the proxy credential is shared with guests and anything a request
+could set, a guest could spend. Change it with the deploy environment variable
+or `placeintel spend --allow|--block` on the host. When `allowed` is false, a
+scout or shop whose free path fails finishes with the job error
+`paid_path_blocked` and nothing is charged.
 
 ### `POST /api/settings/language`
 

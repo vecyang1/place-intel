@@ -89,6 +89,30 @@ receive the proxy password and never this token. Rotate it by updating those
 three owners together; the deploy fails closed if the secret is absent, and the
 routes refuse rather than open if the variable is missing.
 
+### Paid-fallback permission (`PLACEINTEL_ALLOW_SERPAPI`)
+
+Scraping has a free primary path (gosom in Docker for discovery, the vendored
+review scraper for reviews) and a billable SerpAPI fallback. Production pins the
+permission to `0` from the deploy env file, so a free-path failure raises a
+clean refusal instead of spending credits nobody authorized. This is not a
+capability the app lacks — the box is provisioned for the free lane by
+`deploy/remote-bootstrap.sh` (docker group membership, `google-chrome`, the
+vendored scraper venv), so a fallback there means something broke and needs
+fixing, not paying around.
+
+Deliberately environment-owned rather than request-owned: the proxy credential
+is shared with guests, so anything a request could set, a guest could spend.
+Flip it for a deploy by setting the repository **variable** (not secret)
+`PLACEINTEL_ALLOW_SERPAPI=1` and re-running the workflow; the value is
+non-secret and the System panel shows the resolved policy and its source.
+
+Verify after any deploy:
+
+```bash
+.venv/bin/placeintel spend --format json
+.venv/bin/placeintel doctor --json   # check the spend_policy entry
+```
+
 Never put the public URL, any credential value, or Sentry API token in tracked
 files, commands, receipts, screenshots, or incident notes. Sentry detector API
 responses contain configured header values: query only an allow-list of detector
