@@ -1,5 +1,32 @@
 # Changelog — place-intel
 
+## v0.4.75 — 2026-08-11 — privacy-safe Sentry monitoring
+
+- Kept the existing observability owners instead of adding Better Stack Logs or
+  a second error tracker: systemd/journald for service evidence, durable SQLite
+  job events for pipeline history, and Sentry for grouped errors/traces.
+- Sentry now disables request bodies and frame locals, drops customer-authored
+  request/extra/breadcrumb/span/exception text from outbound events, and retains
+  only diagnostic metadata. Common credential forms and private home paths are
+  redacted defensively; default PII remains off.
+- Reduced the default trace sample from 100% to 10% and made invalid/out-of-range
+  environment values fall back safely instead of breaking application startup.
+- `GET /api/health` now returns HTTP 503 with its existing `ok:false` JSON body
+  when a critical local check fails, preventing status-only monitors from
+  reporting a broken database/data/static layer as healthy. Concurrent health
+  checks use unique, automatically cleaned data-directory probe files.
+- Added the least-privilege `GET /api/health/monitor` contract: only a dedicated
+  token can obtain the minimal readiness result, so the uptime vendor never
+  receives the owner-facing Basic Auth credential.
+- Added the one-minute Sentry Uptime detector `PlaceIntel production health`:
+  three consecutive failures open an incident, one success recovers it, the
+  project team owns it, and the existing high-priority email workflow is attached.
+- Removed the permanent crash endpoint, and kept the System panel actionable
+  when cheap health correctly returns HTTP 503.
+- Added regression tests for telemetry privacy, SDK option wiring, deployment
+  secret propagation, monitor authorization, bounded sampling, failed-health
+  HTTP/UI behavior, and documented collector/query/incident/recovery ownership.
+
 ## v0.4.74 — 2026-08-06 — Sentry error tracking
 
 - Wired Sentry (org `wi-0s`, project `place-intel`) into the web server:

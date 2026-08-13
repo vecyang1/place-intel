@@ -13,17 +13,41 @@ import os
 import re
 from pathlib import Path
 
-# Strip provider API keys out of error/log strings before they reach API clients
-# or get persisted to job events. requests embeds the full URL (with `api_key=…`)
-# in its exception text, so a transient SerpAPI failure would otherwise leak the key.
-_SECRET_QS_RE = re.compile(r"((?:api_?key|access_token|token|secret)=)[^&\s'\"]+", re.IGNORECASE)
+# Strip credentials out of error/log strings before they reach API clients or
+# get persisted to job events. HTTP clients can embed URLs, headers, and query
+# values in exception text, so cover the common labelled and provider formats.
+_URL_USERINFO_RE = re.compile(r"([a-z][a-z0-9+.-]*://)[^/\s@]+@", re.IGNORECASE)
+_SECRET_ASSIGNMENT_RE = re.compile(
+    r"(\b(?:api_?key|access_?token|refresh_?token|token|secret|password|passwd|pwd|"
+    r"authorization|proxy-authorization|cookie|set-cookie|client_secret|private_key|dsn)"
+    r"\b\s*(?:=|:)\s*)(?:(?:bearer|basic)\s+)?[^&\s,;'\"}\]]+",
+    re.IGNORECASE,
+)
+_AUTH_TOKEN_RE = re.compile(
+    r"\b((?:bearer|basic)\s+)[a-z0-9._~+/=-]{8,}", re.IGNORECASE
+)
+_VECTOR_KEY_RE = re.compile(r"\bsk-[a-z0-9_-]{16,}\b", re.IGNORECASE)
+_GOOGLE_KEY_RE = re.compile(r"\bAIza[a-z0-9_-]{20,}\b", re.IGNORECASE)
 
 
 def redact_secrets(text: str | None) -> str | None:
-    """Redact `api_key=…`-style secrets from any string (error messages, URLs)."""
+    """Redact common credential forms from error messages, URLs, and headers."""
     if not text:
         return text
-    return _SECRET_QS_RE.sub(r"\1REDACTED", str(text))
+    redacted = _URL_USERINFO_RE.sub(r"\1REDACTED@", str(text))
+    redacted = _SECRET_ASSIGNMENT_RE.sub(r"\1REDACTED", redacted)
+    redacted = _AUTH_TOKEN_RE.sub(r"\1REDACTED", redacted)
+    redacted = _VECTOR_KEY_RE.sub("sk-REDACTED", redacted)
+    return _GOOGLE_KEY_RE.sub("AIzaREDACTED", redacted)
+
+
+def _bounded_sample_rate(raw: str | None, *, default: float) -> float:
+    """Parse a Sentry sample rate without letting bad env config break startup."""
+    try:
+        value = float(raw) if raw is not None else default
+    except (TypeError, ValueError):
+        return default
+    return value if 0.0 <= value <= 1.0 else default
 
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -66,7 +90,12 @@ EVIDENCE_LANG = os.getenv("PLACEINTEL_EVIDENCE_LANG", "report")
 # so local runs stay telemetry-free; the deploy workflow injects the production DSN.
 SENTRY_DSN = os.getenv("SENTRY_DSN", "")
 SENTRY_ENVIRONMENT = os.getenv("SENTRY_ENVIRONMENT", "development")
-SENTRY_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "1.0"))
+SENTRY_TRACES_SAMPLE_RATE = _bounded_sample_rate(
+    os.getenv("SENTRY_TRACES_SAMPLE_RATE"), default=0.1,
+)
+# Dedicated least-privilege token for the externally routed minimal readiness
+# endpoint. It is intentionally unrelated to the owner-facing proxy credential.
+PLACEINTEL_MONITOR_TOKEN = os.getenv("PLACEINTEL_MONITOR_TOKEN", "")
 
 GOSOM_IMAGE = "gosom/google-maps-scraper"
 

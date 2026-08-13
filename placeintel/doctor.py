@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 import shutil
 import subprocess
+import tempfile
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -97,11 +98,24 @@ def _db_check() -> tuple[str, dict]:
 
 def _data_dir_check() -> tuple[str, dict]:
     config.ensure_dirs()
-    probe = config.DATA_DIR / ".placeintel-healthcheck.tmp"
-    probe.write_text("ok", encoding="utf-8")
-    if probe.read_text(encoding="utf-8") != "ok":
-        raise RuntimeError("write/read probe mismatch")
-    probe.unlink(missing_ok=True)
+    probe: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w+",
+            encoding="utf-8",
+            dir=config.DATA_DIR,
+            prefix=".placeintel-healthcheck.",
+            delete=False,
+        ) as handle:
+            probe = Path(handle.name)
+            handle.write("ok")
+            handle.flush()
+            handle.seek(0)
+            if handle.read() != "ok":
+                raise RuntimeError("write/read probe mismatch")
+    finally:
+        if probe is not None:
+            probe.unlink(missing_ok=True)
     return "writable", {}
 
 

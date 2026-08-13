@@ -167,6 +167,34 @@ test('system panel exposes safe settings and health without leaking secrets', as
   await expect(panel).not.toContainText('sk-');
 });
 
+test('system panel still renders actionable health details when readiness is 503', async ({ page }) => {
+  await page.route('**/api/config', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      settings: { reason_model: 'reason-model', translation_model: 'translate-model', default_answer_language: 'en', evidence_language: 'report', cache_ttl_days: 14 },
+      runtime: { data_dir: { configured: true, path_visible: false }, port: 9618 },
+      providers: { reason: { provider: 'VectorEngine' }, translate: { provider: 'VectorEngine' }, embed: { provider: 'Google official' } },
+      feature_status: { reasoning: { available: true }, embedding: { available: true }, translation: { available: true } },
+      health: { cheap_url: '/api/health', deep_url: '/api/health/deep' },
+    }),
+  }));
+  await page.route('**/api/health', (route) => route.fulfill({
+    status: 503,
+    contentType: 'application/json',
+    body: JSON.stringify({ ok: false, errors: ['db unavailable'] }),
+  }));
+
+  await page.goto('http://127.0.0.1:9618', { waitUntil: 'networkidle' });
+  await page.locator('#system-toggle').click();
+
+  const panel = page.locator('#system-panel');
+  await expect(panel).toContainText('System Status');
+  await expect(panel).toContainText('health check');
+  await expect(panel.locator('[href="/api/health"]')).toHaveCount(1);
+  await expect(panel.locator('[href="/api/health/deep"]')).toHaveCount(1);
+  await expect(panel).not.toContainText('Failed to read system status');
+});
+
 test('chosen Chinese UI language localizes system panel chrome', async ({ page }) => {
   await preferChineseBeforeLoad(page);
   await page.route('**/api/config', (route) => route.fulfill({

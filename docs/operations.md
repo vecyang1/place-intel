@@ -1,6 +1,6 @@
 # placeintel Operations
 
-Last updated: 2026-06-15
+Last updated: 2026-08-11
 
 This runbook is public-safe: it uses local placeholders and does not include real
 deploy hosts, private paths, Basic Auth values, or secrets.
@@ -41,6 +41,88 @@ Cheap health checks:
 - Provider/model labels are visible without exposing keys.
 
 Cheap health does not call models, Chrome, Docker, scrapers, or SerpAPI.
+It returns HTTP `503` with the normal JSON body when a critical local check has
+`ok:false`; successful readiness remains HTTP `200`.
+
+## Observability and Incident Response
+
+PlaceIntel intentionally has three evidence layers rather than one duplicated
+log warehouse:
+
+- `journalctl -u placeintel.service` owns process lifecycle, warnings, and
+  server logs on the VPS.
+- SQLite `jobs` and `job_events` own durable per-job status and the canonical
+  `{t, stage, msg, data?}` progress history exposed through the job API/SSE.
+- Sentry `wi-0s/place-intel` owns grouped web exceptions, sampled traces, and
+  the passive uptime incident lifecycle.
+
+Do not add Better Stack Logs/Errors or forward all journald data unless a
+multi-host search, longer retention, or cross-service correlation need is first
+demonstrated. Better Stack remains a fallback availability provider if the
+incumbent Sentry uptime capability later stops fitting.
+
+Production passive detection is the Sentry Uptime detector named
+`PlaceIntel production health`:
+
+- runs every 60 seconds against the exact public `GET /api/health/monitor` path;
+- supplies the dedicated `X-PlaceIntel-Monitor` header and expects HTTP 200;
+- opens after three consecutive failed checks and recovers after one successful
+  check, avoiding noise from the known few-second in-place deploy restart;
+- is owned by the project team, tagged to `production`, and attaches the
+  existing high-priority email workflow;
+- disables failed-response capture so health bodies/headers are not retained.
+
+The proxy bypasses owner Basic Auth only for this exact monitor path. The app
+then compares the dedicated token in constant time and returns a minimal
+`{"ok":true|false}` body. That token authorizes no mutable API and must never be
+the broad owner credential. Its non-secret owners are the 1Password item
+`PlaceIntel Sentry Uptime Monitor Token`, the private-repository GitHub Actions
+secret `PLACEINTEL_MONITOR_TOKEN`, and the production environment variable of
+the same name.
+
+Never put the public URL, any credential value, or Sentry API token in tracked
+files, commands, receipts, screenshots, or incident notes. Sentry detector API
+responses contain configured header values: query only an allow-list of detector
+fields and header names; do not print raw detector JSON.
+
+This is a service-path readiness check: it covers DNS, TLS, proxy routing,
+process reachability, SQLite migration/open, data-dir writability, and static
+shell presence. It does not prove model providers, scrapers, Docker, or an
+end-to-end Scout/Shop customer journey; those stay behind deep diagnostics and
+intentional release/E2E checks.
+
+Triage order:
+
+1. Use the Sentry issue/detector id as the canonical incident identity. Record
+   its state as open, acknowledged, mitigated, or resolved; do not create a
+   parallel free-text incident id.
+2. Run the authenticated `placeintel deploy-smoke` against loopback or the
+   approved tunnel to separate app health from proxy/DNS/TLS health.
+3. Query recent service evidence without dumping normal traffic:
+
+   ```bash
+   journalctl -u placeintel.service --since "30 minutes ago" \
+     -p warning..alert --no-pager
+   ```
+
+4. Use `/api/jobs/{job_id}` and its event stream for a named failed job. Keep
+   scraped review text and request payloads out of Sentry comments.
+5. Acknowledge only after an owner begins work. Resolve only after cheap health,
+   exact-version `deploy-smoke`, and the Sentry detector all recover. Reopen the
+   same incident for the same unresolved cause; create a new incident for a
+   later regression after a proven recovery.
+
+Sentry sends nothing for local runs unless `SENTRY_DSN` is present. Production
+request bodies and frame locals are disabled. The outbound callback drops user,
+extra, message, exception-value, breadcrumb-message/data, span-description/data,
+and request URL/header/body fields while retaining route, exception type,
+sanitized stack-frame metadata, trace ids, timings, release, and environment.
+Common credential forms and private home paths are redacted defensively;
+default PII remains off and trace sampling defaults to `0.1`.
+
+There is no permanent crash endpoint. Verify error delivery with a one-off,
+dummy-only exception from the production shell, confirm its exact Sentry event,
+then remove the test issue. Never attach customer input to verification events.
 
 ## System Panel and Safe Config
 

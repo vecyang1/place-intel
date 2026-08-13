@@ -66,6 +66,26 @@ class DoctorContractTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "oversize.css has 800 lines"):
                     doctor._static_web_check()
 
+    def test_data_dir_check_uses_a_unique_probe_file(self) -> None:
+        from placeintel import doctor
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(config, "DATA_DIR", Path(tmp)), \
+                mock.patch(
+                    "placeintel.doctor.tempfile.NamedTemporaryFile",
+                    wraps=tempfile.NamedTemporaryFile,
+                ) as named_temporary_file:
+            message, data = doctor._data_dir_check()
+
+        self.assertEqual(message, "writable")
+        self.assertEqual(data, {})
+        self.assertEqual(named_temporary_file.call_count, 1)
+        self.assertEqual(named_temporary_file.call_args.kwargs["dir"], Path(tmp))
+        self.assertEqual(
+            named_temporary_file.call_args.kwargs["prefix"],
+            ".placeintel-healthcheck.",
+        )
+
     def test_cheap_health_reports_local_state_without_live_calls(self) -> None:
         from placeintel import doctor
 
@@ -111,6 +131,60 @@ class DoctorContractTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), expected)
+
+    def test_api_health_returns_service_unavailable_when_cheap_health_fails(self) -> None:
+        expected = {
+            "ok": False,
+            "version": placeintel.__version__,
+            "mode": "cheap",
+            "checks": [
+                {"name": "db", "ok": False, "severity": "critical", "message": "locked"}
+            ],
+            "warnings": [],
+            "errors": ["db: locked"],
+            "providers": {},
+        }
+        with mock.patch.object(server.doctor, "cheap_health", return_value=expected):
+            response = TestClient(server.app).get("/api/health")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json(), expected)
+
+    def test_monitor_health_hides_without_the_dedicated_token(self) -> None:
+        with mock.patch.object(server.config, "PLACEINTEL_MONITOR_TOKEN", "dedicated-token"), \
+                mock.patch.object(server.doctor, "cheap_health") as cheap_health:
+            missing = TestClient(server.app).get("/api/health/monitor")
+            wrong = TestClient(server.app).get(
+                "/api/health/monitor",
+                headers={"X-PlaceIntel-Monitor": "wrong-token"},
+            )
+
+        self.assertEqual(missing.status_code, 404)
+        self.assertEqual(wrong.status_code, 404)
+        cheap_health.assert_not_called()
+
+    def test_monitor_health_returns_only_minimal_readiness(self) -> None:
+        client = TestClient(server.app)
+        header = {"X-PlaceIntel-Monitor": "dedicated-token"}
+        with mock.patch.object(server.config, "PLACEINTEL_MONITOR_TOKEN", "dedicated-token"), \
+                mock.patch.object(server.doctor, "cheap_health", return_value={"ok": True}):
+            healthy = client.get("/api/health/monitor", headers=header)
+        with mock.patch.object(server.config, "PLACEINTEL_MONITOR_TOKEN", "dedicated-token"), \
+                mock.patch.object(server.doctor, "cheap_health", return_value={
+                    "ok": False,
+                    "errors": ["private local detail"],
+                }):
+            unhealthy = client.get("/api/health/monitor", headers=header)
+
+        self.assertEqual(healthy.status_code, 200)
+        self.assertEqual(healthy.json(), {"ok": True})
+        self.assertEqual(unhealthy.status_code, 503)
+        self.assertEqual(unhealthy.json(), {"ok": False})
+
+    def test_permanent_sentry_crash_route_is_not_exposed(self) -> None:
+        response = TestClient(server.app, raise_server_exceptions=False).get("/api/sentry-debug")
+
+        self.assertEqual(response.status_code, 404)
 
     def test_deep_health_runs_opt_in_live_checks(self) -> None:
         from placeintel import doctor

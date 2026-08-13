@@ -235,11 +235,14 @@ and SQLite sidecars.
 | Report and Ask reasoning | VectorEngine Gemini-compatible API | Active model comes from verified live settings, never a baked-in UI list. |
 | Review/report translation | VectorEngine cheap translation role | Separate model and cache from report reasoning. |
 | Place identity/navigation | Google Maps URLs and ids | Short URLs are expanded with bounded, fail-open resolution. |
-| Error tracking | Sentry `wi-0s/place-intel` via `sentry-sdk[fastapi]` | Off unless `SENTRY_DSN` is set (deploy lane injects it). Exception text passes `redact_secrets` in `before_send`; no default PII. |
+| Error tracking | Sentry `wi-0s/place-intel` via `sentry-sdk[fastapi]` | Off unless `SENTRY_DSN` is set. Request bodies, frame locals, user content, and breadcrumb/span payloads are removed; credential forms and private home paths are redacted; default PII is off; traces default to a bounded 10% sample. |
+| Passive availability | Sentry Uptime monitor `PlaceIntel production health` | One-minute service-path readiness check through the dedicated, least-privilege `/api/health/monitor` token; three failures open, one success recovers, and failed-response capture is off. It does not prove live providers or a synthetic customer journey. |
 
 Credentials resolve in `config.py` from environment or approved local skill
 configurations. Keys never belong in code, docs, `settings.json`, job events, or
 API responses. Provider-facing exception text is redacted before persistence.
+The uptime monitor token is dedicated to the minimal readiness route; the broad
+owner-facing proxy credential must never be stored by an uptime provider.
 
 ## Web and Job Architecture
 
@@ -270,6 +273,9 @@ Security and cost boundaries:
 - FastAPI validates request lengths, place counts, and review caps.
 - Scraped text is hostile input and must pass through the SPA `esc()` helper.
 - Cheap health never launches external tools or calls paid providers.
+- Cheap health returns HTTP 503 when a critical local check fails; passive
+  monitoring must reach the protected application rather than accept the
+  proxy's unauthenticated 401/403 as healthy.
 - Deep diagnostics and full Scout runs are explicit because they can spend
   credits or start Docker/Chrome.
 - Destructive restore remains CLI-only, requires `--yes`, and validates hashes

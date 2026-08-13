@@ -1,6 +1,6 @@
 # placeintel API Contract
 
-Last updated: 2026-07-14
+Last updated: 2026-08-11
 
 This document is the agent-readable HTTP contract for the local FastAPI app. The
 server is a single-user local/protected tool; examples use loopback URLs and do
@@ -56,8 +56,28 @@ Example response:
 }
 ```
 
-`ok` is false when a critical local check fails. Missing provider credentials are
-warnings for cheap health unless a caller requires a provider through the CLI.
+Successful cheap health returns HTTP `200`. When a critical local check fails,
+the same JSON contract returns HTTP `503` with `ok:false`, so an external
+status-code monitor cannot false-green a broken database, data directory, or
+static shell. Missing provider credentials are warnings for cheap health unless
+a caller requires a provider through the CLI.
+
+### `GET /api/health/monitor`
+
+Minimal off-host readiness endpoint. It exists so an uptime provider never
+needs the owner-facing Basic Auth credential. The reverse proxy may expose only
+this exact path without owner auth; every request must still carry the dedicated
+`X-PlaceIntel-Monitor` header whose value comes from
+`PLACEINTEL_MONITOR_TOKEN`.
+
+- Missing server token, missing header, or a wrong header returns HTTP `404`
+  without running health checks.
+- A valid header returns only `{"ok":true}` with HTTP `200`, or
+  `{"ok":false}` with HTTP `503`.
+- The response never includes versions, provider labels, paths, or check error
+  details and is marked `Cache-Control: no-store`.
+- The token authorizes no other route. Never reuse the broad proxy credential
+  for this endpoint or store it with an uptime vendor.
 
 ### `GET /api/health/deep`
 
