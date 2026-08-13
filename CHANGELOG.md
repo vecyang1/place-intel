@@ -1,5 +1,26 @@
 # Changelog — place-intel
 
+## v0.4.76 — 2026-08-13 — photo link expiry told honestly, and detected
+
+- Fixed the reported "no source photo" boxes. The cause was NOT rendering: every
+  stored Google photo URL has been revoked at Google's edge. Measured 113/113
+  thumbnails returning HTTP 403, from two continents, with and without a
+  `Referer`, and with and without the `hiRes()` size rewrite. The decisive
+  control: freshly scraped URLs from the same host and the same `gps-cs-s` /
+  `grass-cs` buckets, put through the same `hiRes()` rewrite, all return 200.
+  Only the stored tokens are dead.
+- The UI was reusing the empty-state copy for the broken state, so an expired
+  link was indistinguishable from a shop that has no photo. `is-broken` now
+  reads "photo link expired" / "图片链接已失效" via a new `--photo-broken`
+  token, leaving the genuine `is-empty` copy untouched.
+- Added the `photo_liveness` deep-health check: it samples stored photo URLs,
+  reports the alive fraction, fails when none resolve, and treats an empty
+  sample as inconclusive rather than as a pass. This is the check whose absence
+  let a fully broken photo layer look healthy for seven weeks.
+- Deliberately NOT done: no server-side image proxy. The VPS receives the same
+  403, so a proxy would relay the identical failure while adding a route,
+  bandwidth, and a cache to maintain.
+
 ## v0.4.75 — 2026-08-11 — privacy-safe Sentry monitoring
 
 - Kept the existing observability owners instead of adding Better Stack Logs or

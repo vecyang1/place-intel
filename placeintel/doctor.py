@@ -10,11 +10,17 @@ import time
 import shutil
 import subprocess
 import tempfile
+import urllib.error
+import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-from . import __version__, cache, config
+from . import __version__, cache, config, photos
+
+PHOTO_LIVENESS_SAMPLE = 8
+PHOTO_LIVENESS_TIMEOUT = 8
+PHOTO_LIVENESS_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/140.0 Safari/537.36"
 
 Check = dict[str, object]
 
@@ -212,6 +218,51 @@ def _serpapi_check() -> tuple[str, dict]:
     return "SerpAPI fallback key configured", {"configured": True}
 
 
+def _sample_stored_photo_urls(limit: int) -> list[str]:
+    conn = cache.connect()
+    try:
+        rows = conn.execute(
+            "SELECT place_id FROM places ORDER BY last_refreshed DESC LIMIT ?", (limit * 4,)
+        ).fetchall()
+        thumbnails = photos.resolve_place_thumbnails(conn, [row["place_id"] for row in rows])
+    finally:
+        conn.close()
+    urls = [
+        (thumb or {}).get("thumb_url") or (thumb or {}).get("url")
+        for thumb in thumbnails.values()
+    ]
+    return [url for url in urls if url][:limit]
+
+
+def _photo_liveness_check() -> tuple[str, dict]:
+    """Prove stored photo URLs still resolve, instead of trusting that they do.
+
+    Provider photo URLs are opaque, time-limited tokens. When they expire the UI
+    swaps in a placeholder, so a fully broken photo layer looks exactly like
+    "these shops have no photos" — which is how 113/113 dead thumbnails went
+    unnoticed for seven weeks. Report the alive fraction, and treat an empty
+    sample as inconclusive rather than as a pass.
+    """
+    urls = _sample_stored_photo_urls(PHOTO_LIVENESS_SAMPLE)
+    if not urls:
+        raise RuntimeError("no stored photo URLs to sample (inconclusive, not a pass)")
+    alive = 0
+    for url in urls:
+        request = urllib.request.Request(url, headers={"User-Agent": PHOTO_LIVENESS_UA})
+        try:
+            with urllib.request.urlopen(request, timeout=PHOTO_LIVENESS_TIMEOUT) as response:
+                if 200 <= response.status < 300:
+                    alive += 1
+        except (urllib.error.URLError, OSError, ValueError):
+            continue
+    data = {"sampled": len(urls), "alive": alive}
+    if alive == 0:
+        raise RuntimeError(
+            f"0/{len(urls)} stored photo URLs resolve; provider tokens expired — re-scrape to refresh"
+        )
+    return f"{alive}/{len(urls)} sampled photo URLs resolve", data
+
+
 def _provider_warnings(providers: dict) -> list[str]:
     warnings: list[str] = []
     for role, info in providers.items():
@@ -290,6 +341,7 @@ def deep_health(*, require: list[str] | None = None) -> dict:
         _check("gosom_image", "warning", _gosom_image_check),
         _check("review_scraper", "warning", _review_scraper_check),
         _check("serpapi", "warning", _serpapi_check),
+        _check("photo_liveness", "warning", _photo_liveness_check),
     ])
     warnings = _provider_warnings(report["providers"])
     warnings.extend(

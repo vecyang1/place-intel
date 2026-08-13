@@ -312,3 +312,41 @@ class DoctorContractTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PhotoLivenessCheckTest(unittest.TestCase):
+    """The photo layer failed silently for seven weeks because a dead link and an
+    absent photo rendered identically. These pin the check that ends that."""
+
+    def test_all_dead_urls_fail_the_check(self) -> None:
+        from placeintel import doctor
+
+        urls = [f"https://example.invalid/{i}.jpg" for i in range(4)]
+        with mock.patch.object(doctor, "_sample_stored_photo_urls", return_value=urls), \
+             mock.patch.object(doctor.urllib.request, "urlopen", side_effect=OSError("403")):
+            with self.assertRaises(RuntimeError) as caught:
+                doctor._photo_liveness_check()
+        self.assertIn("0/4", str(caught.exception))
+
+    def test_some_live_urls_pass_and_report_the_fraction(self) -> None:
+        from placeintel import doctor
+
+        urls = [f"https://example.invalid/{i}.jpg" for i in range(4)]
+
+        @contextlib.contextmanager
+        def _fake_urlopen(request, timeout=None):
+            yield SimpleNamespace(status=200 if request.full_url.endswith(("0.jpg", "1.jpg")) else 403)
+
+        with mock.patch.object(doctor, "_sample_stored_photo_urls", return_value=urls), \
+             mock.patch.object(doctor.urllib.request, "urlopen", _fake_urlopen):
+            message, data = doctor._photo_liveness_check()
+        self.assertEqual(data, {"sampled": 4, "alive": 2})
+        self.assertIn("2/4", message)
+
+    def test_empty_sample_is_inconclusive_not_a_pass(self) -> None:
+        from placeintel import doctor
+
+        with mock.patch.object(doctor, "_sample_stored_photo_urls", return_value=[]):
+            with self.assertRaises(RuntimeError) as caught:
+                doctor._photo_liveness_check()
+        self.assertIn("inconclusive", str(caught.exception))

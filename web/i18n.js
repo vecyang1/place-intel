@@ -65,6 +65,7 @@
     document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => { el.setAttribute('placeholder', t(el.dataset.i18nPlaceholder)); });
     document.querySelectorAll('[data-i18n-aria]').forEach((el) => { el.setAttribute('aria-label', t(el.dataset.i18nAria)); });
     document.documentElement.style.setProperty('--photo-no-source', ui === 'zh' ? '"没有来源图片"' : '"no source photo"');
+    document.documentElement.style.setProperty('--photo-broken', ui === 'zh' ? '"图片链接已失效"' : '"photo link expired"');
   }
   function init(config) { if (config) serverConfig = config; applyStaticText(); return state(); }
   function requestPayload(kind) { return { language_hint: browserTag(), report_lang: kind === 'report' ? outputLanguage('report') : outputLanguage('answer') }; }
