@@ -611,6 +611,21 @@ def create_job(
     conn.commit()
 
 
+def count_jobs_since(conn: sqlite3.Connection, kinds: tuple[str, ...], since: float) -> int:
+    """How many billable jobs started since `since` (epoch seconds).
+
+    Counted off the jobs table rather than a separate counter so the budget can
+    never drift from what actually ran, and so it needs no schema migration or
+    reset job.
+    """
+    placeholders = ",".join("?" * len(kinds))
+    row = conn.execute(
+        f"SELECT COUNT(*) FROM jobs WHERE kind IN ({placeholders}) AND created_at >= ?",
+        (*kinds, since),
+    ).fetchone()
+    return int(row[0] if row else 0)
+
+
 def append_job_event(conn: sqlite3.Connection, job_id: str, event: dict) -> int:
     cur = conn.execute(
         """INSERT INTO job_events (job_id, t, stage, msg, data_json)

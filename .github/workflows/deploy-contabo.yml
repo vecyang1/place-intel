@@ -28,9 +28,10 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
           PLACEINTEL_MONITOR_TOKEN: ${{ secrets.PLACEINTEL_MONITOR_TOKEN }}
+          PLACEINTEL_OWNER_TOKEN: ${{ secrets.PLACEINTEL_OWNER_TOKEN }}
         run: |
           set -euo pipefail
-          for name in PLACEINTEL_DEPLOY_HOST PLACEINTEL_DEPLOY_USER PLACEINTEL_DEPLOY_SSH_KEY PLACEINTEL_DEPLOY_DIR GOOGLE_API_KEY VECTORENGINE_API_KEY PLACEINTEL_MONITOR_TOKEN; do
+          for name in PLACEINTEL_DEPLOY_HOST PLACEINTEL_DEPLOY_USER PLACEINTEL_DEPLOY_SSH_KEY PLACEINTEL_DEPLOY_DIR GOOGLE_API_KEY VECTORENGINE_API_KEY PLACEINTEL_MONITOR_TOKEN PLACEINTEL_OWNER_TOKEN; do
             if [ -z "${!name:-}" ]; then
               echo "Missing required secret: $name" >&2
               exit 1
@@ -94,6 +95,7 @@ jobs:
           PLACEINTEL_REASON_MODEL: ${{ secrets.PLACEINTEL_REASON_MODEL }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           PLACEINTEL_MONITOR_TOKEN: ${{ secrets.PLACEINTEL_MONITOR_TOKEN }}
+          PLACEINTEL_OWNER_TOKEN: ${{ secrets.PLACEINTEL_OWNER_TOKEN }}
         run: |
           set -euo pipefail
           reason_model="${PLACEINTEL_REASON_MODEL:-gemini-2.5-flash}"
@@ -106,6 +108,7 @@ jobs:
             printf 'SENTRY_DSN=%s\n' "${SENTRY_DSN:-}"
             printf 'SENTRY_ENVIRONMENT=%s\n' "production"
             printf 'PLACEINTEL_MONITOR_TOKEN=%s\n' "$PLACEINTEL_MONITOR_TOKEN"
+            printf 'PLACEINTEL_OWNER_TOKEN=%s\n' "$PLACEINTEL_OWNER_TOKEN"
           } > .deploy.env
           chmod 600 .deploy.env
 

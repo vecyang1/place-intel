@@ -2,7 +2,11 @@
 
 Jobs run in worker threads and persist progress events into SQLite; the page
 streams /api/jobs/{id}/events with /api/jobs/{id} polling as fallback.
-Single-user local tool — no auth, binds 127.0.0.1 only.
+
+Binds 127.0.0.1 only; a protected reverse proxy owns who reaches it at all.
+That proxy credential is shared with guests, so it cannot distinguish owner
+from guest — see guards.py for the routes that require the owner token and for
+the billable-job ceiling that applies to everyone.
 """
 
 from __future__ import annotations
@@ -12,12 +16,10 @@ import hmac
 import json
 import logging
 import os
-import re
 import threading
 import time
 import uuid
 from dataclasses import asdict
-from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -25,206 +27,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__, cache, config, doctor, language, photos, pipeline, profiles
+from .guards import OWNER_ONLY, enforce_job_budget, require_owner  # noqa: F401  (re-exported)
+from .telemetry import (  # noqa: F401  (re-exported for existing callers and tests)
+    _init_sentry, _scrub_sentry_breadcrumb, _scrub_sentry_event, _scrub_sentry_value,
+    _sentry_exceptions, _sentry_field_is_sensitive, _sentry_stacktrace,
+)
 
 log = logging.getLogger(__name__)
-
-_SENTRY_SENSITIVE_FIELDS = {
-    "authorization",
-    "proxyauthorization",
-    "cookie",
-    "setcookie",
-    "password",
-    "passwd",
-    "pwd",
-    "apikey",
-    "accesskey",
-    "accesstoken",
-    "refreshtoken",
-    "token",
-    "secret",
-    "clientsecret",
-    "privatekey",
-    "dsn",
-}
-_SENTRY_FRAME_FIELDS = {
-    "filename", "abs_path", "module", "function", "lineno", "colno", "in_app",
-    "package", "instruction_addr", "symbol_addr", "platform",
-}
-
-
-def _sentry_field_is_sensitive(key: str) -> bool:
-    normalized = re.sub(r"[^a-z0-9]", "", key.lower())
-    return any(normalized == field or normalized.endswith(field) for field in _SENTRY_SENSITIVE_FIELDS)
-
-
-def _scrub_sentry_value(value: Any) -> Any:
-    if isinstance(value, str):
-        scrubbed = config.redact_secrets(value)
-        home = os.path.expanduser("~").rstrip("/")
-        if not home:
-            return scrubbed
-        if scrubbed == home:
-            return "~"
-        return scrubbed.replace(f"{home}/", "~/")
-    if isinstance(value, dict):
-        scrubbed = {}
-        for key, item in value.items():
-            if isinstance(key, str) and key.lower() == "vars":
-                continue
-            safe_key = _scrub_sentry_value(key) if isinstance(key, str) else key
-            scrubbed[safe_key] = (
-                "REDACTED"
-                if isinstance(key, str) and _sentry_field_is_sensitive(key)
-                else _scrub_sentry_value(item)
-            )
-        return scrubbed
-    if isinstance(value, list):
-        return [_scrub_sentry_value(item) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_scrub_sentry_value(item) for item in value)
-    return value
-
-
-def _sentry_stacktrace(value: Any) -> dict | None:
-    if not isinstance(value, dict) or not isinstance(value.get("frames"), list):
-        return None
-    frames = []
-    for frame in value["frames"]:
-        if isinstance(frame, dict):
-            frames.append({key: frame[key] for key in _SENTRY_FRAME_FIELDS if key in frame})
-    return {"frames": frames}
-
-
-def _sentry_exceptions(value: Any) -> dict | None:
-    if not isinstance(value, dict) or not isinstance(value.get("values"), list):
-        return None
-    exceptions = []
-    for exception in value["values"]:
-        if not isinstance(exception, dict):
-            continue
-        safe = {
-            key: exception[key]
-            for key in ("type", "module", "thread_id")
-            if key in exception
-        }
-        if isinstance(exception.get("mechanism"), dict):
-            safe["mechanism"] = {
-                key: exception["mechanism"][key]
-                for key in ("type", "handled", "synthetic", "exception_id", "parent_id")
-                if key in exception["mechanism"]
-            }
-        stacktrace = _sentry_stacktrace(exception.get("stacktrace"))
-        if stacktrace:
-            safe["stacktrace"] = stacktrace
-        exceptions.append(safe)
-    return {"values": exceptions}
-
-
-def _scrub_sentry_breadcrumb(breadcrumb: dict, hint: dict | None = None) -> dict:
-    """Keep breadcrumb routing metadata while dropping messages and data."""
-    scrubbed = _scrub_sentry_value(breadcrumb)
-    return {
-        key: scrubbed[key]
-        for key in ("type", "category", "level", "timestamp", "event_id")
-        if key in scrubbed
-    }
-
-
-def _scrub_sentry_event(event: dict, hint: dict | None = None) -> dict:
-    """Send diagnostic metadata without request bodies or customer-authored text."""
-    scrubbed = _scrub_sentry_value(event)
-    safe = {
-        key: scrubbed[key]
-        for key in (
-            "event_id", "timestamp", "start_timestamp", "platform", "level", "logger",
-            "transaction", "transaction_info", "release", "environment", "dist", "sdk",
-            "modules", "type", "measurements",
-        )
-        if key in scrubbed
-    }
-    if isinstance(scrubbed.get("request"), dict) and "method" in scrubbed["request"]:
-        safe["request"] = {"method": scrubbed["request"]["method"]}
-    exceptions = _sentry_exceptions(scrubbed.get("exception"))
-    if exceptions:
-        safe["exception"] = exceptions
-    stacktrace = _sentry_stacktrace(scrubbed.get("stacktrace"))
-    if stacktrace:
-        safe["stacktrace"] = stacktrace
-    if isinstance(scrubbed.get("threads"), dict) and isinstance(
-        scrubbed["threads"].get("values"), list
-    ):
-        threads = []
-        for thread in scrubbed["threads"]["values"]:
-            if not isinstance(thread, dict):
-                continue
-            safe_thread = {
-                key: thread[key]
-                for key in ("id", "crashed", "current")
-                if key in thread
-            }
-            thread_stack = _sentry_stacktrace(thread.get("stacktrace"))
-            if thread_stack:
-                safe_thread["stacktrace"] = thread_stack
-            threads.append(safe_thread)
-        safe["threads"] = {"values": threads}
-    if isinstance(scrubbed.get("breadcrumbs"), dict) and isinstance(
-        scrubbed["breadcrumbs"].get("values"), list
-    ):
-        safe["breadcrumbs"] = {
-            "values": [
-                _scrub_sentry_breadcrumb(item)
-                for item in scrubbed["breadcrumbs"]["values"]
-                if isinstance(item, dict)
-            ]
-        }
-    if isinstance(scrubbed.get("contexts"), dict):
-        contexts = {}
-        allowed_context_fields = {
-            "trace": {"trace_id", "span_id", "parent_span_id", "op", "status", "origin"},
-            "runtime": {"name", "version", "build"},
-            "os": {"name", "version", "build", "kernel_version", "rooted"},
-            "device": {"arch", "family", "model", "brand"},
-        }
-        for name, fields in allowed_context_fields.items():
-            context = scrubbed["contexts"].get(name)
-            if isinstance(context, dict):
-                contexts[name] = {key: context[key] for key in fields if key in context}
-        if contexts:
-            safe["contexts"] = contexts
-    if isinstance(scrubbed.get("spans"), list):
-        span_fields = {
-            "trace_id", "span_id", "parent_span_id", "op", "status", "origin",
-            "start_timestamp", "timestamp", "same_process_as_parent", "exclusive_time",
-        }
-        safe["spans"] = [
-            {key: span[key] for key in span_fields if key in span}
-            for span in scrubbed["spans"]
-            if isinstance(span, dict)
-        ]
-    return safe
-
-
-def _init_sentry() -> None:
-    if not config.SENTRY_DSN:
-        return
-    try:
-        import sentry_sdk
-    except ModuleNotFoundError:  # web extra installs it; bare installs stay quiet-capable
-        log.warning("SENTRY_DSN is set but sentry-sdk is not installed; error tracking off")
-        return
-    sentry_sdk.init(
-        dsn=config.SENTRY_DSN,
-        environment=config.SENTRY_ENVIRONMENT,
-        release=f"placeintel@{__version__}",
-        traces_sample_rate=config.SENTRY_TRACES_SAMPLE_RATE,
-        send_default_pii=False,
-        max_request_body_size="never",
-        include_local_variables=False,
-        before_send=_scrub_sentry_event,
-        before_send_transaction=_scrub_sentry_event,
-        before_breadcrumb=_scrub_sentry_breadcrumb,
-    )
-
 
 _init_sentry()  # must run before FastAPI() — the Starlette integration hooks app creation
 app = FastAPI(title="placeintel", version=__version__)
@@ -390,6 +199,7 @@ def index() -> HTMLResponse:
 
 @app.post("/api/scout")
 def start_scout(req: ScoutRequest) -> dict:
+    enforce_job_budget()
     job_id, on_event = _new_job("scout", _request_payload(req))
     threading.Thread(target=_run_scout, args=(job_id, req, on_event), daemon=True).start()
     return {"job_id": job_id}
@@ -397,6 +207,7 @@ def start_scout(req: ScoutRequest) -> dict:
 
 @app.post("/api/shop")
 def start_shop(req: ShopRequest) -> dict:
+    enforce_job_budget()
     job_id, on_event = _new_job("shop", _request_payload(req))
     threading.Thread(target=_run_shop, args=(job_id, req, on_event), daemon=True).start()
     return {"job_id": job_id}
@@ -512,7 +323,7 @@ def qa_history(place_id: str | None = None, scope: str = "exact") -> JSONRespons
         conn.close()
 
 
-@app.delete("/api/places/{place_id}")
+@app.delete("/api/places/{place_id}", dependencies=OWNER_ONLY)
 def delete_place(place_id: str) -> dict:
     conn = cache.connect()
     try:
@@ -775,7 +586,7 @@ def config_status() -> dict:
     }
 
 
-@app.post("/api/settings/language")
+@app.post("/api/settings/language", dependencies=OWNER_ONLY)
 def update_language_settings(req: LanguageSettingsRequest) -> dict:
     if not req.make_default:
         return {"ok": True, "saved": {}, "language": language.config_language_status()}
@@ -800,7 +611,7 @@ def models() -> dict:
     return {"current": current, "models": available, "error": None}
 
 
-@app.post("/api/settings")
+@app.post("/api/settings", dependencies=OWNER_ONLY)
 def update_settings(req: SettingsRequest) -> dict:
     """Switch the reasoning model. Smoke-tested against the live provider
     before persisting — a bad name fails here, not mid-scout."""

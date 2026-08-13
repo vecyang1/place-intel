@@ -80,6 +80,15 @@ the broad owner credential. Its non-secret owners are the 1Password item
 secret `PLACEINTEL_MONITOR_TOKEN`, and the production environment variable of
 the same name.
 
+The owner token for the destructive/global routes follows the same rule and the
+same shape. Its non-secret owners are the 1Password item `PlaceIntel Owner
+Token` in the `Agent Automation` vault, the private-repository GitHub Actions
+secret `PLACEINTEL_OWNER_TOKEN`, and the production environment variable of the
+same name. It is deliberately unrelated to the shared proxy credential: guests
+receive the proxy password and never this token. Rotate it by updating those
+three owners together; the deploy fails closed if the secret is absent, and the
+routes refuse rather than open if the variable is missing.
+
 Never put the public URL, any credential value, or Sentry API token in tracked
 files, commands, receipts, screenshots, or incident notes. Sentry detector API
 responses contain configured header values: query only an allow-list of detector

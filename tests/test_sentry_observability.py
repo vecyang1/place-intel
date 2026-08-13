@@ -151,7 +151,12 @@ class SentryObservabilityTest(unittest.TestCase):
             "PLACEINTEL_MONITOR_TOKEN: ${{ secrets.PLACEINTEL_MONITOR_TOKEN }}",
             workflow,
         )
-        self.assertIn("VECTORENGINE_API_KEY PLACEINTEL_MONITOR_TOKEN; do", workflow)
+        # Assert membership in the required-secret loop, not the exact tail of the
+        # list — other required secrets may legitimately be appended after it.
+        required_loop = next(
+            line for line in workflow.splitlines() if "for name in PLACEINTEL_DEPLOY_HOST" in line
+        )
+        self.assertIn("PLACEINTEL_MONITOR_TOKEN", required_loop)
         self.assertIn("printf 'PLACEINTEL_MONITOR_TOKEN=%s\\n'", workflow)
 
     def test_trace_sample_rate_parser_is_bounded_and_fail_safe(self) -> None:

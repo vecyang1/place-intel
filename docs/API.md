@@ -114,6 +114,36 @@ not help, because the server receives the same rejection the browser does. Note
 that `refresh-favorites --run` processes only places with `refresh_enabled`
 set, so it exits successfully having done nothing when none are opted in.
 
+## Owner-only routes
+
+The proxy credential is shared with every guest, so it cannot tell the owner
+from a friend. These three routes additionally require the header
+`X-PlaceIntel-Owner`, compared in constant time against `PLACEINTEL_OWNER_TOKEN`:
+
+- `DELETE /api/places/{place_id}` — destroys cached intel that cost real money
+- `POST /api/settings` — switches the reasoning model for everyone
+- `POST /api/settings/language` — changes app-wide language defaults
+
+They answer `403` on a wrong or missing header, and **also `403` when the token
+is unset**. That asymmetry is deliberate: the monitor endpoint is opt-in and
+hides itself when unconfigured, but a destructive route must not fall open
+because an environment variable is missing.
+
+Everything else — scout, shop, ask, the translate routes, favorite, and all
+reads — stays open to guests, because sharing is the point.
+
+## Job budget
+
+`POST /api/scout` and `POST /api/shop` spend the owner's provider budget on
+every call. Both refuse with `429` once `PLACEINTEL_DAILY_JOB_LIMIT` billable
+jobs have started in the rolling previous 24 hours (default 50; `0` disables the
+cap). The count is read from the `jobs` table rather than a separate counter, so
+it cannot drift from what actually ran and needs no reset job. A malformed limit
+falls back to the default rather than silently removing the ceiling.
+
+Authentication does not substitute for this: a guest who is legitimately let in
+still spends the budget.
+
 ## Jobs
 
 ### `POST /api/scout`

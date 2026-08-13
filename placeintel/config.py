@@ -97,6 +97,28 @@ SENTRY_TRACES_SAMPLE_RATE = _bounded_sample_rate(
 # endpoint. It is intentionally unrelated to the owner-facing proxy credential.
 PLACEINTEL_MONITOR_TOKEN = os.getenv("PLACEINTEL_MONITOR_TOKEN", "")
 
+# Owner-only token for the few routes that destroy cached intel or reconfigure
+# the app for everyone. The proxy credential is shared with whoever the owner
+# shares the site with, so it cannot distinguish owner from guest; this can.
+# Unlike the monitor token, an unset value REFUSES these routes rather than
+# opening them — a destructive route must not fall open on a missing env var.
+PLACEINTEL_OWNER_TOKEN = os.getenv("PLACEINTEL_OWNER_TOKEN", "")
+
+
+def _positive_int(raw: str | None, *, default: int) -> int:
+    """A malformed ceiling must not disable the ceiling, and must not crash boot."""
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return default
+    return value if value >= 0 else default
+
+
+# Rolling-24h ceiling on billable scout/shop jobs. Every one of those spends the
+# owner's provider budget, and the site is shared, so an unbounded share is an
+# unbounded bill. 0 disables the cap.
+PLACEINTEL_DAILY_JOB_LIMIT = _positive_int(os.getenv("PLACEINTEL_DAILY_JOB_LIMIT"), default=50)
+
 GOSOM_IMAGE = "gosom/google-maps-scraper"
 
 # Author-local convenience only: if keys aren't in the environment or a project

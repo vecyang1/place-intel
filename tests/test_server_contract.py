@@ -91,9 +91,13 @@ class ServerContractTest(unittest.TestCase):
     def test_language_settings_endpoint_validates_and_persists_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             settings = Path(tmp) / "settings.json"
-            with mock.patch.object(config, "SETTINGS_PATH", settings):
+            with mock.patch.object(config, "SETTINGS_PATH", settings), \
+                 mock.patch.object(config, "PLACEINTEL_OWNER_TOKEN", "owner-token"):
                 client = TestClient(server.app)
-                saved = client.post("/api/settings/language", json={
+                owner = {"X-PlaceIntel-Owner": "owner-token"}
+                # This route is owner-only: a guest must not reconfigure app defaults.
+                guest = client.post("/api/settings/language", json={"make_default": True})
+                saved = client.post("/api/settings/language", headers=owner, json={
                     "default_answer_language": "fr-FR",
                     "default_report_language": "vi",
                     "translation_target": "es",
@@ -101,12 +105,13 @@ class ServerContractTest(unittest.TestCase):
                     "evidence_language": "original",
                     "make_default": True,
                 })
-                invalid = client.post("/api/settings/language", json={
+                invalid = client.post("/api/settings/language", headers=owner, json={
                     "default_answer_language": "../zh",
                     "make_default": True,
                 })
                 status = client.get("/api/config")
 
+        self.assertEqual(guest.status_code, 403)
         self.assertEqual(saved.status_code, 200)
         self.assertTrue(saved.json()["ok"])
         self.assertEqual(invalid.status_code, 400)

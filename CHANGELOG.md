@@ -1,5 +1,36 @@
 # Changelog — place-intel
 
+## v0.4.77 — 2026-08-13 — sharing guards: owner-only routes and a spend ceiling
+
+The site is shared with guests through one proxy credential, which by
+construction cannot tell the owner from a friend. Two guards close the gap that
+authentication alone would not have closed.
+
+- Owner-only routes. `DELETE /api/places/{place_id}`, `POST /api/settings`, and
+  `POST /api/settings/language` now require the `X-PlaceIntel-Owner` header,
+  compared in constant time against `PLACEINTEL_OWNER_TOKEN`. They fail CLOSED:
+  an unset token refuses rather than opens, because a destructive route must not
+  fall open on a missing environment variable. Scout, shop, ask, translate,
+  favorite, and every read stay open to guests — sharing is the point.
+- Rolling-24h job budget. `POST /api/scout` and `POST /api/shop` return `429`
+  past `PLACEINTEL_DAILY_JOB_LIMIT` (default 50, `0` disables). The count comes
+  from the `jobs` table, so it cannot drift from what actually ran and needs no
+  reset job; a malformed limit falls back to the default instead of silently
+  removing the ceiling.
+- The web System panel gained an owner-token field stored in that browser only,
+  so the owner keeps delete/settings while guests simply never set one.
+- Deploy propagates `PLACEINTEL_OWNER_TOKEN` and validates it like the other
+  required secrets. Non-secret owners recorded in the operations runbook.
+- Split `server.py` to honour the project's own <800-line rule (AGENTS.md). It
+  had already crossed at 826 during v0.4.75 and these guards pushed it to 876;
+  it is now 635, with the Sentry wiring in `telemetry.py` and the guards in
+  `guards.py`. Behaviour unchanged — server.py re-exports both, so existing
+  callers and tests are untouched. Also removed two imports the split orphaned
+  and corrected the module docstring, which still claimed "no auth".
+- Note this is authorization, not identity. The SQLite schema still has no owner
+  column, so an app-level login would not by itself have produced per-user
+  permissions — which is why the token guard was the cheaper, and correct, move.
+
 ## v0.4.76 — 2026-08-13 — photo link expiry told honestly, and detected
 
 - Fixed the reported "no source photo" boxes. The cause was NOT rendering: every
