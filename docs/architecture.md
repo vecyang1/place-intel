@@ -41,11 +41,11 @@ flowchart LR
     PIPE --> PLAN["AI planner and relevance filter"]
     PLAN --> DISC["Place discovery"]
     DISC --> GOSOM["gosom scraper in Docker"]
-    DISC -. fallback .-> SERP["SerpAPI"]
+    DISC -. blocked unless permitted .-> SERP["SerpAPI (billable)"]
 
     PIPE --> REV["Review acquisition"]
     REV --> SCRAPER["scraper-pro with Chrome"]
-    REV -. fallback .-> SERP
+    REV -. blocked unless permitted .-> SERP
 
     PIPE --> DB[("placeintel.db")]
     SAVED --> DB
@@ -91,7 +91,9 @@ Allowed stages are `plan`, `search`, `filter`, `reviews`, `embed`, `report`, and
    instead of blocking discovery.
 3. `_discover_multi()` reuses an exact fresh search or calls
    `discover.discover()` for each planned query. The primary discovery path is
-   gosom in Docker; SerpAPI is the fallback.
+   gosom in Docker; SerpAPI is a **permitted-only** fallback (see "Paid path
+   permission" below), so a stopped Docker daemon stops the run rather than
+   billing it.
 4. Live discoveries preserve Google's relevance order. Cache hits may be ranked
    by review volume. `planner.filter_candidates()` explains relevance decisions
    and is also fail-open.
@@ -110,7 +112,8 @@ similar names cannot replace the user's selected place.
 ### Review acquisition and evidence guards
 
 `reviews.fetch_reviews()` prefers the persistent scraper-pro database and Chrome
-scraper, then falls back to SerpAPI. Important evidence rules are structural:
+scraper, then falls back to SerpAPI **only when the paid path is permitted**.
+Important evidence rules are structural:
 
 - Existing mapped scraper-pro rows are reused before launching Chrome.
 - All subprocess DB, log, work, driver, and home paths resolve under writable
@@ -122,6 +125,26 @@ scraper, then falls back to SerpAPI. Important evidence rules are structural:
   reports do not double-count evidence.
 - `reviews.text` remains the scraped original. Translation is a separate display
   cache and never overwrites evidence.
+
+### Paid path permission
+
+Both scraping lanes are free; SerpAPI is billable. `spend.py` is the only module
+that may acquire the SerpAPI key, and it refuses by default: permission resolves
+run-argument > `PLACEINTEL_ALLOW_SERPAPI` > `allow_serpapi` in settings.json >
+blocked. Refusal raises `spend.PaidPathBlocked`, which names the free-path
+failure and the remedy; the CLI reports it as exit 7 / `paid_path_blocked` and
+the web job records the same error instead of a Sentry exception.
+
+The gate sits inside `_discover_serpapi()` and `_fetch_via_serpapi()` — the
+single key-acquiring function in each module — rather than at each caller,
+because reviews reach the paid lane through four separate branches and a guard
+on three of them spends silently on the fourth. `SingleDoorTest` fails the build
+if any other module reads the key.
+
+`force_serpapi` is an explicit request for the paid engine and carries its own
+permission. HTTP requests cannot set the policy: the proxy credential is shared
+with guests, so anything a request could set, a guest could spend.
+`GET /api/config` exposes the resolved policy and its source, read-only.
 
 ### Report generation
 
@@ -185,8 +208,9 @@ incoming archive; otherwise the import fails atomically instead of guessing.
 | `config.py` | Paths, non-secret settings, credential discovery, provider routing, model listing and verified model switching. |
 | `language.py` | Language-tag validation and precedence across CLI, API, reports, Ask, and translation. |
 | `planner.py` | Maps URL parsing, AI plan, candidate filter, and target selection; AI failures degrade open. |
-| `discover.py` | Google Maps place discovery through gosom, with SerpAPI fallback and source-shape normalization. |
-| `reviews.py` | scraper-pro execution/database mapping, review normalization, partial-evidence detection, and SerpAPI review fallback. |
+| `discover.py` | Google Maps place discovery through gosom, with permitted-only SerpAPI fallback and source-shape normalization. |
+| `reviews.py` | scraper-pro execution/database mapping, review normalization, partial-evidence detection, and permitted-only SerpAPI review fallback. |
+| `spend.py` | The only door to the SerpAPI key: paid-path permission resolution, fail-closed refusal, and the non-secret policy status shown by CLI, doctor, and `/api/config`. |
 | `cache.py` | SQLite schema, additive migrations, source upserts, vectors, reports, QA, durable jobs, favorites, and deterministic activity risk. |
 | `embed.py` | Google Embedding document/query vectors, retry, normalization, indexing, and semantic search. |
 | `analyze.py` | Full-review single-pass or map-reduce report reasoning and Markdown rendering. |
@@ -211,7 +235,7 @@ and bounded concurrent writers without introducing a separate database service.
 | --- | --- |
 | `data/placeintel.db` | Canonical application cache: existing place/review/report/job tables plus `saved_import_runs` (digest, opaque source label, adoption receipt), `saved_collections`, `saved_items`, and `saved_memberships`. |
 | `data/scraper_pro_reviews.db` | Persistent upstream scraper evidence and incremental state used before new browser work. |
-| `data/settings.json` | Non-secret user preferences only, including the selected reasoning model and language defaults. |
+| `data/settings.json` | Non-secret user preferences only, including the selected reasoning model, language defaults, and the persisted `allow_serpapi` paid-path choice. |
 | `data/reports/` | Generated Markdown report mirrors. |
 | `data/backups/` | Manifested allow-list backup packages created by `placeintel backup`. |
 
