@@ -1,0 +1,31 @@
+# Core dimensions — merged into EVERY profile. Generally applicable to any place type.
+dimensions:
+  price_intel:
+    title: "价格情报 Price Intelligence"
+    goal: >
+      Extract EVERY price mention from reviews: amounts, currencies, what was bought
+      (lesson fee, rental rate, deposit, hourly/monthly), and when (review date matters —
+      prices drift). Distinguish local vs tourist pricing if reviewers hint at it.
+      Output a negotiation baseline: the price range a prepared customer should expect,
+      and the number above which they are being overcharged.
+  hard_facts:
+    title: "硬信息核实 Hard-Facts Verification"
+    goal: >
+      Cross-check listed metadata against what reviewers actually report: real opening
+      hours vs listed hours, how hard the place is to find, environment and equipment
+      condition, payment methods accepted, language(s) spoken by staff. Flag any
+      contradiction between the listing and reviewer experience.
+  red_flags:
+    title: "红旗预警 Red Flags"
+    goal: >
+      Hunt negative patterns across ALL reviews, especially low-star ones: scams,
+      bait-and-switch, dual pricing for foreigners/tourists, deposit disputes, sudden
+      closures, rude staff incidents, review-bombing or suspicious fake-positive
+      clusters (many same-day 5-star reviews with thin text). Quote the evidence.
+
+output_extras:
+  walk_in_brief: >
+    A 5-line brief the user reads in 30 seconds BEFORE walking in: fair price to anchor
+    on, one thing to ask for, one thing to refuse, best person/time, single biggest risk.
+  verdict: >
+    One sentence: go / go-with-caution / skip, and why.

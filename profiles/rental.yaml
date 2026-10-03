@@ -1,0 +1,18 @@
+# Profile: rentals (instrument rental, motorbike, camera gear, surfboards...)
+dimensions:
+  gear_condition:
+    title: "设备状况 Gear Condition"
+    goal: >
+      What do reviewers say about the actual condition of rented items? Age, maintenance,
+      damage disputes. Note items reviewers specifically praise or warn about.
+  rental_terms:
+    title: "租赁条款 Rental Terms"
+    goal: >
+      Reconstruct real terms from reviews: deposit amount and return reliability,
+      ID/passport held or not, damage-charge incidents, late-return handling,
+      short-term vs long-term rates.
+  availability:
+    title: "可用性 Availability"
+    goal: >
+      Stock reality: do walk-ins get gear, or is reservation needed? Seasonal
+      availability patterns mentioned in reviews.

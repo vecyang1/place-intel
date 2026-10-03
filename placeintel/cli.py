@@ -1,0 +1,1078 @@
+"""placeintel CLI — walk in armed.
+
+  placeintel scout "会安 吉他租赁"            (AI plans the search — any language)
+  placeintel shop "Lazy Gecko Cafe" --near "Hoi An"   (one shop, name or Maps URL)
+  placeintel ask "哪家有耐心的老师?"
+  placeintel plan "<text>"                  (show what the AI would do, no scrape)
+  placeintel report <place_id> / list / history / profiles
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import json
+import logging
+import os
+import signal
+import sys
+import time
+from dataclasses import asdict
+from pathlib import Path
+
+from . import (__version__, backup as backup_mod, cache, config, deploy_smoke, doctor,
+               profiles, spend)
+
+
+class CommandTimeout(Exception):
+    pass
+
+
+class CliUsageError(Exception):
+    pass
+
+
+class AgentArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        raise CliUsageError(message)
+
+
+def _setup_logging(verbose: bool, quiet: bool = False) -> None:
+    level = logging.CRITICAL + 1 if quiet else (logging.DEBUG if verbose else logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    logging.getLogger().setLevel(level)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+
+def _print_event(event: dict) -> None:
+    print(f"  [{event['stage']:<7}] {event['msg']}")
+
+
+def _print_result(result, top_n: int | None = None) -> None:
+    print(f"\n=== {result.query}" + (f" @ {result.location}" if result.location else "")
+          + f" · profile: {result.profile} · mode: {result.mode} ===\n")
+    dropped = {v["place_id"]: v["reason"] for v in result.filtered if not v["relevant"]}
+    print(f"{'#':<3}{'★':<6}{'reviews':<9}name")
+    for i, p in enumerate(result.places, 1):
+        marker = " ◄ deep-dived" if top_n is None or i <= top_n else ""
+        print(f"{i:<3}{p['rating'] or '?':<6}{p['review_count'] or '?':<9}{p['name']}{marker}")
+    for place_id, reason in dropped.items():
+        print(f"   (AI 排除) {place_id[:20]}… — {reason}")
+    for rep in result.reports:
+        print(f"\n{'=' * 70}\n{rep['md']}\n→ saved: {rep['path']}")
+    if result.errors:
+        print("\nWARNINGS:", file=sys.stderr)
+        for err in result.errors:
+            print(f"  - {err}", file=sys.stderr)
+
+
+def _json_payload(command: str, data: dict, ok: bool = True, error: dict | None = None) -> dict:
+    payload = {"ok": ok, "version": __version__, "command": command, "data": data}
+    if error:
+        payload["error"] = error
+    return payload
+
+
+def _print_json(payload: dict) -> None:
+    print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+
+
+def _print_ndjson(payload: dict) -> None:
+    print(json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str))
+
+
+def _add_format_arg(parser: argparse.ArgumentParser, *, ndjson: bool = False) -> None:
+    choices = ["text", "json"] + (["ndjson"] if ndjson else [])
+    parser.add_argument("--format", choices=choices, default=argparse.SUPPRESS,
+                        help="output format (default: text)")
+
+
+def _add_paid_path_args(parser: argparse.ArgumentParser) -> None:
+    """Per-run permission for the billable SerpAPI fallback (default: refuse)."""
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--allow-serpapi", dest="allow_serpapi", action="store_true",
+                       default=None,
+                       help="permit the paid SerpAPI fallback for this run if the "
+                            "free scrapers fail (default: refuse and stop)")
+    group.add_argument("--no-serpapi", dest="allow_serpapi", action="store_false",
+                       help="never touch SerpAPI in this run, overriding any saved "
+                            "setting or environment variable")
+
+
+def _normalize_agent_options(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    global_format = getattr(args, "global_format", None)
+    if (
+        getattr(args, "command", None) in {"saved-import", "saved-inventory"}
+        and global_format == "ndjson"
+    ):
+        parser.error("--format ndjson is not supported by saved-place commands")
+    if not hasattr(args, "format"):
+        args.format = global_format or "text"
+    elif global_format and args.format == "text":
+        args.format = global_format
+    if getattr(args, "force_serpapi", False) and getattr(args, "allow_serpapi", None) is False:
+        # --force-serpapi IS consent to spend; --no-serpapi forbids it. Picking a
+        # winner silently would either spend against an explicit refusal or
+        # ignore an explicit request.
+        parser.error("--force-serpapi and --no-serpapi contradict each other")
+    if getattr(args, "command", None) == "doctor" and global_format:
+        if global_format == "json":
+            args.json = True
+        elif global_format == "ndjson":
+            parser.error("--format ndjson is not supported by doctor")
+    if args.no_color:
+        os.environ["NO_COLOR"] = "1"
+
+
+def _timeout_handler(signum, frame) -> None:
+    raise CommandTimeout
+
+
+@contextlib.contextmanager
+def _command_deadline(seconds: float | None):
+    if seconds is None or seconds <= 0 or not hasattr(signal, "SIGALRM"):
+        yield
+        return
+    old_handler = signal.getsignal(signal.SIGALRM)
+    old_timer = signal.setitimer(signal.ITIMER_REAL, seconds)
+    signal.signal(signal.SIGALRM, _timeout_handler)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, *old_timer)
+        signal.signal(signal.SIGALRM, old_handler)
+
+
+def _timeout_exit(args: argparse.Namespace) -> int:
+    command = getattr(args, "command", "unknown")
+    payload = _json_payload(
+        command,
+        {},
+        ok=False,
+        error={
+            "code": "timeout",
+            "message": f"command timed out after {args.timeout} seconds",
+            "recoverable": True,
+            "next_action": "Retry with a larger --timeout or a narrower command.",
+        },
+    )
+    if getattr(args, "format", "text") == "ndjson":
+        _print_ndjson({"type": "error", **payload})
+    elif getattr(args, "format", "text") == "json" or getattr(args, "json", False):
+        _print_json(payload)
+    else:
+        print(payload["error"]["message"], file=sys.stderr)
+    return 6
+
+
+def _paid_path_blocked_exit(args: argparse.Namespace, exc: Exception) -> int:
+    """A refused paid path is a decision, not a crash.
+
+    Reporting it as internal_error/exit 10 would tell both humans and agents to
+    file a bug and retry, when the correct response is to fix the free lane or
+    grant permission. Distinct code, recoverable=true, remedy in next_action.
+    """
+    command = getattr(args, "command", "unknown")
+    payload = _json_payload(
+        command,
+        {},
+        ok=False,
+        error={
+            "code": "paid_path_blocked",
+            "message": str(exc),
+            "recoverable": True,
+            "next_action": "Restore the free scraper (Docker / vendored scraper-pro), "
+                           "or rerun with --allow-serpapi to permit paid SerpAPI.",
+        },
+    )
+    if getattr(args, "format", "text") == "ndjson":
+        _print_ndjson({"type": "error", **payload})
+    elif getattr(args, "format", "text") == "json" or getattr(args, "json", False):
+        _print_json(payload)
+    else:
+        print(f"停止（未花费任何额度）：{exc}", file=sys.stderr)
+    return 7
+
+
+def _internal_error_exit(args: argparse.Namespace, exc: Exception) -> int:
+    command = getattr(args, "command", "unknown")
+    payload = _json_payload(
+        command,
+        {},
+        ok=False,
+        error={
+            "code": "internal_error",
+            "message": str(exc),
+            "recoverable": False,
+            "next_action": "Inspect logs or rerun with -v; preserve the input and cached data for debugging.",
+        },
+    )
+    if getattr(args, "format", "text") == "ndjson":
+        _print_ndjson({"type": "error", **payload})
+    elif getattr(args, "format", "text") == "json" or getattr(args, "json", False):
+        _print_json(payload)
+    else:
+        print(f"internal error: {exc}", file=sys.stderr)
+    return 10
+
+
+def _ndjson_event_writer(command: str):
+    def write_event(event: dict) -> None:
+        _print_ndjson({"type": "event", "version": __version__, "command": command, **event})
+    return write_event
+
+
+def _result_payload(command: str, result, ok: bool) -> dict:
+    error = None
+    if not ok:
+        message = "; ".join(result.errors) if result.errors else "pipeline finished without reports"
+        error = {
+            "code": "no_reports",
+            "message": message,
+            "recoverable": True,
+            "next_action": "Review data.result.errors, then retry with --refresh or --no-reports.",
+        }
+    return _json_payload(command, {"result": asdict(result)}, ok=ok, error=error)
+
+
+def _print_machine_result(command: str, result, ok: bool, output_format: str) -> None:
+    payload = _result_payload(command, result, ok)
+    if output_format == "ndjson":
+        _print_ndjson({"type": "result", **payload})
+    else:
+        _print_json(payload)
+
+
+CORE_SCHEMAS = {
+    "cli_envelope": {
+        "type": "object",
+        "required": ["ok", "version", "command", "data"],
+        "properties": {
+            "ok": {"type": "boolean"},
+            "version": {"type": "string"},
+            "command": {"type": "string"},
+            "data": {"type": "object"},
+            "error": {
+                "type": "object",
+                "required": ["code", "message", "recoverable", "next_action"],
+            },
+        },
+    },
+    "health": {
+        "type": "object",
+        "required": ["ok", "version", "mode", "checks", "warnings", "errors", "providers"],
+        "properties": {
+            "mode": {"enum": ["cheap", "deep"]},
+            "checks": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": [
+                        "name", "ok", "severity", "latency_ms",
+                        "message", "next_action", "data",
+                    ],
+                },
+            },
+        },
+    },
+    "pipeline_result": {
+        "type": "object",
+        "required": [
+            "query", "location", "profile", "mode", "plan",
+            "places", "filtered", "reports", "errors",
+        ],
+        "properties": {
+            "query": {"type": "string"},
+            "location": {"type": ["string", "null"]},
+            "profile": {"type": "string"},
+            "mode": {"enum": ["discover", "single"]},
+            "plan": {"type": ["object", "null"]},
+            "places": {"type": "array"},
+            "filtered": {"type": "array"},
+            "reports": {"type": "array"},
+            "errors": {"type": "array"},
+        },
+    },
+    "job_event": {
+        "type": "object",
+        "required": ["t", "stage", "msg"],
+        "properties": {
+            "t": {"type": "number"},
+            "stage": {"enum": ["plan", "search", "filter", "reviews", "embed", "report", "done"]},
+            "msg": {"type": "string"},
+            "data": {"type": "object"},
+        },
+    },
+    "ask_result": {
+        "type": "object",
+        "required": ["answer", "cached", "created_at", "model", "provider", "evidence", "report_lang"],
+        "properties": {
+            "cache_scope": {"type": "object"},
+            "evidence_fresh_after": {"type": ["number", "null"]},
+            "evidence": {"type": "array", "items": {"type": "object", "required": ["type"]}},
+            "report_lang": {"type": "string"},
+            "language_source": {"type": "string"},
+        },
+    },
+    "backup_manifest": {
+        "type": "object",
+        "required": ["app", "version", "created_at", "files"],
+        "properties": {
+            "app": {"const": "placeintel"},
+            "version": {"type": "string"},
+            "created_at": {"type": "string"},
+            "files": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["path", "kind", "size", "sha256"],
+                },
+            },
+        },
+    },
+    "deploy_smoke": {
+        "type": "object",
+        "required": ["base_url", "checks", "ok"],
+        "properties": {
+            "base_url": {"type": "string"},
+            "public_url": {"type": ["string", "null"]},
+            "expected_version": {"type": ["string", "null"]},
+            "ok": {"type": "boolean"},
+            "checks": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["name", "ok", "latency_ms", "data"],
+                },
+            },
+        },
+    },
+    "favorite": {
+        "type": "object",
+        "required": ["place_id", "favorite", "refresh_enabled"],
+        "properties": {
+            "place_id": {"type": "string"},
+            "favorite": {"type": "boolean"},
+            "refresh_enabled": {"type": "boolean"},
+            "max_reviews": {"type": "integer"},
+        },
+    },
+}
+
+
+def _cmd_scout(args: argparse.Namespace) -> int:
+    from . import pipeline
+    on_event = _print_event
+    if args.format == "json":
+        on_event = None
+    elif args.format == "ndjson":
+        on_event = _ndjson_event_writer("scout")
+    result = pipeline.scout(
+        query=args.query, location=args.near, profile_name=args.profile,
+        top_n=args.top, max_reviews=args.max_reviews, lang=args.lang,
+        report_lang=args.report_lang, force_serpapi=args.force_serpapi,
+        refresh=args.refresh, skip_reports=args.no_reports,
+        use_ai=not args.no_ai, on_event=on_event,
+        allow_serpapi=args.allow_serpapi,
+    )
+    ok = bool(result.reports or args.no_reports)
+    if args.format != "text":
+        _print_machine_result("scout", result, ok, args.format)
+    else:
+        _print_result(result, top_n=args.top)
+    return 0 if ok else 1
+
+
+def _cmd_shop(args: argparse.Namespace) -> int:
+    from . import pipeline
+    on_event = _print_event
+    if args.format == "json":
+        on_event = None
+    elif args.format == "ndjson":
+        on_event = _ndjson_event_writer("shop")
+    result = pipeline.scout_single(
+        target=args.target, near=args.near, profile_name=args.profile,
+        max_reviews=args.max_reviews, report_lang=args.report_lang,
+        force_serpapi=args.force_serpapi, refresh=args.refresh,
+        on_event=on_event, allow_serpapi=args.allow_serpapi,
+    )
+    ok = bool(result.reports)
+    if args.format != "text":
+        _print_machine_result("shop", result, ok, args.format)
+    else:
+        _print_result(result)
+    return 0 if ok else 1
+
+
+def _cmd_plan(args: argparse.Namespace) -> int:
+    from . import planner
+    plan = planner.make_plan(args.text, args.near)
+    print(json.dumps(plan, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _cmd_history(args: argparse.Namespace) -> int:
+    conn = cache.connect()
+    rows = conn.execute(
+        "SELECT query, location, source, created_at, place_ids_json, verdicts_json FROM searches "
+        "ORDER BY created_at DESC LIMIT 30"
+    ).fetchall()
+    names = {
+        r["place_id"]: r["name"]
+        for r in conn.execute("SELECT place_id, name FROM places").fetchall()
+    }
+    conn.close()
+    if args.format == "json":
+        searches = []
+        for r in rows:
+            place_ids = json.loads(r["place_ids_json"] or "[]")
+            verdicts = json.loads(r["verdicts_json"]) if r["verdicts_json"] else []
+            verdict_by_id = {v["place_id"]: v for v in verdicts if isinstance(v, dict)}
+            searches.append({
+                "query": r["query"],
+                "location": r["location"],
+                "source": r["source"],
+                "created_at": r["created_at"],
+                "place_ids": place_ids,
+                "place_count": len(place_ids),
+                "verdicts": verdicts,
+                "places": [
+                    {
+                        "place_id": pid,
+                        "name": names.get(pid),
+                        "relevant": verdict_by_id.get(pid, {}).get("relevant"),
+                        "reason": verdict_by_id.get(pid, {}).get("reason"),
+                    }
+                    for pid in place_ids
+                ],
+            })
+        _print_json(_json_payload("history", {"searches": searches}))
+        return 0
+    if not rows:
+        print("No searches yet.")
+        return 0
+    for r in rows:
+        when = time.strftime("%m-%d %H:%M", time.localtime(r["created_at"]))
+        n = len(json.loads(r["place_ids_json"] or "[]"))
+        loc = f" @ {r['location']}" if r["location"] else ""
+        print(f"{when}  [{r['source'] or '?':<7}] {r['query']}{loc} → {n} places")
+    return 0
+
+
+def _cmd_ask(args: argparse.Namespace) -> int:
+    from . import pipeline
+    result = pipeline.ask(args.question, place_id=args.place, top_k=args.top_k,
+                          report_lang=args.report_lang, no_cache=args.fresh)
+    if args.place and "place_id" not in result:
+        result = {**result, "place_id": args.place}
+    if args.format == "json":
+        if str(result.get("answer", "")).startswith("Cache is empty"):
+            _print_json(_json_payload(
+                "ask",
+                result,
+                ok=False,
+                error={
+                    "code": "cache_empty",
+                    "message": result.get("answer", "cache is empty"),
+                    "recoverable": True,
+                    "next_action": "Run placeintel scout or shop first, then retry ask.",
+                },
+            ))
+            return 5
+        _print_json(_json_payload("ask", result))
+        return 0
+    if result.get("cached"):
+        when = time.strftime("%m-%d %H:%M", time.localtime(result["created_at"]))
+        print(f"(缓存答案 · 来自 {when} 的相同问题 · --fresh 可强制重新推理)\n")
+    print(result["answer"])
+    return 0
+
+
+def _cmd_report(args: argparse.Namespace) -> int:
+    conn = cache.connect()
+    if args.format == "json":
+        row = cache.latest_report(conn, args.place_id, args.profile)
+        if not row:
+            conn.close()
+            _print_json(_json_payload(
+                "report",
+                {"report": None},
+                ok=False,
+                error={
+                    "code": "not_found",
+                    "message": f"no cached report for {args.place_id}",
+                    "recoverable": True,
+                    "next_action": "Run placeintel report in text mode or scout/shop first.",
+                },
+            ))
+            return 5
+        report = {
+            "id": row["id"],
+            "place_id": row["place_id"],
+            "profile": row["profile"],
+            "model": row["model"],
+            "report_lang": row["report_lang"],
+            "evidence_lang": row["evidence_lang"],
+            "json": json.loads(row["report_json"]),
+            "md": row["report_md"],
+            "review_count": row["review_count"],
+            "created_at": row["created_at"],
+        }
+        conn.close()
+        _print_json(_json_payload("report", {
+            "report": report
+        }))
+        return 0
+    from . import analyze
+    profile = profiles.load_profile(args.profile or "generic")
+    _, md = analyze.analyze_place(
+        conn, args.place_id, profile, args.report_lang,
+        evidence_lang=args.evidence_lang,
+        on_progress=lambda m: print(f"  [report ] {m}", file=sys.stderr))
+    conn.close()
+    print(md)
+    return 0
+
+
+def _cmd_list(args: argparse.Namespace) -> int:
+    conn = cache.connect()
+    rows = conn.execute(
+        """SELECT p.place_id, p.name, p.rating, p.review_count,
+                  COUNT(r.review_id) AS cached, p.address
+           FROM places p LEFT JOIN reviews r ON r.place_id = p.place_id
+           GROUP BY p.place_id ORDER BY p.last_refreshed DESC"""
+    ).fetchall()
+    conn.close()
+    if args.format == "json":
+        _print_json(_json_payload("list", {"places": [dict(r) for r in rows]}))
+        return 0
+    if not rows:
+        print("Cache empty — run: placeintel scout \"<query>\" --near \"<city>\"")
+        return 0
+    print(f"{'cached':<8}{'★':<6}{'listed':<8}{'place_id':<24}name / address")
+    for r in rows:
+        print(f"{r['cached']:<8}{r['rating'] or '?':<6}{r['review_count'] or '?':<8}"
+              f"{r['place_id'][:22]:<24}{r['name']} — {(r['address'] or '')[:50]}")
+    return 0
+
+
+def _cmd_profiles(args: argparse.Namespace) -> int:
+    if args.format == "json":
+        items = []
+        for name in profiles.list_profiles():
+            prof = profiles.load_profile(name)
+            items.append({"name": name, "dimensions": list(prof["dimensions"].keys())})
+        _print_json(_json_payload("profiles", {"profiles": items}))
+        return 0
+    for name in profiles.list_profiles():
+        prof = profiles.load_profile(name)
+        dims = ", ".join(prof["dimensions"].keys())
+        print(f"{name:<12} dimensions: {dims}")
+    return 0
+
+
+def _doctor_payload(report: dict) -> dict:
+    payload = _json_payload("doctor", report, ok=bool(report.get("ok")))
+    if not report.get("ok"):
+        payload["error"] = {
+            "code": "health_failed",
+            "message": "; ".join(report.get("errors") or ["health check failed"]),
+            "recoverable": True,
+            "next_action": "Fix the failed checks, then rerun placeintel doctor --json.",
+        }
+    return payload
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    require = [item.strip() for item in (args.require or "").split(",") if item.strip()]
+    report = doctor.deep_health(require=require) if args.live else doctor.cheap_health(require=require)
+    if args.json:
+        _print_json(_doctor_payload(report))
+    else:
+        status = "OK" if report["ok"] else "FAILED"
+        print(f"placeintel doctor: {status} · {report['version']} · {report['mode']}")
+        for check in report["checks"]:
+            mark = "✓" if check["ok"] else "✗"
+            print(f"  {mark} {check['name']}: {check['message']} ({check['latency_ms']} ms)")
+        for warning in report["warnings"]:
+            print(f"  ! {warning}", file=sys.stderr)
+        for error in report["errors"]:
+            print(f"  ✗ {error}", file=sys.stderr)
+    return 0 if report["ok"] else 2
+
+
+def _cmd_schema(args: argparse.Namespace) -> int:
+    data = {
+        "schemas": CORE_SCHEMAS,
+        "docs": {
+            "api": "docs/API.md",
+            "agent_cli": "docs/agent-cli.md",
+            "operations": "docs/operations.md",
+        },
+    }
+    if args.format == "json":
+        _print_json(_json_payload("schema", data))
+    else:
+        print("Core schemas:")
+        for name in CORE_SCHEMAS:
+            print(f"  - {name}")
+        print("Docs: docs/API.md, docs/agent-cli.md, docs/operations.md")
+    return 0
+
+
+def _cmd_model(args: argparse.Namespace) -> int:
+    if args.name:
+        try:
+            config.set_reason_model(args.name)
+        except Exception as exc:
+            print(f"✗ 模型「{args.name}」冒烟测试失败，未保存：{exc}", file=sys.stderr)
+            return 1
+        print(f"✓ 推理模型已切换并保存: {config.reason_model()}（CLI 与 Web 共用）")
+        return 0
+    current = config.reason_model()
+    print(f"当前推理模型: {current}")
+    if args.list:
+        print("\n该提供商实时可用的模型（来自 /models 端点）:")
+        try:
+            for name in config.list_reason_models():
+                marker = "  ← 当前" if name == current else ""
+                print(f"  {name}{marker}")
+        except Exception as exc:
+            print(f"  (列表获取失败: {exc})", file=sys.stderr)
+            return 1
+    return 0
+
+
+def _cmd_spend(args: argparse.Namespace) -> int:
+    """Show — or persist — permission for the one billable scraping path."""
+    if args.allow or args.block:
+        spend.set_allowed(bool(args.allow))
+    status = spend.policy_status()
+    if args.format == "json":
+        _print_json(_json_payload("spend", status, ok=True))
+        return 0
+    verdict = "允许（会花 SerpAPI 额度）" if status["allowed"] else "拒绝（不会花任何额度）"
+    source = {
+        "run": "本次运行参数", "env": f"环境变量 {status['env_var']}",
+        "settings": f"settings.json 的 {status['setting_key']}",
+        "default": "默认值（fail closed）",
+    }[status["source"]]
+    print(f"SerpAPI 付费兜底: {verdict}")
+    print(f"来源: {source}")
+    print(f"SerpAPI key: {'已配置' if status['key_configured'] else '未配置'}")
+    if not status["allowed"]:
+        print("免费通道失败时会直接停下并说明原因，而不是偷偷改用付费接口。")
+    return 0
+
+
+def _cmd_export(args: argparse.Namespace) -> int:
+    conn = cache.connect()
+    place = cache.get_place(conn, args.place_id)
+    if not place:
+        conn.close()
+        print(f"unknown place_id {args.place_id}", file=sys.stderr)
+        return 1
+    rows = cache.get_reviews(conn, args.place_id)
+    data = {"place": dict(place), "reviews": [dict(r) for r in rows]}
+    conn.close()
+    if args.format == "json":
+        _print_json(_json_payload("export", data))
+    else:
+        print(json.dumps(data, ensure_ascii=False, indent=2, default=str))
+    return 0
+
+
+def _cmd_backup(args: argparse.Namespace) -> int:
+    try:
+        data = backup_mod.create_backup(Path(args.output) if args.output else None)
+    except backup_mod.BackupError as exc:
+        payload = _json_payload(
+            "backup", {}, ok=False,
+            error={
+                "code": exc.code,
+                "message": exc.message,
+                "recoverable": True,
+                "next_action": exc.next_action,
+            },
+        )
+        if args.format == "json":
+            _print_json(payload)
+        else:
+            print(f"backup failed: {exc.message}\nnext: {exc.next_action}", file=sys.stderr)
+        return 1
+    if args.format == "json":
+        _print_json(_json_payload("backup", data))
+    else:
+        print(f"Backup created: {data['backup_dir']}")
+        print(f"Manifest: {data['manifest_path']}")
+    return 0
+
+
+def _cmd_restore(args: argparse.Namespace) -> int:
+    try:
+        data = backup_mod.restore_backup(Path(args.source), yes=args.yes, force=args.force)
+    except backup_mod.BackupError as exc:
+        payload = _json_payload(
+            "restore", {"source": args.source}, ok=False,
+            error={
+                "code": exc.code,
+                "message": exc.message,
+                "recoverable": True,
+                "next_action": exc.next_action,
+            },
+        )
+        if args.format == "json":
+            _print_json(payload)
+        else:
+            print(f"restore failed: {exc.message}\nnext: {exc.next_action}", file=sys.stderr)
+        return 1
+    if args.format == "json":
+        _print_json(_json_payload("restore", data))
+    else:
+        print(f"Restore complete from: {data['manifest_path']}")
+        print(f"Restored files: {data['restored_files']}")
+    return 0
+
+
+def _cmd_deploy_smoke(args: argparse.Namespace) -> int:
+    report = deploy_smoke.run(
+        args.base_url,
+        expected_version=args.expected_version,
+        public_url=args.public_url,
+        timeout=args.timeout,
+    )
+    if args.format == "json":
+        error = None
+        if not report["ok"]:
+            failures = [c.get("error") or c["name"] for c in report["checks"] if not c["ok"]]
+            error = {
+                "code": "deploy_smoke_failed",
+                "message": "; ".join(failures) or "deployment smoke failed",
+                "recoverable": True,
+                "next_action": "Check the deployed commit, service logs, proxy/auth config, and rerun deploy-smoke.",
+            }
+        _print_json(_json_payload("deploy-smoke", report, ok=report["ok"], error=error))
+    else:
+        status = "OK" if report["ok"] else "FAILED"
+        print(f"deploy-smoke: {status} · {args.base_url}")
+        for check in report["checks"]:
+            mark = "✓" if check["ok"] else "✗"
+            detail = check.get("error") or check.get("data", {})
+            print(f"  {mark} {check['name']}: {detail}")
+    return 0 if report["ok"] else 3
+
+
+def _cmd_favorite(args: argparse.Namespace) -> int:
+    conn = cache.connect()
+    try:
+        meta = cache.set_favorite(
+            conn, args.place_id, not args.unset,
+            refresh_enabled=args.refresh_enabled,
+            max_reviews=args.max_reviews,
+        )
+    finally:
+        conn.close()
+    if meta is None:
+        payload = _json_payload(
+            "favorite", {"place_id": args.place_id}, ok=False,
+            error={
+                "code": "not_found",
+                "message": f"unknown place_id {args.place_id}",
+                "recoverable": True,
+                "next_action": "Run placeintel list --format json and choose a cached place_id.",
+            },
+        )
+        if args.format == "json":
+            _print_json(payload)
+        else:
+            print(payload["error"]["message"], file=sys.stderr)
+        return 5
+    if args.format == "json":
+        _print_json(_json_payload("favorite", {"favorite": meta}))
+    else:
+        state = "favorite" if meta["favorite"] else "not favorite"
+        print(f"{args.place_id}: {state}")
+    return 0
+
+
+def _cmd_favorites(args: argparse.Namespace) -> int:
+    conn = cache.connect()
+    try:
+        rows = cache.favorite_places(conn, refresh_enabled=True if args.refresh_enabled else None)
+        data = {"favorites": [dict(row) for row in rows]}
+    finally:
+        conn.close()
+    if args.format == "json":
+        _print_json(_json_payload("favorites", data))
+    else:
+        for item in data["favorites"]:
+            refresh = " · refresh on" if item["refresh_enabled"] else ""
+            print(f"{item['place_id']:<24}{item['name']}{refresh}")
+    return 0
+
+
+def _refresh_final_payload(candidates: list[dict], refreshed: list[dict],
+                           errors: list[dict], dry_run: bool, health: dict) -> dict:
+    return {
+        "dry_run": dry_run,
+        "guardrails": {
+            "max_places": len(candidates),
+            "provider_check": health["ok"],
+            "providers": health["providers"],
+        },
+        "candidates": candidates,
+        "refreshed": refreshed,
+        "errors": errors,
+    }
+
+
+def _cmd_refresh_favorites(args: argparse.Namespace) -> int:
+    from . import pipeline
+    conn = cache.connect()
+    try:
+        candidates = cache.favorite_refresh_candidates(conn, limit=args.max_places)
+    finally:
+        conn.close()
+    health = doctor.cheap_health(require=["google", "vectorengine"])
+    dry_run = not args.run
+    if dry_run or not health["ok"]:
+        data = _refresh_final_payload(candidates, [], [], True, health)
+        ok = bool(health["ok"])
+        if args.format == "ndjson":
+            _print_ndjson({"type": "result", **_json_payload("refresh-favorites", data, ok=ok)})
+        elif args.format == "json":
+            _print_json(_json_payload("refresh-favorites", data, ok=ok))
+        else:
+            print(f"{len(candidates)} favorite refresh candidate(s); run with --run to refresh.")
+        return 0 if ok else 2
+    refreshed, errors = [], []
+    for item in candidates:
+        conn = cache.connect()
+        try:
+            cache.save_search(conn, f"favorite refresh: {item['name']}", None,
+                              [item["place_id"]], "favorite-refresh",
+                              plan={"mode": "single", "target": item["name"], "refresh": True})
+        finally:
+            conn.close()
+        def on_event(event: dict) -> None:
+            if args.format == "ndjson":
+                _print_ndjson({"type": "event", "version": __version__,
+                               "command": "refresh-favorites", **event})
+        try:
+            result = pipeline.scout_single(
+                target=item["name"], profile_name=args.profile,
+                max_reviews=min(int(item["max_reviews"]), args.max_reviews),
+                refresh=True, on_event=on_event,
+            )
+            conn = cache.connect()
+            try:
+                cache.mark_favorite_refreshed(conn, item["place_id"])
+            finally:
+                conn.close()
+            refreshed.append({"place_id": item["place_id"], "name": item["name"],
+                              "reports": len(result.reports), "errors": result.errors})
+        except Exception as exc:  # keep old cache/report data intact
+            errors.append({"place_id": item["place_id"], "name": item["name"],
+                           "message": str(exc)})
+    data = _refresh_final_payload(candidates, refreshed, errors, False, health)
+    ok = not errors
+    if args.format == "ndjson":
+        _print_ndjson({"type": "result", **_json_payload("refresh-favorites", data, ok=ok)})
+    elif args.format == "json":
+        _print_json(_json_payload("refresh-favorites", data, ok=ok))
+    else:
+        print(f"Refreshed {len(refreshed)} favorite(s), {len(errors)} error(s).")
+    return 0 if ok else 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = AgentArgumentParser(prog="placeintel", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("--format", dest="global_format", choices=["text", "json", "ndjson"],
+                        default=None, help="global output format before the subcommand")
+    parser.add_argument("--quiet", action="store_true", help="suppress non-essential stderr logging")
+    parser.add_argument("--no-color", action="store_true", help="disable ANSI color output")
+    parser.add_argument("--timeout", type=float, default=None,
+                        help="overall command timeout in seconds; timeout exits 6")
+    sub = parser.add_subparsers(dest="command", required=True, parser_class=AgentArgumentParser)
+
+    s = sub.add_parser("scout", help="AI-planned: discover places, scrape reviews, intel reports")
+    s.add_argument("query", help="free text in any language — AI decides what to search")
+    s.add_argument("--near", help="city/area, e.g. 'Hoi An, Vietnam' (AI can also extract it)")
+    s.add_argument("--profile", choices=profiles.list_profiles() + [None], default=None,
+                   help="report profile (default: AI-chosen)")
+    s.add_argument("--top", type=int, default=3, help="places to deep-dive (default 3)")
+    s.add_argument("--max-reviews", type=int, default=300)
+    s.add_argument("--lang", default="en", help="scrape language (default: AI-chosen)")
+    s.add_argument("--report-lang", default=None, help="default: language you typed in")
+    s.add_argument("--force-serpapi", action="store_true",
+                   help="skip the free scrapers and buy the results from SerpAPI")
+    _add_paid_path_args(s)
+    s.add_argument("--refresh", action="store_true", help="ignore caches, re-scrape")
+    s.add_argument("--no-reports", action="store_true", help="scrape+cache only")
+    s.add_argument("--no-ai", action="store_true", help="skip AI planning/filtering")
+    _add_format_arg(s, ndjson=True)
+    s.set_defaults(func=_cmd_scout)
+
+    sh = sub.add_parser("shop", help="single-shop mode: name or Google Maps URL → one report")
+    sh.add_argument("target", help="shop name or Google Maps URL")
+    sh.add_argument("--near", help="city/area to disambiguate the name")
+    sh.add_argument("--profile", choices=profiles.list_profiles() + [None], default=None)
+    sh.add_argument("--max-reviews", type=int, default=300)
+    sh.add_argument("--report-lang", default=None)
+    sh.add_argument("--force-serpapi", action="store_true",
+                    help="skip the free scrapers and buy the results from SerpAPI")
+    _add_paid_path_args(sh)
+    sh.add_argument("--refresh", action="store_true")
+    _add_format_arg(sh, ndjson=True)
+    sh.set_defaults(func=_cmd_shop)
+
+    pl = sub.add_parser("plan", help="debug: show the AI's search plan, don't run it")
+    pl.add_argument("text")
+    pl.add_argument("--near")
+    pl.set_defaults(func=_cmd_plan)
+
+    h = sub.add_parser("history", help="past searches")
+    _add_format_arg(h)
+    h.set_defaults(func=_cmd_history)
+
+    a = sub.add_parser("ask", help="RAG question over everything cached")
+    a.add_argument("question")
+    a.add_argument("--place", help="restrict to one place_id")
+    a.add_argument("--top-k", type=int, default=20)
+    a.add_argument("--report-lang", default=None)
+    a.add_argument("--fresh", action="store_true",
+                   help="skip the QA answer cache, always re-reason")
+    _add_format_arg(a)
+    a.set_defaults(func=_cmd_ask)
+
+    r = sub.add_parser("report", help="(re)generate a report from cached reviews")
+    r.add_argument("place_id")
+    r.add_argument("--profile", default=None)
+    r.add_argument("--report-lang", default=None)
+    r.add_argument("--evidence-lang", choices=["report", "original"], default=None,
+                   help="quoted evidence: translated into report language (default) "
+                        "or kept verbatim; global default via PLACEINTEL_EVIDENCE_LANG")
+    _add_format_arg(r)
+    r.set_defaults(func=_cmd_report)
+
+    l = sub.add_parser("list", help="show cached places")
+    _add_format_arg(l)
+    l.set_defaults(func=_cmd_list)
+    pf = sub.add_parser("profiles", help="show report profiles")
+    _add_format_arg(pf)
+    pf.set_defaults(func=_cmd_profiles)
+
+    d = sub.add_parser("doctor", help="cheap local readiness checks for humans and agents")
+    d.add_argument("--json", action="store_true", help="print one machine-readable JSON document")
+    d.add_argument("--live", action="store_true",
+                   help="run opt-in deep diagnostics that may call providers or local tools")
+    d.add_argument("--require", default="",
+                   help="comma-separated required checks, e.g. db,data_dir,google,vectorengine")
+    d.set_defaults(func=_cmd_doctor)
+
+    sp = sub.add_parser("spend", help="show / persist permission for the paid SerpAPI fallback")
+    sp_group = sp.add_mutually_exclusive_group()
+    sp_group.add_argument("--allow", action="store_true",
+                          help="persist: let scrapes fall back to paid SerpAPI")
+    sp_group.add_argument("--block", action="store_true",
+                          help="persist: never fall back to paid SerpAPI (default)")
+    _add_format_arg(sp)
+    sp.set_defaults(func=_cmd_spend)
+
+    sc = sub.add_parser("schema", help="print core CLI/API schema references")
+    _add_format_arg(sc)
+    sc.set_defaults(func=_cmd_schema)
+
+    m = sub.add_parser("model", help="show / switch the reasoning model (persisted, shared with web)")
+    m.add_argument("name", nargs="?", help="model to switch to (smoke-tested before saving)")
+    m.add_argument("--list", action="store_true", help="list models LIVE from the provider")
+    m.set_defaults(func=_cmd_model)
+
+    e = sub.add_parser("export", help="dump a place + reviews as JSON")
+    e.add_argument("place_id")
+    _add_format_arg(e)
+    e.set_defaults(func=_cmd_export)
+
+    b = sub.add_parser("backup", help="create a local non-secret cache backup")
+    b.add_argument("--output", "--dir", dest="output",
+                   help="backup directory (default: data/backups/placeintel-backup-UTC)")
+    _add_format_arg(b)
+    b.set_defaults(func=_cmd_backup)
+
+    rs = sub.add_parser("restore", help="restore a placeintel backup (requires --yes)")
+    rs.add_argument("source", help="backup manifest.json or backup directory")
+    rs.add_argument("--yes", action="store_true", help="confirm replacing local runtime data")
+    rs.add_argument("--force", action="store_true",
+                    help="allow restore from outside the configured data/backups directory")
+    _add_format_arg(rs)
+    rs.set_defaults(func=_cmd_restore)
+
+    ds = sub.add_parser("deploy-smoke", help="read-only smoke check for a running deployment")
+    ds.add_argument("--base-url", default="http://127.0.0.1:9618",
+                    help="authenticated or loopback service URL")
+    ds.add_argument("--public-url", help="optional public URL that should reject unauthenticated access")
+    ds.add_argument("--expected-version", help="require /api/meta and static asset version to match")
+    ds.add_argument("--timeout", type=float, default=5.0)
+    _add_format_arg(ds)
+    ds.set_defaults(func=_cmd_deploy_smoke)
+
+    fv = sub.add_parser("favorite", help="mark or unmark a cached place as a favorite")
+    fv.add_argument("place_id")
+    fv.add_argument("--unset", action="store_true", help="remove favorite state")
+    fv.add_argument("--refresh-enabled", action="store_true", default=None,
+                    help="opt this favorite into manual/scheduled refresh candidates")
+    fv.add_argument("--max-reviews", type=int, default=None,
+                    help="per-refresh review cap for this favorite")
+    _add_format_arg(fv)
+    fv.set_defaults(func=_cmd_favorite)
+
+    fvs = sub.add_parser("favorites", help="list favorite cached places")
+    fvs.add_argument("--refresh-enabled", action="store_true",
+                     help="list only favorites opted into refresh")
+    _add_format_arg(fvs)
+    fvs.set_defaults(func=_cmd_favorites)
+
+    rf = sub.add_parser("refresh-favorites", help="dry-run or manually refresh opt-in favorites")
+    rf.add_argument("--run", action="store_true", help="perform refresh; default is dry-run")
+    rf.add_argument("--dry-run", action="store_true", help="show candidates without refreshing")
+    rf.add_argument("--max-places", type=int, default=5)
+    rf.add_argument("--max-reviews", type=int, default=300)
+    rf.add_argument("--profile", choices=profiles.list_profiles() + [None], default=None)
+    _add_format_arg(rf, ndjson=True)
+    rf.set_defaults(func=_cmd_refresh_favorites)
+
+    from . import saved_cli
+    saved_cli.register(
+        sub,
+        add_format_arg=_add_format_arg,
+        json_payload=_json_payload,
+        print_json=_print_json,
+    )
+
+    try:
+        args = parser.parse_args(argv)
+        _normalize_agent_options(parser, args)
+    except CliUsageError as exc:
+        print(f"usage error: {exc}", file=sys.stderr)
+        return 1
+    _setup_logging(args.verbose, args.quiet)
+    config.ensure_dirs()
+    try:
+        with _command_deadline(args.timeout):
+            return args.func(args)
+    except CommandTimeout:
+        return _timeout_exit(args)
+    except spend.PaidPathBlocked as exc:
+        return _paid_path_blocked_exit(args, exc)
+    except Exception as exc:
+        return _internal_error_exit(args, exc)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

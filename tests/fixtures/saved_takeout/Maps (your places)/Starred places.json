@@ -1,0 +1,14 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [108.224, 16.0678]},
+      "properties": {
+        "date": "2026-06-30T12:00:00Z",
+        "google_maps_url": "https://www.google.com/maps/place/River+Cafe",
+        "location": [{"name": "River Café", "address": "Đà Nẵng", "country_code": "VN"}]
+      }
+    }
+  ]
+}

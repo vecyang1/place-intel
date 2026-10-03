@@ -1,0 +1,187 @@
+name: Deploy private VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: placeintel-private-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    # The public place-intel mirror is code-only and intentionally has no VPS/API
+    # secrets. Real deploys run from the private gmr repo.
+    if: github.repository == 'vecyang1/gmr'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Validate required secrets
+        env:
+          PLACEINTEL_DEPLOY_HOST: ${{ secrets.PLACEINTEL_DEPLOY_HOST || secrets.GMR_DEPLOY_HOST }}
+          PLACEINTEL_DEPLOY_USER: ${{ secrets.PLACEINTEL_DEPLOY_USER || secrets.GMR_DEPLOY_USER }}
+          PLACEINTEL_DEPLOY_SSH_KEY: ${{ secrets.PLACEINTEL_DEPLOY_SSH_KEY || secrets.GMR_DEPLOY_SSH_KEY }}
+          PLACEINTEL_DEPLOY_DIR: ${{ secrets.PLACEINTEL_DEPLOY_DIR || secrets.GMR_DEPLOY_DIR }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+          PLACEINTEL_MONITOR_TOKEN: ${{ secrets.PLACEINTEL_MONITOR_TOKEN }}
+          PLACEINTEL_OWNER_TOKEN: ${{ secrets.PLACEINTEL_OWNER_TOKEN }}
+        run: |
+          set -euo pipefail
+          for name in PLACEINTEL_DEPLOY_HOST PLACEINTEL_DEPLOY_USER PLACEINTEL_DEPLOY_SSH_KEY PLACEINTEL_DEPLOY_DIR GOOGLE_API_KEY VECTORENGINE_API_KEY PLACEINTEL_MONITOR_TOKEN PLACEINTEL_OWNER_TOKEN; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required secret: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Run local verification gate
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+          PLACEINTEL_REASON_MODEL: ${{ secrets.PLACEINTEL_REASON_MODEL }}
+        run: |
+          set -euo pipefail
+          python3 -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -e ".[web]"
+          python -m unittest discover -s tests -p 'test_*.py' -v
+          npm ci
+          npx playwright install --with-deps chromium
+          PLACEINTEL_PORT=9618 placeintel-web > /tmp/placeintel-web.log 2>&1 &
+          web_pid=$!
+          cleanup() {
+            kill "$web_pid" >/dev/null 2>&1 || true
+            cat /tmp/placeintel-web.log
+          }
+          trap cleanup EXIT
+          for _ in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:9618/api/meta; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:9618/api/meta
+          placeintel deploy-smoke \
+            --base-url "http://127.0.0.1:9618" \
+            --expected-version "$(python -c 'import placeintel; print(placeintel.__version__)')" \
+            --format json
+          npm run test:web
+
+      - name: Configure SSH
+        env:
+          PLACEINTEL_DEPLOY_HOST: ${{ secrets.PLACEINTEL_DEPLOY_HOST || secrets.GMR_DEPLOY_HOST }}
+          PLACEINTEL_DEPLOY_PORT: ${{ secrets.PLACEINTEL_DEPLOY_PORT || secrets.GMR_DEPLOY_PORT }}
+          PLACEINTEL_DEPLOY_SSH_KEY: ${{ secrets.PLACEINTEL_DEPLOY_SSH_KEY || secrets.GMR_DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          port="${PLACEINTEL_DEPLOY_PORT:-22}"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$PLACEINTEL_DEPLOY_SSH_KEY" > ~/.ssh/placeintel_deploy_key
+          chmod 600 ~/.ssh/placeintel_deploy_key
+          ssh-keyscan -p "$port" -t rsa,ecdsa,ed25519 "$PLACEINTEL_DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Write deployment env file
+        env:
+          PLACEINTEL_DEPLOY_DIR: ${{ secrets.PLACEINTEL_DEPLOY_DIR || secrets.GMR_DEPLOY_DIR }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          VECTORENGINE_API_KEY: ${{ secrets.VECTORENGINE_API_KEY }}
+          SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+          PLACEINTEL_REASON_MODEL: ${{ secrets.PLACEINTEL_REASON_MODEL }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          PLACEINTEL_MONITOR_TOKEN: ${{ secrets.PLACEINTEL_MONITOR_TOKEN }}
+          PLACEINTEL_OWNER_TOKEN: ${{ secrets.PLACEINTEL_OWNER_TOKEN }}
+          PLACEINTEL_ALLOW_SERPAPI: ${{ vars.PLACEINTEL_ALLOW_SERPAPI }}
+          PLACEINTEL_RESIDENTIAL_PROXY_URL: ${{ secrets.PLACEINTEL_RESIDENTIAL_PROXY_URL }}
+          PLACEINTEL_MAX_CONCURRENT_SCRAPES: ${{ vars.PLACEINTEL_MAX_CONCURRENT_SCRAPES }}
+        run: |
+          set -euo pipefail
+          reason_model="${PLACEINTEL_REASON_MODEL:-gemini-2.5-flash}"
+          {
+            printf 'GOOGLE_API_KEY=%s\n' "$GOOGLE_API_KEY"
+            printf 'VECTORENGINE_API_KEY=%s\n' "$VECTORENGINE_API_KEY"
+            printf 'SERPAPI_API_KEY=%s\n' "${SERPAPI_API_KEY:-}"
+            printf 'PLACEINTEL_REASON_MODEL=%s\n' "$reason_model"
+            printf 'PLACEINTEL_DATA_DIR=%s/app/data\n' "$PLACEINTEL_DEPLOY_DIR"
+            printf 'SENTRY_DSN=%s\n' "${SENTRY_DSN:-}"
+            printf 'SENTRY_ENVIRONMENT=%s\n' "production"
+            printf 'PLACEINTEL_MONITOR_TOKEN=%s\n' "$PLACEINTEL_MONITOR_TOKEN"
+            printf 'PLACEINTEL_OWNER_TOKEN=%s\n' "$PLACEINTEL_OWNER_TOKEN"
+            # Paid-fallback permission, pinned by the deploy rather than left to
+            # whatever settings.json happens to hold on the box. The VPS has the
+            # full free lane (Docker + gosom image + vendored scraper + Chrome),
+            # so a free-path failure there is a fault to fix, not a bill to pay.
+            printf 'PLACEINTEL_ALLOW_SERPAPI=%s\n' "${PLACEINTEL_ALLOW_SERPAPI:-0}"
+            # Residential egress for the review scraper. Optional: unset means
+            # the proxy fallback stays off, which is the honest state — before
+            # this line the box had no proxy source at all, so the code path
+            # added in 98b14ac could never fire there.
+            printf 'PLACEINTEL_RESIDENTIAL_PROXY_URL=%s\n' "${PLACEINTEL_RESIDENTIAL_PROXY_URL:-}"
+            # Concurrent headless-Chrome trees. Each is ~13 processes and
+            # ~1 GB RSS, so this is a memory budget, not a throughput dial.
+            printf 'PLACEINTEL_MAX_CONCURRENT_SCRAPES=%s\n' "${PLACEINTEL_MAX_CONCURRENT_SCRAPES:-3}"
+          } > .deploy.env
+          chmod 600 .deploy.env
+
+      - name: Sync app to VPS
+        env:
+          PLACEINTEL_DEPLOY_HOST: ${{ secrets.PLACEINTEL_DEPLOY_HOST || secrets.GMR_DEPLOY_HOST }}
+          PLACEINTEL_DEPLOY_USER: ${{ secrets.PLACEINTEL_DEPLOY_USER || secrets.GMR_DEPLOY_USER }}
+          PLACEINTEL_DEPLOY_PORT: ${{ secrets.PLACEINTEL_DEPLOY_PORT || secrets.GMR_DEPLOY_PORT }}
+          PLACEINTEL_DEPLOY_DIR: ${{ secrets.PLACEINTEL_DEPLOY_DIR || secrets.GMR_DEPLOY_DIR }}
+        run: |
+          set -euo pipefail
+          port="${PLACEINTEL_DEPLOY_PORT:-22}"
+          remote="$PLACEINTEL_DEPLOY_USER@$PLACEINTEL_DEPLOY_HOST"
+          keyfile="$HOME/.ssh/placeintel_deploy_key"
+          ssh_opts=(-i "$keyfile" -p "$port" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20)
+          scp_opts=(-i "$keyfile" -P "$port" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20)
+          ssh "${ssh_opts[@]}" "$remote" "mkdir -p '$PLACEINTEL_DEPLOY_DIR/app'"
+          rsync -az --delete \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='.venv/' \
+            --exclude='data/' \
+            --exclude='vendor/' \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            -e "ssh -i '$keyfile' -p $port -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20" \
+            ./ "$remote:$PLACEINTEL_DEPLOY_DIR/app/"
+          scp "${scp_opts[@]}" .deploy.env "$remote:$PLACEINTEL_DEPLOY_DIR/app/.env"
+
+      - name: Bootstrap and restart service
+        env:
+          PLACEINTEL_DEPLOY_HOST: ${{ secrets.PLACEINTEL_DEPLOY_HOST || secrets.GMR_DEPLOY_HOST }}
+          PLACEINTEL_DEPLOY_USER: ${{ secrets.PLACEINTEL_DEPLOY_USER || secrets.GMR_DEPLOY_USER }}
+          PLACEINTEL_DEPLOY_PORT: ${{ secrets.PLACEINTEL_DEPLOY_PORT || secrets.GMR_DEPLOY_PORT }}
+          PLACEINTEL_DEPLOY_DIR: ${{ secrets.PLACEINTEL_DEPLOY_DIR || secrets.GMR_DEPLOY_DIR }}
+        run: |
+          set -euo pipefail
+          port="${PLACEINTEL_DEPLOY_PORT:-22}"
+          remote="$PLACEINTEL_DEPLOY_USER@$PLACEINTEL_DEPLOY_HOST"
+          ssh -i "$HOME/.ssh/placeintel_deploy_key" -p "$port" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 "$remote" \
+            "PLACEINTEL_DEPLOY_DIR='$PLACEINTEL_DEPLOY_DIR' bash '$PLACEINTEL_DEPLOY_DIR/app/deploy/remote-bootstrap.sh'"
+
+      - name: Verify deployment smoke through SSH
+        env:
+          PLACEINTEL_DEPLOY_HOST: ${{ secrets.PLACEINTEL_DEPLOY_HOST || secrets.GMR_DEPLOY_HOST }}
+          PLACEINTEL_DEPLOY_USER: ${{ secrets.PLACEINTEL_DEPLOY_USER || secrets.GMR_DEPLOY_USER }}
+          PLACEINTEL_DEPLOY_PORT: ${{ secrets.PLACEINTEL_DEPLOY_PORT || secrets.GMR_DEPLOY_PORT }}
+          PLACEINTEL_DEPLOY_DIR: ${{ secrets.PLACEINTEL_DEPLOY_DIR || secrets.GMR_DEPLOY_DIR }}
+          PLACEINTEL_PUBLIC_URL: ${{ secrets.PLACEINTEL_PUBLIC_URL || secrets.GMR_PUBLIC_URL }}
+        run: |
+          set -euo pipefail
+          port="${PLACEINTEL_DEPLOY_PORT:-22}"
+          remote="$PLACEINTEL_DEPLOY_USER@$PLACEINTEL_DEPLOY_HOST"
+          expected_version="$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          public_arg=""
+          if [ -n "${PLACEINTEL_PUBLIC_URL:-}" ]; then
+            public_arg=" --public-url '$PLACEINTEL_PUBLIC_URL'"
+          fi
+          ssh -i "$HOME/.ssh/placeintel_deploy_key" -p "$port" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 "$remote" \
+            "cd '$PLACEINTEL_DEPLOY_DIR/app' && .venv/bin/placeintel deploy-smoke --base-url http://127.0.0.1:9618 --expected-version '$expected_version' --format json$public_arg"

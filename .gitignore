@@ -1,0 +1,50 @@
+# Secrets — never commit
+.env
+.env.*
+
+# Generated / local data (SQLite caches, scraped reviews, reports, logs, settings)
+data/
+output/
+node_modules/
+[Tt]akeout/
+[Tt]akeout-*.zip
+private-imports/
+
+# Playwright / test output
+test-results/
+playwright-report/
+
+# Vendored third-party scraper — cloned at setup time (see README)
+vendor/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+
+# OS / editor
+.DS_Store
+*.baiduyun.uploading.cfg
+
+# Private files & local state
+.pytest_cache/
+graphify-out/
+VAULT.md
+decisions.md
+progress.md
+task_plan.md
+handoff.md
+CLAUDE.md
+GEMINI.md
+CODEX.md
+PROJECT_LINKS.md
+FILE_MAP_INDEX.md
+PRINCIPLES.md
+MEMORY.md
+.planning/
+.specify/
+.agent/
+.claude/

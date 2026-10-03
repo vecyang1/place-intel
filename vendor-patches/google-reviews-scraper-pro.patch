@@ -1,0 +1,2848 @@
+# Vendored scraper patch for place-intel.
+# Cut against upstream: 09bfa62 release v1.2.3
+# Base commit: 09bfa6215cb37edecc777bb40055d100e88ef767
+# Regenerate with: scripts/sync-vendor-patch.sh
+#
+diff --git a/modules/date_converter.py b/modules/date_converter.py
+index fa10f05..3cd6179 100644
+--- a/modules/date_converter.py
++++ b/modules/date_converter.py
+@@ -160,14 +160,34 @@ def try_parse_date(date_str: str, lang: str, now: datetime) -> str:
+     parsed = False
+ 
+     if lang.lower() == "en":
++        # "just now" / "a moment ago" carry no number or unit at all.
++        if re.fullmatch(r"\s*(just now|now|a moment ago|moments ago)\s*",
++                        date_str, re.IGNORECASE):
++            return (now - timedelta(0)).isoformat()
+         # Pattern: capture number or "a"/"an", then unit.
+-        pattern = re.compile(r'(?P<num>a|an|\d+)\s+(?P<unit>day|week|month|year)s?\s+ago', re.IGNORECASE)
++        #
++        # second/minute/hour were absent until 2026-08-31 although this module's
++        # own docstring listed "an hour ago" as supported. Everything younger
++        # than a day therefore converted to None, i.e. the NEWEST reviews on any
++        # page had no date — and a consumer sorting on `review_date or ""`
++        # descending puts those last and truncates them first. Measured on a live
++        # place: the single "2 hours ago" review was the only one of 85 with no
++        # date.
++        pattern = re.compile(
++            r'(?P<num>a|an|\d+)\s+(?P<unit>second|minute|hour|day|week|month|year)s?\s+ago',
++            re.IGNORECASE)
+         m = pattern.search(date_str)
+         if m:
+             num_str = m.group("num").lower()
+             num = 1 if num_str in ("a", "an") else int(num_str)
+             unit = m.group("unit").lower()
+-            if unit == "day":
++            if unit == "second":
++                delta = timedelta(seconds=num)
++            elif unit == "minute":
++                delta = timedelta(minutes=num)
++            elif unit == "hour":
++                delta = timedelta(hours=num)
++            elif unit == "day":
+                 delta = timedelta(days=num)
+             elif unit == "week":
+                 delta = timedelta(weeks=num)
+diff --git a/modules/dom_batch.py b/modules/dom_batch.py
+new file mode 100644
+index 0000000..24d383f
+--- /dev/null
++++ b/modules/dom_batch.py
+@@ -0,0 +1,549 @@
++"""
++Batched DOM reads for the review scroll loop.
++
++Why this module exists
++----------------------
++``RawReview.from_card`` used 25-30 individual Selenium round trips per review,
++and the dedup rescan in ``scraper.py`` re-read ``data-review-id`` off *every*
++card in the DOM on *every* scroll iteration (O(n^2)).  Selenium 4.44 implements
++``WebElement.get_attribute`` as an ``execute_script`` that ships a 4754-byte JS
++atom per call, so both loops were paying a full WebDriver round trip per field.
++
++The scripts here do the same DOM reads in one ``execute_script`` per scroll
++iteration instead of thousands.  They deliberately return **raw DOM strings**,
++not finished fields: all parsing (dates, language, sub-rating canonicalisation)
++stays in Python so there is exactly one parser.  See ``RawReview.from_payload``.
++
++Equivalence guarantees
++----------------------
++* ``review_id`` — ``card.getAttribute('data-review-id')`` is literally the DOM
++  call Selenium's ``getAttribute.js`` atom makes for a hyphenated data-attribute
++  (atom branch 7: ``element['data-review-id']`` is ``undefined``, so the atom
++  falls through to ``getAttribute``).  Byte-identity holds by construction.
++* ``JS_GET_ATTRIBUTE`` is a transcription of
++  ``selenium/webdriver/remote/getAttribute.js`` (4754 bytes, selenium 4.44.0),
++  including the ``style`` -> ``cssText`` and ``IMG.src`` -> resolved-URL
++  branches that a naive ``getAttribute`` call would get wrong.
++* ``JS_VISIBLE_TEXT`` reproduces ChromeDriver's ``Get Element Text`` (what
++  ``WebElement.text`` returns).  That is *not* ``innerText``; it differs on
++  non-rendered elements, zero-width characters, ``<p>`` spacing, table cells
++  and NBSP.  The implementation here was derived by measurement and graded
++  element-by-element against ``WebElement.text``; see the parity harness.
++
++Every script is best-effort: the wrappers return ``None`` on any WebDriver
++error so the caller can fall back to the per-card Selenium path.
++"""
++
++from __future__ import annotations
++
++import json
++import logging
++from typing import Any, Dict, List, Optional
++
++from selenium.common.exceptions import WebDriverException
++
++from modules.models import RawReview
++
++log = logging.getLogger("scraper")
++
++# The card selector. Mirrors scraper.CARD_SEL; duplicated here rather than
++# imported to avoid a circular import (scraper imports this module).
++CARD_SEL = "div[data-review-id]"
++
++# Fallback chain used by the id scan, mirroring scraper.py's three-step
++# `cards = ...` lookup so the batched scan sees exactly the same card set.
++CARD_SEL_FALLBACK = "div.jJc9Ad, div[data-review-id], div.GHT2ce"
++
++# Selector used to detect an in-flight load. `[role="progressbar"]` is the only
++# probe justified by the ARIA contract; Google's concrete spinner class is not
++# known here. A false 0 is safe: `busy` can only ever *block* an early exit.
++BUSY_SEL = 'div[role="main"] [role="progressbar"]'
++
++
++# --------------------------------------------------------------------------
++# Shared JS helpers
++# --------------------------------------------------------------------------
++
++# Faithful transcription of selenium/webdriver/remote/getAttribute.js so that
++# batched attribute reads return the same string Selenium would have returned.
++JS_GET_ATTRIBUTE = r"""
++var PROPERTY_ALIASES = { 'readonly': 'readOnly' };
++var BOOLEAN_PROPERTIES = ['allowfullscreen','allowpaymentrequest','allowusermedia',
++  'async','autofocus','autoplay','checked','compact','complete','controls','declare',
++  'default','defaultchecked','defaultselected','defer','disabled','ended',
++  'formnovalidate','hidden','indeterminate','iscontenteditable','ismap','itemscope',
++  'loop','multiple','muted','nohref','nomodule','noresize','noshade','novalidate',
++  'nowrap','open','paused','playsinline','pubdate','readonly','required','reversed',
++  'scoped','seamless','seeking','selected','truespeed','typemustmatch','willvalidate'];
++
++function rawAttr(el, name) { return el.getAttribute(name.toLowerCase()); }
++function rawProp(el, name) { return el[name]; }
++
++function isTag(node, tagName) {
++  if (!node || node.nodeType !== 1) return false;
++  if (!tagName) return true;
++  return typeof node.tagName === 'string' &&
++         node.tagName.toUpperCase() === tagName.toUpperCase();
++}
++function isSelectable(el) {
++  if (isTag(el, 'OPTION')) return true;
++  if (isTag(el, 'INPUT')) {
++    var t = String(el.type || '').toLowerCase();
++    return t === 'checkbox' || t === 'radio';
++  }
++  return false;
++}
++function isSelectedEl(el) {
++  if (isTag(el, 'OPTION')) return el.selected;
++  var t = el.type ? String(el.type).toLowerCase() : undefined;
++  if (t === 'checkbox' || t === 'radio') return el.checked;
++  return false;
++}
++function isObj(v) {
++  return v !== null && (typeof v === 'object' || typeof v === 'function');
++}
++
++function gattr(element, attribute) {
++  var name = attribute.toLowerCase();
++  if (name === 'style') {
++    var style = element.style;
++    if (!style) return null;
++    return (typeof style === 'string') ? style : style.cssText;
++  }
++  if ((name === 'selected' || name === 'checked') && isSelectable(element)) {
++    return isSelectedEl(element) ? 'true' : null;
++  }
++  var isLink = isTag(element, 'A');
++  var isImg = isTag(element, 'IMG');
++  if ((isImg && name === 'src') || (isLink && name === 'href')) {
++    var av = rawAttr(element, name);
++    if (av) return String(rawProp(element, name));
++    return av;
++  }
++  if (name === 'spellcheck') {
++    var sv = rawAttr(element, name);
++    if (sv !== null) {
++      var lower = sv.toLowerCase();
++      if (lower === 'false') return 'false';
++      if (lower === 'true') return 'true';
++    }
++    return String(rawProp(element, name));
++  }
++  var propName = PROPERTY_ALIASES[attribute] || attribute;
++  if (BOOLEAN_PROPERTIES.indexOf(name) !== -1) {
++    var hasAttr = rawAttr(element, attribute) !== null;
++    var pv = rawProp(element, propName);
++    return (hasAttr || !!pv) ? 'true' : null;
++  }
++  if (name === 'value' && isTag(element, 'LI')) {
++    var lv = rawAttr(element, attribute);
++    return lv != null ? lv : null;
++  }
++  var property;
++  try { property = rawProp(element, propName); } catch (e) { property = undefined; }
++  if (property == null || isObj(property)) {
++    var fv = rawAttr(element, attribute);
++    return fv != null ? fv : null;
++  }
++  return property != null ? String(property) : null;
++}
++"""
++
++# Reproduction of ChromeDriver's "Get Element Text" (WebElement.text).
++# Derived by measurement, not from ChromeDriver source (the atom is not
++# recoverable from the shipped binary). Graded element-by-element against
++# WebElement.text over the review DOM plus adversarial probes.
++JS_VISIBLE_TEXT = r"""
++var VT_INLINE_BOXES = {
++  'inline': 1, 'inline-block': 1, 'inline-table': 1, 'none': 1,
++  'table-cell': 1, 'table-column': 1, 'table-column-group': 1
++};
++var VT_ZERO_WIDTH = /[\u200b\u200e\u200f]/g;  /* ZWSP, LRM, RLM — ChromeDriver drops these */
++var VT_TRIM_R = /[ \t\n\r\f]+$/;
++var VT_TRIM_L = /^[ \t\n\r\f]+/;
++
++function vtDisplayedChain(el) {
++  for (var n = el; n && n.nodeType === 1; n = n.parentElement) {
++    var s;
++    try { s = window.getComputedStyle(n); } catch (e) { return false; }
++    if (!s || s.display === 'none') return false;
++  }
++  return true;
++}
++
++/* Equivalent of Selenium's WebElement.text for `root`. */
++function vtext(root) {
++  var lines = [], pres = [];
++
++  function push(isPre) { lines.push(''); pres.push(!!isPre); }
++  function cur() { return lines.length ? lines[lines.length - 1] : ''; }
++  function blank(s) { return !/\S/.test(s); }
++
++  function appendText(node, cs) {
++    var t = node.nodeValue;
++    if (t == null || t === '') return;
++    var ws = cs ? cs.whiteSpace : 'normal';
++    var pre = (ws === 'pre' || ws === 'pre-wrap' || ws === 'break-spaces');
++    var preLine = (ws === 'pre-line');
++    if (preLine) t = t.replace(/[ \t\r\f]+/g, ' ');
++    else if (!pre) t = t.replace(/[ \n\t\r\f]+/g, ' ');
++    var tt = cs ? cs.textTransform : 'none';
++    if (tt === 'uppercase') t = t.toUpperCase();
++    else if (tt === 'lowercase') t = t.toLowerCase();
++    else if (tt === 'capitalize') {
++      t = t.replace(/(^|[\s\u00a0])(\S)/g, function (m, a, b) { return a + b.toUpperCase(); });
++    }
++    t = t.replace(VT_ZERO_WIDTH, '');
++    if (t === '') return;
++    if (!lines.length) push(false);
++    var parts = (pre || preLine) ? t.split('\n') : [t];
++    for (var i = 0; i < parts.length; i++) {
++      if (i > 0) push(pre || preLine);
++      var seg = parts[i];
++      var c = lines[lines.length - 1];
++      if (!pre && seg.charAt(0) === ' ' && (c === '' || c.charAt(c.length - 1) === ' ')) {
++        seg = seg.slice(1);
++      }
++      if (seg === '' && !(pre || preLine)) continue;
++      lines[lines.length - 1] = c + seg;
++      if (pre || preLine) pres[pres.length - 1] = true;
++    }
++  }
++
++  function walk(el, displayed) {
++    var tag = el.tagName ? el.tagName.toUpperCase() : '';
++    if (tag === 'BR') { push(false); return; }
++    var cs = null;
++    try { cs = window.getComputedStyle(el); } catch (e) { cs = null; }
++    var display = cs ? cs.display : 'block';
++    var here = displayed && display !== 'none';
++    var visible = here && (!cs || cs.visibility === 'visible');
++    var isCell = (tag === 'TD' || tag === 'TH');
++    var isBlock = !isCell && !VT_INLINE_BOXES[display];
++    if (isBlock && !blank(cur())) push(false);
++    if (isCell) {
++      var c0 = cur();
++      if (c0 !== '' && c0.charAt(c0.length - 1) !== ' ') lines[lines.length - 1] = c0 + ' ';
++    }
++    var kids = el.childNodes;
++    for (var i = 0; i < kids.length; i++) {
++      var n = kids[i];
++      if (n.nodeType === 3) { if (visible) appendText(n, cs); }
++      else if (n.nodeType === 1) walk(n, here);
++    }
++    if (isBlock && !blank(cur())) push(false);
++  }
++
++  walk(root, vtDisplayedChain(root));
++
++  for (var i = 0; i < lines.length; i++) {
++    if (!pres[i]) lines[i] = lines[i].replace(VT_TRIM_R, '');
++  }
++  while (lines.length && !pres[lines.length - 1] && lines[lines.length - 1] === '') {
++    lines.pop(); pres.pop();
++  }
++  while (lines.length && !pres[0] && lines[0] === '') { lines.shift(); pres.shift(); }
++  if (lines.length && !pres[0]) lines[0] = lines[0].replace(VT_TRIM_L, '');
++  /* NBSP -> space, last, so the trims above never see \u00a0 */
++  return lines.join('\n').replace(/\u00a0/g, ' ');
++}
++
++/* Per-selector raw reads. Python replays utils.first_text / first_attr over
++   these lists, so the "first non-empty after strip()" rule stays in Python. */
++function textsFor(root, sel) {
++  var out = [], els = root.querySelectorAll(sel);
++  for (var i = 0; i < els.length; i++) out.push(vtext(els[i]));
++  return out;
++}
++function attrsFor(root, sel, name) {
++  var out = [], els = root.querySelectorAll(sel);
++  for (var i = 0; i < els.length; i++) out.push(gattr(els[i], name));
++  return out;
++}
++function textsPerSel(root, sels) {
++  var out = [];
++  for (var i = 0; i < sels.length; i++) out.push(textsFor(root, sels[i]));
++  return out;
++}
++function attrsPerSel(root, sels, name) {
++  var out = [];
++  for (var i = 0; i < sels.length; i++) out.push(attrsFor(root, sels[i], name));
++  return out;
++}
++"""
++
++
++# --------------------------------------------------------------------------
++# Scripts
++# --------------------------------------------------------------------------
++
++_JS_COLLECT_IDS = r"""
++return (function (pane) {
++  "use strict";
++  var cards = null;
++  if (pane) cards = pane.querySelectorAll(__CARD_SEL__);
++  if (!cards || !cards.length) cards = document.querySelectorAll(__CARD_SEL__);
++  if (!cards.length) cards = document.querySelectorAll(__CARD_SEL_FALLBACK__);
++  var out = new Array(cards.length);
++  for (var i = 0; i < cards.length; i++) {
++    var v = cards[i].getAttribute('data-review-id');
++    out[i] = (v == null) ? '' : v;
++  }
++  return out;
++})(arguments[0]);
++"""
++
++_JS_EXPAND_MORE = r"""
++return (function (wantedIds) {
++  "use strict";
++  var MORE_SELS = __MORE_SELS__;
++  var want = wantedIds ? new Set(wantedIds) : null;
++  var cards = document.querySelectorAll(__CARD_SEL__);
++  var clicked = 0, seen = 0;
++  for (var i = 0; i < cards.length; i++) {
++    var card = cards[i];
++    var rid = card.getAttribute('data-review-id');
++    if (want && !want.has(rid == null ? '' : rid)) continue;
++    seen++;
++    for (var s = 0; s < MORE_SELS.length; s++) {
++      var btns = card.querySelectorAll(MORE_SELS[s]);
++      if (!btns.length) continue;
++      for (var b = 0; b < btns.length; b++) {
++        try { btns[b].click(); clicked++; } catch (e) { /* models.py:88 swallows */ }
++      }
++      break;
++    }
++  }
++  return { clicked: clicked, cards: seen };
++})(arguments[0]);
++"""
++
++_JS_EXTRACT_CARDS = r"""
++return (function (wantedIds) {
++  "use strict";
++__GET_ATTRIBUTE__
++__VISIBLE_TEXT__
++
++  var AUTHOR_SEL  = __AUTHOR_SEL__;
++  var PROFILE_SEL = __PROFILE_SEL__;
++  var AVATAR_SEL  = __AVATAR_SEL__;
++  var LIKE_SEL    = __LIKE_SEL__;
++  var RATING_SELS = __RATING_SELS__;
++  var DATE_SELS   = __DATE_SELS__;
++  var TEXT_SELS   = __TEXT_SELS__;
++  var PHOTO_SELS  = __PHOTO_SELS__;
++  var OWNER_SELS  = __OWNER_SELS__;
++  var ODATE_SELS  = __ODATE_SELS__;
++  var OTEXT_SELS  = __OTEXT_SELS__;
++  var SUB_SELS    = __SUB_SELS__;
++  var MORE_SELS   = __MORE_SELS__;
++
++  var want  = wantedIds ? new Set(wantedIds) : null;
++  var cards = document.querySelectorAll(__CARD_SEL__);
++  var out   = [];
++
++  for (var i = 0; i < cards.length; i++) {
++    var card   = cards[i];
++    var ridRaw = card.getAttribute('data-review-id');
++    var rid    = (ridRaw == null) ? '' : ridRaw;
++    if (want && !want.has(rid)) continue;
++
++    var rec = {
++      id:            rid,
++      author_texts:  textsFor(card, AUTHOR_SEL),
++      profile_attrs: attrsFor(card, PROFILE_SEL, 'data-href'),
++      avatar_attrs:  attrsFor(card, AVATAR_SEL, 'src'),
++      rating_attrs:  attrsPerSel(card, RATING_SELS, 'aria-label'),
++      date_texts:    textsPerSel(card, DATE_SELS),
++      text_texts:    textsPerSel(card, TEXT_SELS),
++      like_present:  false,
++      like_text:     null,
++      like_aria:     null,
++      photo_styles:  [],
++      owner_date_texts: null,
++      owner_text_texts: null,
++      sub_labels:    [],
++      more_left:     0
++    };
++
++    /* likes — models.py:124-126. try_find(all=False) == querySelector. */
++    var likeBtn = card.querySelector(LIKE_SEL);
++    if (likeBtn) {
++      rec.like_present = true;
++      rec.like_text    = vtext(likeBtn);
++      rec.like_aria    = gattr(likeBtn, 'aria-label');
++    }
++
++    /* photos — models.py:128-141. One group per selector; Python replays the
++       "continue on empty, break only when photos non-empty" loop. */
++    for (var p = 0; p < PHOTO_SELS.length; p++) {
++      var btns = card.querySelectorAll(PHOTO_SELS[p]);
++      var group = [];
++      for (var b = 0; b < btns.length; b++) group.push(gattr(btns[b], 'style'));
++      rec.photo_styles.push(group);
++    }
++
++    /* owner response — models.py:143-157. First matching box wins, then an
++       unconditional break, so only that box is ever read. */
++    for (var o = 0; o < OWNER_SELS.length; o++) {
++      var box = card.querySelector(OWNER_SELS[o]);
++      if (!box) continue;
++      rec.owner_date_texts = textsPerSel(box, ODATE_SELS);
++      rec.owner_text_texts = textsPerSel(box, OTEXT_SELS);
++      break;
++    }
++
++    /* sub-ratings — models.py:178-207. `text` is evaluated only when `aria`
++       is falsy, which is exactly when Python's `or` reaches block.text. */
++    for (var s2 = 0; s2 < SUB_SELS.length; s2++) {
++      var blocks = card.querySelectorAll(SUB_SELS[s2]);
++      var labels = [];
++      for (var k = 0; k < blocks.length; k++) {
++        var a = gattr(blocks[k], 'aria-label');
++        labels.push({ aria: a, text: a ? null : vtext(blocks[k]) });
++      }
++      rec.sub_labels.push(labels);
++    }
++
++    /* how many "More" buttons survived the expand pass (telemetry only) */
++    for (var m = 0; m < MORE_SELS.length; m++) {
++      var left = card.querySelectorAll(MORE_SELS[m]);
++      if (left.length) { rec.more_left = left.length; break; }
++    }
++
++    out.push(rec);
++  }
++  return out;
++})(arguments[0]);
++"""
++
++_JS_SCROLL_METRICS = r"""
++  return {
++    scrollTop:    scrollContainer ? scrollContainer.scrollTop    : 0,
++    scrollHeight: scrollContainer ? scrollContainer.scrollHeight : 0,
++    clientHeight: scrollContainer ? scrollContainer.clientHeight : 0,
++    cards:        document.querySelectorAll(__CARD_SEL__).length,
++    busy:         document.querySelectorAll(__BUSY_SEL__).length
++  };
++"""
++
++_JS_GROWTH_PROBE = r"""
++return [document.querySelectorAll(__CARD_SEL__).length,
++        (window.scrollablePane ? window.scrollablePane.scrollHeight : 0)];
++"""
++
++
++def _render(template: str) -> str:
++    """Substitute selector tokens.
++
++    Selectors have exactly one owner — ``RawReview`` in ``modules/models.py``.
++    Templating them in at import time means a selector fix lands in one place
++    instead of drifting between the Python and JS copies.  ``tests/`` asserts
++    that every selector literal in the rendered JS comes from ``RawReview``.
++    """
++    subs = {
++        "__CARD_SEL__": json.dumps(CARD_SEL),
++        "__CARD_SEL_FALLBACK__": json.dumps(CARD_SEL_FALLBACK),
++        "__BUSY_SEL__": json.dumps(BUSY_SEL),
++        "__AUTHOR_SEL__": json.dumps(RawReview.AUTHOR_SEL),
++        "__PROFILE_SEL__": json.dumps(RawReview.PROFILE_SEL),
++        "__AVATAR_SEL__": json.dumps(RawReview.AVATAR_SEL),
++        "__LIKE_SEL__": json.dumps(RawReview.LIKE_BTN),
++        "__RATING_SELS__": json.dumps(list(RawReview.RATING_SELECTORS)),
++        "__DATE_SELS__": json.dumps(list(RawReview.DATE_SELECTORS)),
++        "__TEXT_SELS__": json.dumps(list(RawReview.TEXT_SELECTORS)),
++        "__PHOTO_SELS__": json.dumps(list(RawReview.PHOTO_BTN_SELECTORS)),
++        "__OWNER_SELS__": json.dumps(list(RawReview.OWNER_RESP_SELECTORS)),
++        "__ODATE_SELS__": json.dumps(list(RawReview.OWNER_DATE_SELECTORS)),
++        "__OTEXT_SELS__": json.dumps(list(RawReview.OWNER_TEXT_SELECTORS)),
++        "__SUB_SELS__": json.dumps(list(RawReview.SUB_RATING_SELECTORS)),
++        "__MORE_SELS__": json.dumps(list(RawReview.MORE_BTN)),
++        "__GET_ATTRIBUTE__": JS_GET_ATTRIBUTE,
++        "__VISIBLE_TEXT__": JS_VISIBLE_TEXT,
++    }
++    out = template
++    for token, value in subs.items():
++        out = out.replace(token, value)
++    return out
++
++
++JS_COLLECT_IDS = _render(_JS_COLLECT_IDS)
++JS_EXPAND_MORE = _render(_JS_EXPAND_MORE)
++JS_EXTRACT_CARDS = _render(_JS_EXTRACT_CARDS)
++JS_SCROLL_METRICS = _render(_JS_SCROLL_METRICS)
++JS_GROWTH_PROBE = _render(_JS_GROWTH_PROBE)
++
++# Standalone script, used by the equivalence harness to grade `vtext` against
++# Selenium's WebElement.text on arbitrary elements.
++JS_VISIBLE_TEXT_OF = _render(
++    "return (function (el) {\n"
++    '  "use strict";\n'
++    "__GET_ATTRIBUTE__\n"
++    "__VISIBLE_TEXT__\n"
++    "  return vtext(el);\n"
++    "})(arguments[0]);\n"
++)
++
++
++# --------------------------------------------------------------------------
++# Thin wrappers — each returns None on any WebDriver error (the T1/T2 contract)
++# --------------------------------------------------------------------------
++
++def collect_ids(driver, pane) -> Optional[List[str]]:
++    """Return every ``data-review-id`` in the pane, in DOM order. None on error."""
++    try:
++        result = driver.execute_script(JS_COLLECT_IDS, pane)
++    except WebDriverException as e:
++        log.debug("dom_batch.collect_ids failed: %s", e)
++        return None
++    return result if isinstance(result, list) else None
++
++
++def expand_more(driver, ids: List[str]) -> Optional[Dict[str, Any]]:
++    """Click every "More" button on the wanted cards. None on error."""
++    try:
++        result = driver.execute_script(JS_EXPAND_MORE, list(ids))
++    except WebDriverException as e:
++        log.debug("dom_batch.expand_more failed: %s", e)
++        return None
++    return result if isinstance(result, dict) else None
++
++
++def extract_cards(driver, ids: List[str]) -> Optional[List[dict]]:
++    """Return one raw payload dict per wanted card. None on error."""
++    try:
++        result = driver.execute_script(JS_EXTRACT_CARDS, list(ids))
++    except WebDriverException as e:
++        log.debug("dom_batch.extract_cards failed: %s", e)
++        return None
++    return result if isinstance(result, list) else None
++
++
++def growth_probe(driver) -> Optional[tuple]:
++    """Return (card_count, pane_scrollHeight). None on error."""
++    try:
++        result = driver.execute_script(JS_GROWTH_PROBE)
++    except WebDriverException as e:
++        log.debug("dom_batch.growth_probe failed: %s", e)
++        return None
++    if isinstance(result, list) and len(result) == 2:
++        return (result[0], result[1])
++    return None
++
++
++def is_empty_payload(p: dict) -> bool:
++    """T4: a card whose id parsed but every content selector came back empty."""
++    if not p.get("id"):
++        return False
++    if any(t for t in (p.get("author_texts") or [])):
++        return False
++    for group in (p.get("rating_attrs") or []):
++        if any(group or []):
++            return False
++    for group in (p.get("date_texts") or []):
++        if any(group or []):
++            return False
++    for group in (p.get("text_texts") or []):
++        if any(group or []):
++            return False
++    return True
+diff --git a/modules/models.py b/modules/models.py
+index 22eeae2..15b70e4 100644
+--- a/modules/models.py
++++ b/modules/models.py
+@@ -5,14 +5,31 @@ import logging
+ import re
+ from dataclasses import dataclass, field
+ 
++from selenium.common.exceptions import StaleElementReferenceException
+ from selenium.webdriver.remote.webelement import WebElement
+ 
+ from modules.sub_rating_labels import canonicalize_category
+-from modules.utils import (try_find, first_text, first_attr, safe_int, detect_lang, parse_date_to_iso)
++from modules.utils import (try_find, safe_int, detect_lang, parse_date_to_iso)
+ 
+ log = logging.getLogger("scraper")
+ 
+ 
++def _first_nonempty_text(values) -> str:
++    """Replay of utils.first_text over already-read strings (utils.py:72-80)."""
++    for t in (values or ()):
++        if t and (s := t.strip()):
++            return s
++    return ""
++
++
++def _first_nonempty_attr(values) -> str:
++    """Replay of utils.first_attr over already-read strings (utils.py:302-310)."""
++    for v in (values or ()):
++        if (s := (v or "").strip()):
++            return s
++    return ""
++
++
+ @dataclass
+ class RawReview:
+     """
+@@ -35,12 +52,17 @@ class RawReview:
+     translations: dict = field(default_factory=dict)
+ 
+     # CSS selector candidates — tried in order, first match wins.
++    # These are the single owner of every review selector: modules/dom_batch.py
++    # templates them into its JS at import time rather than keeping a copy.
+     MORE_BTN = (
+         "button.kyuRq",
+         'button[jsaction*="expandReview"]',
+         'button[aria-expanded="false"][jsaction*="review" i]',
+     )
+     LIKE_BTN = 'button[jsaction*="toggleThumbsUp" i]'
++    AUTHOR_SEL = 'div[class*="d4r55"]'
++    PROFILE_SEL = 'button[data-review-id]'
++    AVATAR_SEL = 'button[data-review-id] img'
+     PHOTO_BTN_SELECTORS = (
+         "button.Tya61d",
+         'button[aria-label*="Photo" i][style*="url"]',
+@@ -78,7 +100,28 @@ class RawReview:
+ 
+     @classmethod
+     def from_card(cls, card: WebElement) -> "RawReview":
+-        """Factory method to create a RawReview from a WebElement."""
++        """Factory method to create a RawReview from a WebElement.
++
++        Per-card fallback path: one Selenium round trip per selector. Kept so a
++        Google DOM change (or a JS failure) degrades in speed rather than
++        breaking. The batched path in modules/dom_batch.py builds the same
++        payload in one round trip; both then share `from_payload`.
++        """
++        return cls.from_payload(cls._payload_from_card(card))
++
++    # ------------------------------------------------------------------
++    # Payload builders
++    # ------------------------------------------------------------------
++
++    @classmethod
++    def _payload_from_card(cls, card: WebElement) -> dict:
++        """Read the raw DOM strings for one card via Selenium.
++
++        Unlike the old `from_card`, this evaluates every selector in each tuple
++        instead of short-circuiting — at most 7 extra find_elements per card on
++        this (fallback-only) path. The *result* is unchanged: `from_payload`
++        breaks at the same index the old loops did.
++        """
+         for sel in cls.MORE_BTN:
+             buttons = try_find(card, sel, all=True)
+             if buttons:
+@@ -89,14 +132,103 @@ class RawReview:
+                         pass
+                 break
+ 
+-        rid = card.get_attribute("data-review-id") or ""
+-        author = first_text(card, 'div[class*="d4r55"]')
+-        profile = first_attr(card, 'button[data-review-id]', "data-href")
+-        avatar = first_attr(card, 'button[data-review-id] img', "src")
++        payload = {
++            "id": card.get_attribute("data-review-id"),
++            "author_texts": cls._texts_for(card, cls.AUTHOR_SEL),
++            "profile_attrs": cls._attrs_for(card, cls.PROFILE_SEL, "data-href"),
++            "avatar_attrs": cls._attrs_for(card, cls.AVATAR_SEL, "src"),
++            "rating_attrs": [cls._attrs_for(card, s, "aria-label")
++                             for s in cls.RATING_SELECTORS],
++            "date_texts": [cls._texts_for(card, s) for s in cls.DATE_SELECTORS],
++            "text_texts": [cls._texts_for(card, s) for s in cls.TEXT_SELECTORS],
++            "like_present": False,
++            "like_text": None,
++            "like_aria": None,
++            "photo_styles": [cls._attrs_for(card, s, "style")
++                             for s in cls.PHOTO_BTN_SELECTORS],
++            "owner_date_texts": None,
++            "owner_text_texts": None,
++            "sub_labels": [],
++            "more_left": 0,
++        }
++
++        if (btn := try_find(card, cls.LIKE_BTN)):
++            payload["like_present"] = True
++            # Deliberately NOT caught. Before batching, a stale like-button let
++            # StaleElementReferenceException escape from_card, and the caller
++            # skipped the whole card (scraper.py) to pick it up next iteration.
++            # Swallowing it here turned "could not read" into a stated
++            # `likes = 0` via safe_int("" or None) — a wrong number written to
++            # the DB, which is worse than one deferred card. Absent is not zero.
++            payload["like_text"] = btn[0].text
++            payload["like_aria"] = btn[0].get_attribute("aria-label")
++
++        for sel in cls.OWNER_RESP_SELECTORS:
++            box_list = try_find(card, sel)
++            if not box_list:
++                continue
++            box = box_list[0]
++            payload["owner_date_texts"] = [cls._texts_for(box, s)
++                                           for s in cls.OWNER_DATE_SELECTORS]
++            payload["owner_text_texts"] = [cls._texts_for(box, s)
++                                           for s in cls.OWNER_TEXT_SELECTORS]
++            break
++
++        for sel in cls.SUB_RATING_SELECTORS:
++            labels = []
++            for block in try_find(card, sel, all=True):
++                try:
++                    aria = block.get_attribute("aria-label")
++                    labels.append({"aria": aria,
++                                   "text": None if aria else block.text})
++                except StaleElementReferenceException:
++                    continue
++            payload["sub_labels"].append(labels)
+ 
+-        rating = 0.0
+-        for sel in cls.RATING_SELECTORS:
+-            label = first_attr(card, sel, "aria-label")
++        return payload
++
++    @staticmethod
++    def _texts_for(el: WebElement, css: str) -> list[str]:
++        """Every match's `.text`, in DOM order — the input to first_text."""
++        out = []
++        for e in try_find(el, css, all=True):
++            try:
++                out.append(e.text)
++            except StaleElementReferenceException:
++                continue
++        return out
++
++    @staticmethod
++    def _attrs_for(el: WebElement, css: str, attr: str) -> list:
++        """Every match's attribute, in DOM order — the input to first_attr."""
++        out = []
++        for e in try_find(el, css, all=True):
++            try:
++                out.append(e.get_attribute(attr))
++            except StaleElementReferenceException:
++                continue
++        return out
++
++    # ------------------------------------------------------------------
++    # The single parser — both paths go through here
++    # ------------------------------------------------------------------
++
++    @classmethod
++    def from_payload(cls, p: dict) -> "RawReview":
++        """Build a RawReview from raw DOM strings.
++
++        This is the *only* parser. The batched JS path and the per-card
++        Selenium path both produce the same payload shape, so any divergence
++        between them is structurally confined to the string-read layer.
++        """
++        rid = p.get("id") or ""                                   # models.py:92
++        author = _first_nonempty_text(p.get("author_texts"))      # models.py:93
++        profile = _first_nonempty_attr(p.get("profile_attrs"))    # models.py:94
++        avatar = _first_nonempty_attr(p.get("avatar_attrs"))      # models.py:95
++
++        rating = 0.0                                              # models.py:97-108
++        for attrs in (p.get("rating_attrs") or []):
++            label = _first_nonempty_attr(attrs)
+             if label:
+                 num = re.search(r"[\d\.]+", label.replace(",", "."))
+                 if num:
+@@ -107,32 +239,30 @@ class RawReview:
+                     except ValueError:
+                         continue
+ 
+-        date = ""
+-        for sel in cls.DATE_SELECTORS:
+-            date = first_text(card, sel)
++        date = ""                                                 # models.py:110-114
++        for texts in (p.get("date_texts") or []):
++            date = _first_nonempty_text(texts)
+             if date:
+                 break
+-        review_date = parse_date_to_iso(date)
++        review_date = parse_date_to_iso(date)                     # models.py:115
+ 
+-        text = ""
+-        for sel in cls.TEXT_SELECTORS:
+-            text = first_text(card, sel)
++        text = ""                                                 # models.py:117-121
++        for texts in (p.get("text_texts") or []):
++            text = _first_nonempty_text(texts)
+             if text:
+                 break
+-        lang = detect_lang(text)
++        lang = detect_lang(text)                                  # models.py:122
+ 
+-        likes = 0
+-        if (btn := try_find(card, cls.LIKE_BTN)):
+-            likes = safe_int(btn[0].text or btn[0].get_attribute("aria-label"))
++        likes = 0                                                 # models.py:124-126
++        if p.get("like_present"):
++            likes = safe_int(p.get("like_text") or p.get("like_aria"))
+ 
+-        photos: list[str] = []
+-        for sel in cls.PHOTO_BTN_SELECTORS:
+-            found = try_find(card, sel, all=True)
+-            if not found:
++        photos: list[str] = []                                    # models.py:128-141
++        for group in (p.get("photo_styles") or []):
++            if not group:
+                 continue
+-            for btn in found:
+-                style = btn.get_attribute("style") or ""
+-                m = re.search(r'url\(["\']?([^"\')]+)', style)
++            for style in group:
++                m = re.search(r'url\(["\']?([^"\')]+)', style or "")
+                 if m:
+                     url = m.group(1)
+                     if url not in photos:
+@@ -140,23 +270,17 @@ class RawReview:
+             if photos:
+                 break
+ 
+-        owner_date = owner_text = ""
+-        for sel in cls.OWNER_RESP_SELECTORS:
+-            box_list = try_find(card, sel)
+-            if not box_list:
+-                continue
+-            box = box_list[0]
+-            for d_sel in cls.OWNER_DATE_SELECTORS:
+-                owner_date = first_text(box, d_sel)
+-                if owner_date:
+-                    break
+-            for t_sel in cls.OWNER_TEXT_SELECTORS:
+-                owner_text = first_text(box, t_sel)
+-                if owner_text:
+-                    break
+-            break
++        owner_date = owner_text = ""                              # models.py:143-157
++        for texts in (p.get("owner_date_texts") or []):
++            owner_date = _first_nonempty_text(texts)
++            if owner_date:
++                break
++        for texts in (p.get("owner_text_texts") or []):
++            owner_text = _first_nonempty_text(texts)
++            if owner_text:
++                break
+ 
+-        sub_ratings = cls._extract_sub_ratings(card)
++        sub_ratings = cls._parse_sub_ratings(p.get("sub_labels") or [])
+ 
+         return cls(
+             id=rid,
+@@ -176,16 +300,16 @@ class RawReview:
+         )
+ 
+     @classmethod
+-    def _extract_sub_ratings(cls, card: WebElement) -> dict:
+-        """Extract per-category sub-ratings (e.g. Service 5/5, Food 4/5)."""
++    def _parse_sub_ratings(cls, groups: list) -> dict:
++        """Extract per-category sub-ratings (e.g. Service 5/5, Food 4/5).
++
++        Body of the old `_extract_sub_ratings`, operating on payload shape.
++        """
+         result: dict = {}
+-        for sel in cls.SUB_RATING_SELECTORS:
+-            blocks = try_find(card, sel, all=True)
+-            if not blocks:
+-                continue
+-            for block in blocks:
++        for labels in groups:
++            for item in (labels or []):
+                 try:
+-                    label = (block.get_attribute("aria-label") or block.text or "").strip()
++                    label = ((item.get("aria") or item.get("text") or "")).strip()
+                     if not label:
+                         continue
+                     m = re.match(r"(.+?)[:\s]+(\d)\s*/\s*5", label)
+diff --git a/modules/scraper.py b/modules/scraper.py
+index a333e2c..37769c8 100644
+--- a/modules/scraper.py
++++ b/modules/scraper.py
+@@ -29,6 +29,7 @@ from selenium.webdriver.support import expected_conditions as EC
+ from selenium.webdriver.support.ui import WebDriverWait
+ from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, MofNCompleteColumn
+ 
++from modules import dom_batch
+ from modules.date_filter import DateFilter, EARLY_STOP_CONSECUTIVE
+ from modules.models import RawReview
+ from modules.pipeline import PostScrapeRunner
+@@ -42,6 +43,33 @@ log = logging.getLogger("scraper")
+ # CSS Selectors
+ PANE_SEL = 'div[role="main"] div.m6QErb.DxyBCb.kA9KIf.dS8AEf'
+ CARD_SEL = "div[data-review-id]"
++
++# --- Batched DOM extraction (modules/dom_batch.py) -------------------------
++# One renderer turn after JS-clicking "More", before reading the expanded text.
++BATCH_EXPAND_SETTLE_SECONDS = 0.12
++# T5 circuit breaker: give up on the batched path for the rest of the run after
++# this many consecutive failing iterations, or once this share of all cards has
++# had to fall back to the per-card path.
++BATCH_CONSECUTIVE_FAILURE_LIMIT = 3
++BATCH_FALLBACK_RATIO_LIMIT = 0.30
++# T3: below this share, a coverage gap is just a card that unmounted between the
++# id scan and the extract; above it, the iteration counts as a batch failure.
++BATCH_MISSING_RATIO_LIMIT = 0.50
++
++# --- Pane-exhaustion early exit -------------------------------------------
++# Stop scrolling once the pane is flush at the bottom and neither scrollHeight
++# nor the card count has moved for this many consecutive iterations *and* this
++# much wall-clock. Both bounds are required: three iterations can burn in 200ms
++# on a fast machine, well inside a normal XHR round trip.
++EXHAUST_STREAK = 3
++EXHAUST_MIN_SECONDS = 3.0
++# Slack allowed between (scrollTop + clientHeight) and scrollHeight.
++BOTTOM_EPS_PX = 4
++
++# --- Growth wait (replaces the fixed 0.7/1.0/2.0s sleeps) ------------------
++GROWTH_POLL_INTERVAL_SECONDS = 0.08
++GROWTH_DEADLINE_AFTER_HIT_SECONDS = 1.5
++GROWTH_DEADLINE_AFTER_MISS_SECONDS = 2.5
+ COOKIE_BTN = ('button[aria-label*="Accept" i],'
+               'button[jsname="hZCF7e"],'
+               'button[data-mdc-dialog-action="accept"]')
+@@ -206,7 +234,7 @@ NON_REVIEW_TAB_WORDS = {
+     # Dutch
+     "menukaart", "overzicht", "foto's", "producten",
+     # Vietnamese
+-    "thực đơn", "tổng quan", "ảnh", "sản phẩm",
++    "thực đơn", "tổng quan", "ảnh", "sản phẩm", "giới thiệu", "về",
+ }
+ 
+ 
+@@ -247,12 +275,264 @@ class GoogleReviewsScraper:
+         db_path = config.get("db_path", "reviews.db")
+         self.review_db = ReviewDB(db_path)
+         self._selector_health: SelectorHealth | None = None
++        self._reset_batch_state()
+ 
+     def _record_selector(self, selector: str, outcome: str) -> None:
+         """Telemetry helper — always safe to call."""
+         if self._selector_health is not None:
+             self._selector_health.record(selector, outcome)
+ 
++    def _reset_batch_state(self) -> None:
++        """Per-run state for the batched DOM path (modules/dom_batch.py)."""
++        self._batch_ok = bool(self.config.get("batch_extract", True)) and \
++            os.environ.get("GRS_BATCH_EXTRACT") != "0"
++        self._batch_consecutive_failures = 0
++        self._batch_cards_total = 0
++        self._batch_cards_fallback = 0
++        self._batch_fail_ids = 0
++        self._batch_fail_extract = 0
++        self._batch_fail_missing = 0
++        self._batch_fail_field = 0
++        self._batch_more_left = 0
++
++    def _trip_batch_breaker(self, reason: str) -> None:
++        """T5 — stop paying for failed JS on every remaining iteration."""
++        if self._batch_ok:
++            self._batch_ok = False
++            log.warning("Batched DOM extraction disabled for this run (%s) — "
++                        "falling back to per-card Selenium reads", reason)
++
++    def _note_batch_failure(self, failed: bool) -> None:
++        """T5, first condition: consecutive failing iterations."""
++        if failed:
++            self._batch_consecutive_failures += 1
++        else:
++            self._batch_consecutive_failures = 0
++        if self._batch_consecutive_failures >= BATCH_CONSECUTIVE_FAILURE_LIMIT:
++            self._trip_batch_breaker(
++                f"{self._batch_consecutive_failures} consecutive failing iterations")
++
++    def _check_batch_fallback_ratio(self) -> None:
++        """T5, second condition: too much of the run has degraded per-card."""
++        total = self._batch_cards_total
++        if total and (self._batch_cards_fallback / total) > BATCH_FALLBACK_RATIO_LIMIT:
++            self._trip_batch_breaker(
++                f"{self._batch_cards_fallback}/{total} cards needed the per-card path")
++
++    def _collect_fresh_ids(self, driver, pane, cards, processed_ids, seen):
++        """Return (fresh_ids, batch_seen_count, card_by_id).
++
++        Replaces the O(n^2) `for c in cards: c.get_attribute("data-review-id")`
++        rescan with a single execute_script. Falls back to the original loop
++        (T1) whenever the script fails or its answer looks wrong.
++
++        `card_by_id` is populated only on the fallback path, where the handle
++        is already in hand when the id is read; the batched path routes by id
++        alone and never assumes `cards[i]` lines up with `ids[i]`.
++        """
++        dom_ids = dom_batch.collect_ids(driver, pane) if self._batch_ok else None
++        usable = isinstance(dom_ids, list) and (bool(dom_ids) or not cards)
++        if self._batch_ok:
++            self._record_selector("js:collect_ids", "hit" if usable else "miss")
++
++        fresh_ids: List[str] = []
++        card_by_id: Dict[str, WebElement] = {}
++        batch_seen_count = 0
++
++        if usable:
++            for cid in dom_ids:
++                if not cid or cid in processed_ids:
++                    continue
++                processed_ids.add(cid)
++                if cid in seen:
++                    batch_seen_count += 1
++                    continue
++                fresh_ids.append(cid)
++            return fresh_ids, batch_seen_count, card_by_id
++
++        if self._batch_ok:
++            self._batch_fail_ids += 1
++        # ---- FALLBACK: the original per-card loop ----
++        for c in cards:
++            try:
++                cid = c.get_attribute("data-review-id")
++                if not cid or cid in processed_ids:
++                    continue
++                processed_ids.add(cid)
++                if cid in seen:
++                    batch_seen_count += 1
++                    continue
++                fresh_ids.append(cid)
++                card_by_id[cid] = c
++            except StaleElementReferenceException:
++                continue
++            except Exception as e:
++                log.debug(f"Error getting review ID: {e}")
++                continue
++        return fresh_ids, batch_seen_count, card_by_id
++
++    def _extract_batch(self, driver, card_by_id, fresh_ids, batch_stats):
++        """Yield one RawReview per id in `fresh_ids`, in DOM order.
++
++        Batched path: expand "More", read every field in one execute_script,
++        then parse in Python. Degrades per card (T3/T4) and per iteration (T2)
++        to `RawReview.from_card`, so a partial Google DOM change costs a few
++        slow cards rather than the run.
++        """
++        if not fresh_ids:
++            return
++        self._batch_cards_total += len(fresh_ids)
++
++        payloads = {}
++        if self._batch_ok:
++            expanded = dom_batch.expand_more(driver, fresh_ids)
++            if expanded and expanded.get("clicked"):
++                # Expansion mutates the DOM; give the renderer one turn before
++                # reading the expanded text back.
++                time.sleep(BATCH_EXPAND_SETTLE_SECONDS)
++
++            raw_batch = dom_batch.extract_cards(driver, fresh_ids)
++            if raw_batch is None:
++                self._batch_fail_extract += 1
++                self._record_selector("js:extract_cards", "miss")
++                self._note_batch_failure(True)
++            else:
++                self._record_selector("js:extract_cards", "hit")
++                for p in raw_batch:
++                    if isinstance(p, dict) and p.get("id"):
++                        payloads[p["id"]] = p
++                missing = len(fresh_ids) - len(payloads)
++                if missing:
++                    self._batch_fail_missing += missing
++                over_limit = missing > BATCH_MISSING_RATIO_LIMIT * len(fresh_ids)
++                self._note_batch_failure(over_limit)
++                more_left = sum(p.get("more_left", 0) or 0 for p in payloads.values())
++                if more_left:
++                    self._batch_more_left += more_left
++                    log.debug('%d "More" buttons still present after the expand '
++                              'pass', more_left)
++                self._record_selector("js:expand_more", "miss" if more_left else "hit")
++
++        try:
++            for rid in fresh_ids:
++                payload = payloads.get(rid)
++                if payload is not None and dom_batch.is_empty_payload(payload):
++                    # T4 — every content selector came back empty. Re-read this
++                    # one card the slow way before believing it.
++                    self._batch_fail_field += 1
++                    payload = None
++
++                if payload is not None:
++                    try:
++                        raw = RawReview.from_payload(payload)
++                    except Exception:
++                        batch_stats["parse_errors"] = batch_stats.get("parse_errors", 0) + 1
++                        log.warning("parse error - skipping card\n%s",
++                                    traceback.format_exc(limit=1).strip())
++                        continue
++                    yield raw
++                    continue
++
++                # ---- FALLBACK: per-card Selenium reads for this id only ----
++                self._batch_cards_fallback += 1
++                card = card_by_id.get(rid) or self._find_card_by_id(driver, rid)
++                if card is None:
++                    batch_stats["parse_errors"] = batch_stats.get("parse_errors", 0) + 1
++                    continue
++                try:
++                    raw = RawReview.from_card(card)
++                except StaleElementReferenceException:
++                    continue
++                except Exception:
++                    # Skip the card — do not store empty stubs. Earlier behavior
++                    # stored a zero-rating placeholder, which polluted content
++                    # hashes and downstream data.
++                    batch_stats["parse_errors"] = batch_stats.get("parse_errors", 0) + 1
++                    log.warning(
++                        "parse error - skipping card\n%s",
++                        traceback.format_exc(limit=1).strip(),
++                    )
++                    continue
++                yield raw
++        finally:
++            self._check_batch_fallback_ratio()
++
++    @staticmethod
++    def _find_card_by_id(driver, review_id: str):
++        """Re-resolve one card handle by review id. None if it is gone."""
++        try:
++            found = driver.find_elements(
++                By.CSS_SELECTOR, 'div[data-review-id="%s"]' % review_id.replace('"', '\\"')
++            )
++        except WebDriverException:
++            return None
++        return found[0] if found else None
++
++    # Keys the scroll script must report before its answer is usable as
++    # evidence. A partial object is *unknown*, not a pane sitting at zero.
++    _EXHAUST_REQUIRED_KEYS = ("scrollTop", "scrollHeight", "clientHeight", "cards")
++
++    @classmethod
++    def _exhaustion_step(cls, metrics, got_fresh, last_height, last_cards,
++                         streak, started, now):
++        """One step of the pane-exhaustion detector.
++
++        Returns (streak, started, exhausted, next_height, next_cards).
++
++        Owns the *whole* rule, including how the previous-iteration values are
++        carried forward, so the "previous value, not a high-water mark" choice
++        cannot drift into the caller. Conservative by construction: exhaustion
++        is reported only on positive evidence, so any missing signal falls
++        through to the pre-existing `idle >= max_idle` bound.
++        """
++        usable = isinstance(metrics, dict) and all(
++            k in metrics for k in cls._EXHAUST_REQUIRED_KEYS)
++        if not usable:
++            # Absent metrics are unknown. Carry the previous values forward
++            # rather than writing back a zero nothing measured.
++            return 0, None, False, last_height, last_cards
++
++        height = metrics["scrollHeight"]
++        cards = metrics["cards"]
++        slack = height - (metrics["scrollTop"] + metrics["clientHeight"])
++        at_bottom = slack <= BOTTOM_EPS_PX
++        # CHANGED, not grew, and against the previous value rather than a
++        # high-water mark. An exhausted pane is *static*; movement in either
++        # direction is evidence of activity. If Google ever virtualises and
++        # unmounts off-screen cards, a run of shrinking iterations must keep us
++        # scrolling — `> last` would let three of them exhaust the pane.
++        changed = height != last_height or cards != last_cards
++
++        if got_fresh or changed or metrics.get("busy", 0) or not at_bottom:
++            return 0, None, False, height, cards
++        if started is None:
++            started = now
++        streak += 1
++        exhausted = (streak >= EXHAUST_STREAK
++                     and (now - started) >= EXHAUST_MIN_SECONDS
++                     and cards > 0)
++        return streak, started, exhausted, height, cards
++
++    @staticmethod
++    def _wait_for_growth(driver, prev_cards: int, prev_height: int,
++                         deadline_s: float) -> bool:
++        """Poll in-page until the pane grows, or the deadline expires.
++
++        Replaces the unconditional 0.7/1.0/2.0s sleeps: typical satisfaction is
++        200-400ms, and the deadline bounds the worst case instead of paying it
++        every iteration.
++        """
++        end = time.monotonic() + deadline_s
++        while time.monotonic() < end:
++            probe = dom_batch.growth_probe(driver)
++            if probe is None:
++                return False
++            n, h = probe
++            if (n or 0) > prev_cards or (h or 0) > prev_height:
++                return True
++            time.sleep(GROWTH_POLL_INTERVAL_SECONDS)
++        return False
++
+     @staticmethod
+     def _db_review_to_legacy(db_review: Dict[str, Any]) -> Dict[str, Any]:
+         """Convert DB review format to legacy format for MongoDB/JSON compat."""
+@@ -603,29 +883,21 @@ class GoogleReviewsScraper:
+ 
+         score = 0.0
+ 
++        # Penalize non-review labels — prevents Menu/Overview/About misclassification
++        if _text_contains_any(aria_label, NON_REVIEW_TAB_WORDS) or _text_contains_any(tab_text, NON_REVIEW_TAB_WORDS):
++            return -10.0
++
+         # Strongest signals — explicit semantic match.
+         if _text_contains_any(aria_label, REVIEW_WORDS):
+-            score += 1.5
++            score += 3.0
+         if _text_contains_any(tab_text, REVIEW_WORDS):
+-            score += 1.0
+-
+-        # Penalize non-review labels — prevents Menu/Overview misclassification
+-        # when they happen to sit at data-tab-index="1".
+-        if _text_contains_any(aria_label, NON_REVIEW_TAB_WORDS):
+-            score -= 1.5
+-        if _text_contains_any(tab_text, NON_REVIEW_TAB_WORDS):
+-            score -= 1.0
+-
+-        # Weak positive: index + keyword already scored above; bare index
+-        # without any keyword is no longer sufficient.
+-        if tab_index in ("1", "reviews") and score > 0:
+-            score += 0.25
++            score += 3.0
+ 
+         # URL-ish attributes — strong signal, matches aria-label weight.
+         for attr in ("href", "data-href", "data-url", "data-target"):
+             val = (tab.get_attribute(attr) or "").lower()
+             if val and ("review" in val or "rating" in val):
+-                score += 1.5
++                score += 2.0
+                 break
+ 
+         # Class-name hint (weakest — Google reuses class names across tabs).
+@@ -644,14 +916,54 @@ class GoogleReviewsScraper:
+         end_time = time.time() + max_timeout
+         attempts = 0
+ 
+-        # Selector order matters — highest-specificity first.
+-        # NOTE: `[data-tab-index="1"]` is deliberately NOT first (see #21).
+-        # Scoring in is_reviews_tab() would still reject Menu, but putting
+-        # semantically targeted selectors first avoids scanning the wrong
+-        # element set at all.
++        # First priority: directly inspect tabs inside tablist
++        # Strategy 0: Click the review rating header / count link in the place header (div.F7nice)
++        header_selectors = [
++            'div.F7nice button',
++            'div.F7nice',
++            'button[jsaction*="review" i]',
++            'button[aria-label*="review" i]',
++            'button[aria-label*="đánh giá" i]',
++            'button[aria-label*="avis" i]',
++            'span[role="img"][aria-label*="star" i]',
++        ]
++        for sel in header_selectors:
++            try:
++                elems = driver.find_elements(By.CSS_SELECTOR, sel)
++                for el in elems:
++                    driver.execute_script("arguments[0].click();", el)
++                    time.sleep(1.5)
++                    if self.verify_reviews_tab_clicked(driver):
++                        log.info(f"Successfully opened reviews tab by clicking header selector: {sel}")
++                        return True
++            except Exception:
++                pass
++
++        # Strategy 1: directly inspect tabs inside tablist
++        try:
++            tablist_tabs = driver.find_elements(By.CSS_SELECTOR, '[role="tablist"] [role="tab"], div[role="tablist"] button, [role="tab"]')
++            for tab in tablist_tabs:
++                if self.is_reviews_tab(tab):
++                    try:
++                        log.info(f"Direct clicking tablist reviews tab: '{tab.text}' / '{tab.get_attribute('aria-label')}'")
++                        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", tab)
++                        time.sleep(0.5)
++                        driver.execute_script("arguments[0].click();", tab)
++                        time.sleep(2)
++                        if self.verify_reviews_tab_clicked(driver):
++                            log.info("Successfully clicked and verified reviews tab via direct tablist scan")
++                            return True
++                    except Exception:
++                        pass
++        except Exception:
++            pass
++
+         tab_selectors = [
+             # Strongest: explicit aria-label match, any language.
+             '[role="tab"][aria-label*="review" i]',
++            '[role="tab"][aria-label*="đánh giá" i]',
++            '[role="tab"][aria-label*="bài đánh giá" i]',
++            '[role="tab"][aria-label*="nhận xét" i]',
+             '[role="tab"][aria-label*="avis" i]',
+             '[role="tab"][aria-label*="bewertung" i]',
+             '[role="tab"][aria-label*="reseña" i]',
+@@ -659,8 +971,11 @@ class GoogleReviewsScraper:
+             '[role="tab"][aria-label*="ביקורת"]',
+             '[role="tab"][aria-label*="リビュー"]',
+             '[role="tab"][aria-label*="рецензии"]',
++            '[role="tab"][aria-label*="评价"]',
++            '[role="tab"][aria-label*="点评"]',
+ 
+             # Any tab in the tablist — scoring filters them.
++            '[role="tab"][data-tab-index="1"]',
+             '[role="tab"][data-tab-index]',
+             'button[role="tab"]',
+             'div[role="tab"]',
+@@ -672,9 +987,6 @@ class GoogleReviewsScraper:
+             '.m6QErb [role="tab"]',
+             'div[role="tablist"] > *',
+             'div.m6QErb div[role="tablist"] > *',
+-
+-            # Absolute last resort — index-based. Scoring still applies.
+-            '[data-tab-index="1"]',
+         ]
+ 
+         # Record successful clicks for debugging
+@@ -752,8 +1064,8 @@ class GoogleReviewsScraper:
+         if time.time() <= end_time:
+             for language_keyword in REVIEW_WORDS:
+                 try:
+-                    # Try XPath contains text
+-                    xpath = f"//*[contains(text(), '{language_keyword}')]"
++                    # Try XPath contains text on tab or button elements only
++                    xpath = f"//button[contains(., '{language_keyword}')] | //div[@role='tab'][contains(., '{language_keyword}')]"
+                     elements = driver.find_elements(By.XPATH, xpath)
+ 
+                     for element in elements:
+@@ -772,75 +1084,31 @@ class GoogleReviewsScraper:
+                 except Exception:
+                     continue
+ 
+-        # Final attempt: try to navigate directly to reviews by URL
+-        try:
+-            current_url = driver.current_url
+-            if "?hl=" in current_url:  # Preserve language setting if present
+-                lang_param = re.search(r'\?hl=([^&]*)', current_url)
+-                if lang_param:
+-                    lang_code = lang_param.group(1)
+-                    # Try to replace the current part with 'reviews' or append it
+-                    if '/place/' in current_url:
+-                        parts = current_url.split('/place/')
+-                        new_url = f"{parts[0]}/place/{parts[1].split('/')[0]}/reviews?hl={lang_code}"
+-                        driver.get(new_url)
+-                        time.sleep(3)  # Increased wait time for page load
+-                        if "review" in driver.current_url.lower():
+-                            log.info("Navigated directly to reviews page via URL")
+-                            # Extra wait for reviews to render after URL navigation
+-                            time.sleep(2)
+-                            return True
+-
+-            # Try to identify reviews link in URL
+-            if '/place/' in current_url and '/reviews' not in current_url:
+-                parts = current_url.split('/place/')
+-                new_url = f"{parts[0]}/place/{parts[1].split('/')[0]}/reviews"
+-                driver.get(new_url)
+-                time.sleep(3)  # Increased wait time for page load
+-                if "review" in driver.current_url.lower():
+-                    log.info("Navigated directly to reviews page via URL")
+-                    # Extra wait for reviews to render after URL navigation
+-                    time.sleep(2)
+-                    return True
+-        except Exception as url_error:
+-            log.warning(f"Failed to navigate to reviews via URL: {url_error}")
+-
+-        log.warning(f"Failed to find/click reviews tab after {attempts} attempts")
+-        raise TimeoutException("Reviews tab not found or could not be clicked")
++        return False
+ 
+     def verify_reviews_tab_clicked(self, driver: Chrome) -> bool:
+         """
+-        Verify that the reviews tab was successfully clicked by checking for
+-        characteristic elements that appear on the reviews page.
++        Verify that the reviews tab was successfully clicked.
+         """
+         try:
+-            # Common elements that appear when reviews tab is active
+-            verification_selectors = [
+-                # Reviews container
+-                'div.m6QErb.DxyBCb.kA9KIf.dS8AEf',
+-
+-                # Review cards
+-                'div[data-review-id]',
+-
+-                # Sort button (usually appears with reviews)
+-                'button[aria-label*="Sort" i]',
+-
+-                # Review rating elements
+-                'span[role="img"][aria-label*="star" i]',
++            # 1. Check if an active reviews tab is selected
++            selected_tabs = driver.find_elements(By.CSS_SELECTOR, '[role="tab"][aria-selected="true"]')
++            for stab in selected_tabs:
++                if self.is_reviews_tab(stab) or stab.get_attribute("data-tab-index") == "1":
++                    return True
+ 
+-                # Other indicators
+-                'div.m6QErb div.jftiEf',
+-                '.HlvSq'
+-            ]
++            # 2. Check if URL contains review
++            if "review" in (driver.current_url or "").lower():
++                return True
+ 
+-            # Check if any verification selector is present
+-            for selector in verification_selectors:
+-                elements = driver.find_elements(By.CSS_SELECTOR, selector)
+-                if elements and len(elements) > 0:
+-                    return True
++            # 3. Check if more than 3 review cards are present
++            cards = driver.find_elements(By.CSS_SELECTOR, 'div[data-review-id]')
++            if len(cards) > 3:
++                return True
+ 
+-            # URL check - if "review" appears in the URL
+-            if "review" in driver.current_url.lower():
++            # 4. Check for sort button
++            sort_btns = driver.find_elements(By.CSS_SELECTOR, 'button[data-value="Sort"], button[aria-label*="Sort" i]')
++            if sort_btns:
+                 return True
+ 
+             return False
+@@ -905,7 +1173,11 @@ class GoogleReviewsScraper:
+                             button_class = element.get_attribute("class") or ""
+ 
+                             # Skip buttons that are clearly not sort buttons
+-                            negative_keywords = ["back", "next", "previous", "close", "cancel", "חזרה", "סגור", "ปิด"]
++                            negative_keywords = [
++                                "back", "next", "previous", "close", "cancel", "more info", "info",
++                                "share", "save", "directions", "website", "nearby", "send", "thông tin",
++                                "weitere", "plus d'info", "חזרה", "סגור", "ปิด"
++                            ]
+                             if any(keyword in button_text.lower() or keyword in button_aria.lower()
+                                    for keyword in negative_keywords):
+                                 continue
+@@ -922,8 +1194,8 @@ class GoogleReviewsScraper:
+                             has_dropdown_attrs = (element.get_attribute("aria-haspopup") == "true" or
+                                                 element.get_attribute("aria-expanded") is not None)
+ 
+-                            if has_sort_keyword or has_sort_class or has_dropdown_attrs:
+-                                # Found a potential sort button
++                            if has_sort_keyword or has_sort_class:
++                                # Found a verified sort button
+                                 sort_button = element
+                                 log.info(f"Found sort button with selector: {selector}")
+                                 log.info(f"Button text: '{button_text}', aria-label: '{button_aria}'")
+@@ -1583,6 +1855,13 @@ class GoogleReviewsScraper:
+             last_scroll_position = 0
+             scroll_stuck_count = 0
+ 
++            # Batched DOM extraction + pane-exhaustion detection state
++            self._reset_batch_state()
++            last_scroll_height = 0
++            last_card_count = 0
++            exhaust_streak = 0
++            exhaust_started = None
++
+             while attempts < max_attempts:
+                 if self.cancel_event.is_set():
+                     log.info("Scrape cancelled by user request")
+@@ -1617,7 +1896,21 @@ class GoogleReviewsScraper:
+ 
+                 try:
+                     cards = pane.find_elements(By.CSS_SELECTOR, CARD_SEL)
+-                    fresh_cards: List[WebElement] = []
++                    if not cards:
++                        cards = driver.find_elements(By.CSS_SELECTOR, CARD_SEL)
++                    if not cards:
++                        cards = driver.find_elements(By.CSS_SELECTOR, "div.jJc9Ad, div[data-review-id], div.GHT2ce")
++
++                    if cards:
++                        try:
++                            ancestor_pane = cards[0].find_element(By.XPATH, "./ancestor::div[contains(@class, 'm6QErb')][1]")
++                            if ancestor_pane:
++                                pane = ancestor_pane
++                                driver.execute_script("window.scrollablePane = arguments[0];", pane)
++                        except Exception:
++                            pass
++
++                    fresh_ids: List[str] = []
+ 
+                     # Check for valid cards
+                     if len(cards) == 0:
+@@ -1639,42 +1932,17 @@ class GoogleReviewsScraper:
+                     else:
+                         consecutive_no_cards = 0  # Reset counter when we find cards
+ 
+-                    batch_seen_count = 0  # Cards already in DB (for batch stop)
+-                    for c in cards:
+-                        try:
+-                            cid = c.get_attribute("data-review-id")
+-                            if not cid or cid in processed_ids:
+-                                continue
+-                            processed_ids.add(cid)
+-                            if cid in seen:
+-                                batch_seen_count += 1
+-                                continue
+-                            fresh_cards.append(c)
+-                        except StaleElementReferenceException:
+-                            continue
+-                        except Exception as e:
+-                            log.debug(f"Error getting review ID: {e}")
+-                            continue
++                    # Cards already in DB (for batch stop)
++                    fresh_ids, batch_seen_count, card_by_id = self._collect_fresh_ids(
++                        driver, pane, cards, processed_ids, seen
++                    )
+ 
+-                    batch_total = len(fresh_cards) + batch_seen_count
++                    batch_total = len(fresh_ids) + batch_seen_count
+                     batch_unchanged = batch_seen_count
+ 
+-                    for card in fresh_cards:
+-                        try:
+-                            raw = RawReview.from_card(card)
+-                        except StaleElementReferenceException:
+-                            continue
+-                        except Exception:
+-                            # Skip the card — do not store empty stubs.
+-                            # Earlier behavior stored a zero-rating placeholder,
+-                            # which polluted content hashes and downstream data.
+-                            batch_stats["parse_errors"] = batch_stats.get("parse_errors", 0) + 1
+-                            log.warning(
+-                                "parse error - skipping card\n%s",
+-                                traceback.format_exc(limit=1).strip(),
+-                            )
+-                            continue
+-
++                    for raw in self._extract_batch(
++                        driver, card_by_id, fresh_ids, batch_stats
++                    ):
+                         if not raw.id:
+                             batch_stats["parse_errors"] = batch_stats.get("parse_errors", 0) + 1
+                             continue
+@@ -1749,61 +2017,126 @@ class GoogleReviewsScraper:
+                         log.info(f"Stopping: No new reviews found after {max_idle} scroll attempts")
+                         break
+ 
+-                    if not fresh_cards:
++                    if not fresh_ids:
+                         idle += 1
+                         attempts += 1
+                         log.info(f"No new reviews in this iteration (idle: {idle}/{max_idle}, attempts: {attempts}/{max_attempts}, total seen: {len(seen)})")
+ 
+-                        # When no new reviews, scroll more aggressively
+-                        try:
+-                            # Try multiple scroll methods
+-                            driver.execute_script(scroll_script)
+-                            time.sleep(0.5)
+-                            driver.execute_script("window.scrollBy(0, 500);")  # Extra scroll
+-                            time.sleep(0.5)
+-                        except Exception as e:
+-                            log.warning(f"Error scrolling: {e}")
+-                    else:
+-                        log.info(f"Found {len(fresh_cards)} new reviews in this iteration")
+-
+-                    # Check if we're actually scrolling or stuck
++                    # Multi-strategy scroll targeting the actual review scroll container and last card
++                    metrics = None
+                     try:
+-                        current_scroll = driver.execute_script("return arguments[0].scrollTop;", pane)
+-                        if current_scroll == last_scroll_position and len(fresh_cards) == 0:
++                        target = cards[-1] if cards else pane
++                        metrics = driver.execute_script("""
++                            function findScrollable(el) {
++                                while (el && el !== document.body) {
++                                    try {
++                                        var s = window.getComputedStyle(el);
++                                        if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight) {
++                                            return el;
++                                        }
++                                    } catch(e) {}
++                                    el = el.parentElement;
++                                }
++                                var allPanes = document.querySelectorAll('div.m6QErb, div[role="main"] div');
++                                for (var i = 0; i < allPanes.length; i++) {
++                                    var p = allPanes[i];
++                                    if (p.scrollHeight > p.clientHeight && p.clientHeight > 200) return p;
++                                }
++                                return document.scrollingElement || document.documentElement;
++                            }
++                            var el = arguments[0];
++                            var scrollContainer = findScrollable(el);
++                            if (scrollContainer) {
++                                scrollContainer.scrollTop = scrollContainer.scrollHeight;
++                                scrollContainer.scrollBy(0, 1500);
++                                try {
++                                    scrollContainer.dispatchEvent(new Event('scroll', {bubbles: true}));
++                                    scrollContainer.dispatchEvent(new WheelEvent('wheel', {deltaY: 1500, deltaMode: 0, bubbles: true, cancelable: true}));
++                                } catch(e) {}
++                            }
++                            if (el) {
++                                try {
++                                    if (el.focus) el.focus();
++                                    if (el.scrollIntoView) el.scrollIntoView({behavior: 'instant', block: 'end'});
++                                } catch(e) {}
++                            }
++                        """ + dom_batch.JS_SCROLL_METRICS, target)
++
++                        # Native CDP wheel scroll and keyboard action on the target card
++                        try:
++                            from selenium.webdriver.common.actions.wheel_input import ScrollOrigin
++                            ActionChains(driver).scroll_from_origin(
++                                ScrollOrigin.from_element(pane), 0, 1500
++                            ).perform()
++                        except Exception:
++                            pass
++
++                        # NOTE: the former `move_to_element(target).click()` chain
++                        # was removed here. It carried DEFAULT_MOVE_DURATION=250ms
++                        # per iteration and, worse, clicked a review card — which
++                        # can open a photo lightbox or navigate to a contributor
++                        # profile. PAGE_DOWN recovery still runs in the stuck
++                        # branch below, where the stuck detector asks for it.
++
++                        m = metrics if isinstance(metrics, dict) else {}
++                        current_scroll = m.get("scrollTop", 0)
++                        if current_scroll == last_scroll_position and len(fresh_ids) == 0:
+                             scroll_stuck_count += 1
+                             log.warning(f"Scroll position hasn't changed (stuck at {current_scroll}px, stuck count: {scroll_stuck_count})")
+-
+-                            if scroll_stuck_count > 5:
+-                                log.warning("Scroll is stuck - trying alternative scroll method")
+-                                # Try clicking the last visible review to force loading
++                            if scroll_stuck_count > 2:
++                                log.warning("Scroll is stuck - trying keyboard page down and mouse wheel")
+                                 try:
+-                                    driver.execute_script("arguments[0].lastElementChild.scrollIntoView();", pane)
+-                                    time.sleep(2)
++                                    ActionChains(driver).send_keys(Keys.PAGE_DOWN).send_keys(Keys.PAGE_DOWN).perform()
+                                 except Exception:
+                                     pass
+                                 scroll_stuck_count = 0
+                         else:
+                             scroll_stuck_count = 0
+                             last_scroll_position = current_scroll
+-                    except Exception:
+-                        pass
+-
+-                    # Use JavaScript for smoother scrolling
+-                    try:
+-                        driver.execute_script(scroll_script)
+                     except Exception as e:
+-                        log.warning(f"Error scrolling: {e}")
+-                        # Try a simpler scroll method
+-                        driver.execute_script("window.scrollBy(0, 300);")
+-
+-                    # Dynamic sleep: sleep less when processing many reviews, more when finding none
+-                    if len(fresh_cards) > 5:
+-                        sleep_time = 0.7
+-                    elif len(fresh_cards) == 0:
+-                        sleep_time = 2.0  # Wait longer when finding nothing (let page load)
+-                    else:
+-                        sleep_time = 1.0
+-                    time.sleep(sleep_time)
++                        log.warning(f"Error during scroll: {e}")
++
++                    # --- Pane exhaustion: stop instead of grinding out the
++                    # remaining idle iterations. `idle >= max_idle` above
++                    # survives untouched as the outer bound, so if every signal
++                    # here is unavailable the behaviour is identical to before.
++                    m = metrics if isinstance(metrics, dict) else {}
++                    prev_height, prev_cards = last_scroll_height, last_card_count
++                    (exhaust_streak, exhaust_started, exhausted,
++                     last_scroll_height, last_card_count) = self._exhaustion_step(
++                        metrics, bool(fresh_ids), prev_height, prev_cards,
++                        exhaust_streak, exhaust_started, time.monotonic(),
++                    )
++                    if exhausted:
++                        log.info(
++                            "Pane exhausted: %d cards in DOM, flush at bottom "
++                            "(%dpx slack), scrollHeight %d and card count "
++                            "unchanged for %d iterations / %.1fs — stopping "
++                            "(saved %d idle iterations)",
++                            last_card_count,
++                            last_scroll_height - (m.get("scrollTop", 0)
++                                                  + m.get("clientHeight", 0)),
++                            last_scroll_height, exhaust_streak,
++                            time.monotonic() - exhaust_started,
++                            max(0, max_idle - idle),
++                        )
++                        break
++
++                    # Wait for the pane to actually grow instead of paying a
++                    # fixed sleep every iteration. Typical satisfaction is
++                    # 200-400ms; the deadline bounds the worst case.
++                    #
++                    # Baseline is `last_*` — the values `_exhaustion_step` just
++                    # measured — NOT `prev_*`, which are the previous pass's.
++                    # Handed the older, smaller numbers, the very first poll
++                    # already exceeds them on any pass where the pane grew, so
++                    # the function returned True having waited for nothing and
++                    # the loop spun through barren passes instead.
++                    self._wait_for_growth(
++                        driver, last_card_count, last_scroll_height,
++                        GROWTH_DEADLINE_AFTER_HIT_SECONDS if fresh_ids
++                        else GROWTH_DEADLINE_AFTER_MISS_SECONDS,
++                    )
+ 
+                 except StaleElementReferenceException:
+                     # The pane or other element went stale, try to re-find
+@@ -1885,6 +2218,17 @@ class GoogleReviewsScraper:
+                     "Parse errors: %d cards skipped due to parser exceptions",
+                     batch_stats["parse_errors"],
+                 )
++            if self._batch_cards_total or self._batch_fail_ids:
++                log.info(
++                    "Batched DOM extraction: %d/%d cards batched, "
++                    "%d id-scan fallbacks, %d extract failures, "
++                    "%d coverage gaps, %d empty payloads, %d unexpanded 'More'",
++                    self._batch_cards_total - self._batch_cards_fallback,
++                    self._batch_cards_total,
++                    self._batch_fail_ids, self._batch_fail_extract,
++                    self._batch_fail_missing, self._batch_fail_field,
++                    self._batch_more_left,
++                )
+             log.info("Total unique reviews in DB: %d", len(reviews))
+ 
+             end_time = time.time()
+diff --git a/tests/fixtures/reviews_fixture.html b/tests/fixtures/reviews_fixture.html
+new file mode 100644
+index 0000000..d72d09f
+--- /dev/null
++++ b/tests/fixtures/reviews_fixture.html
+@@ -0,0 +1,95 @@
++<!doctype html>
++<html lang="en"><head><meta charset="utf-8"><title>Review card fixture</title>
++<style>
++  body { font-family: sans-serif; margin: 0; }
++  #pane { height: 400px; overflow-y: auto; }
++  .hidden { display: none; }
++  button.Tya61d { width: 60px; height: 60px; display: inline-block; }
++  .block { display: block; }
++</style>
++</head>
++<body>
++<div role="main">
++ <div class="m6QErb DxyBCb kA9KIf dS8AEf" id="pane">
++
++  <!-- ============ CARD 1: has a "More" button, a like count, long text ============ -->
++  <div class="jJc9Ad" data-review-id="ChZDSUhNMG9nS0VJQ0FnSUMxMDEx">
++    <button data-review-id="ChZDSUhNMG9nS0VJQ0FnSUMxMDEx"
++            data-href="https://www.google.com/maps/contrib/000000000000000000000/reviews"
++            aria-label="Photo of Alice Example">
++      <img src="/avatars/alice.png" alt="">
++    </button>
++    <div class="d4r55">Reviewer 1</div>
++    <span role="img" aria-label="5 stars"></span>
++    <span class="rsqaWe">3 months ago</span>
++    <div class="MyEned">
++      <span jsname="bN97Pc">Short visible text.<span class="hidden" id="more1-tail"> And the tail that only appears after expanding.</span></span>
++    </div>
++    <button class="kyuRq" jsaction="pane.review.expandReview">More</button>
++    <button jsaction="pane.review.toggleThumbsUp" aria-label="12 people found this helpful">12</button>
++  </div>
++
++  <!-- ============ CARD 2: photos + owner reply + sub-ratings ============ -->
++  <div class="jJc9Ad" data-review-id="ChZDSUhNMG9nS0VJQ0FnSUMxMDEy">
++    <button data-review-id="ChZDSUhNMG9nS0VJQ0FnSUMxMDEy"
++            data-href="https://www.google.com/maps/contrib/000000000000000000000/reviews">
++      <img src="https://example.invalid/redacted" alt="">
++    </button>
++    <div class="d4r55">Reviewer 3</div>
++    <span role="img" aria-label="4 stars"></span>
++    <span class="rsqaWe">a year ago</span>
++    <div class="MyEned"><span jsname="bN97Pc">Nice place.
++    Second line here.</span></div>
++    <button class="Tya61d" aria-label="Photo 1" style="background-image: url(&quot;https://example.invalid/redacted"></button>
++    <button class="Tya61d" aria-label="Photo 2" style='background-image: url("https://example.invalid/redacted");'></button>
++    <!-- unquoted url: the raw style ATTRIBUTE and style.cssText differ here,
++         so a getAttribute("style") read is distinguishable from a cssText read -->
++    <button class="Tya61d" aria-label="Photo 1 duplicate" style="background-image: url(https://example.invalid/redacted"></button>
++    <div class="PBK6be" aria-label="Service: 5/5"></div>
++    <div class="PBK6be" aria-label="Food: 4/5"></div>
++    <div class="PBK6be">Atmosphere: 3/5</div>
++    <div class="CDe7pd">
++      <span class="DZSIDd">2 months ago</span>
++      <div class="wiI7pd">Thank you for the kind words,   Bob!</div>
++    </div>
++  </div>
++
++  <!-- ============ CARD 3: rating only, no text, non-Latin author, no like button ============ -->
++  <div class="jJc9Ad" data-review-id="ChZDSUhNMG9nS0VJQ0FnSUMxMDEz">
++    <button data-review-id="ChZDSUhNMG9nS0VJQ0FnSUMxMDEz"
++            data-href="https://www.google.com/maps/contrib/000000000000000000000/reviews">
++      <img src="/avatars/three.png" alt="">
++    </button>
++    <div class="d4r55">Reviewer 4</div>
++    <span role="img" aria-label="3.0 stars"></span>
++    <span class="rsqaWe">2 weeks ago</span>
++  </div>
++
++  <!-- ============ CARD 4: whitespace / normalization probe (NOT part of the 3-card shape set) ============ -->
++  <div class="jJc9Ad" data-review-id="WSPROBE">
++    <div class="d4r55">Reviewer 2</div>
++    <span class="rsqaWe">line1<br>line2<br><br>line3</span>
++    <div class="MyEned"><span jsname="bN97Pc"><div class="block">blockA</div><div class="block">blockB</div><span>inline1</span><span>inline2</span></span></div>
++    <button jsaction="pane.review.toggleThumbsUp" aria-label="7 helpful">  7  </button>
++    <div class="PBK6be">  Rooms:  2/5  </div>
++  </div>
++
++ </div>
++</div>
++<script>
++  // Mimic Google's delegated jsaction expansion: clicking a .kyuRq button
++  // reveals the hidden tail inside the same card and removes the button.
++  document.addEventListener('click', function (ev) {
++    var btn = ev.target && ev.target.closest ? ev.target.closest('button.kyuRq') : null;
++    if (!btn) return;
++    var card = btn.closest('div[data-review-id]');
++    if (card) {
++      var tail = card.querySelector('.hidden');
++      if (tail) tail.classList.remove('hidden');
++    }
++    btn.remove();
++    window.__expandClicks = (window.__expandClicks || 0) + 1;
++    window.__lastTrusted = ev.isTrusted;
++  }, true);
++</script>
++</body></html>
+diff --git a/tests/test_date_converter_units.py b/tests/test_date_converter_units.py
+new file mode 100644
+index 0000000..d809a87
+--- /dev/null
++++ b/tests/test_date_converter_units.py
+@@ -0,0 +1,53 @@
++"""Every relative-date unit Google Maps actually renders must convert.
++
++Regression, 2026-08-31: the English pattern matched only day/week/month/year,
++so anything younger than a day converted to None — while this module's own
++docstring listed "an hour ago" as supported. The newest reviews on every page
++are exactly the ones under a day old, and a consumer that sorts on
++`review_date or ""` descending puts undated rows LAST and truncates them first.
++Measured on a live place: one "2 hours ago" review out of 85 was the only row
++with no date, and it was the most recent one.
++"""
++from datetime import datetime, timedelta
++
++import pytest
++
++from modules.date_converter import relative_to_datetime
++
++# The module builds its answers from `datetime.utcnow()`, so the reference
++# has to be UTC too — comparing against local time fails by the offset,
++# which reads exactly like a broken converter on any non-UTC machine.
++NOW = datetime.utcnow()
++
++
++@pytest.mark.parametrize("text,delta", [
++    ("30 seconds ago", timedelta(seconds=30)),
++    ("a minute ago", timedelta(minutes=1)),
++    ("5 minutes ago", timedelta(minutes=5)),
++    ("an hour ago", timedelta(hours=1)),
++    ("2 hours ago", timedelta(hours=2)),
++    ("a day ago", timedelta(days=1)),
++    ("2 days ago", timedelta(days=2)),
++    ("2 weeks ago", timedelta(weeks=2)),
++    ("a month ago", timedelta(days=30)),
++    ("3 years ago", timedelta(days=365 * 3)),
++])
++def test_every_rendered_unit_converts(text, delta):
++    moment = relative_to_datetime(text, "en")
++    assert moment is not None, f"{text!r} did not convert"
++    # One minute of slack for the clock moving between the two `now` reads.
++    assert abs((NOW - delta) - moment) < timedelta(minutes=1)
++
++
++@pytest.mark.parametrize("text", ["just now", "now", "a moment ago", "moments ago"])
++def test_the_unitless_present_converts(text):
++    moment = relative_to_datetime(text, "en")
++    assert moment is not None, f"{text!r} did not convert"
++    assert abs(NOW - moment) < timedelta(minutes=1)
++
++
++@pytest.mark.parametrize("text", ["", "gibberish", "sometime last winter", "yesterday"])
++def test_what_it_cannot_read_stays_none_rather_than_becoming_now(text):
++    # None means "unknown age". Defaulting to `now` would sort an unknown review
++    # to the very top of a newest-first list.
++    assert relative_to_datetime(text, "en") is None
+diff --git a/tests/test_dom_batch.py b/tests/test_dom_batch.py
+new file mode 100644
+index 0000000..5d07eee
+--- /dev/null
++++ b/tests/test_dom_batch.py
+@@ -0,0 +1,733 @@
++"""Contract tests for the batched DOM extractor (modules/dom_batch.py).
++
++No browser required. The browser-backed equivalence gate — which grades the JS
++visible-text port against ChromeDriver's WebElement.text and diffs both
++extraction paths over one DOM — lives in the batched-extraction harness and
++must be run separately; these tests cover the parts that are decidable offline.
++"""
++
++import json
++import re
++
++import pytest
++
++from modules import dom_batch
++from modules.models import RawReview
++
++
++class TestSelectorOwnership:
++    """RawReview is the single owner of every review selector."""
++
++    def test_no_unreplaced_tokens(self):
++        scripts = {
++            "JS_COLLECT_IDS": dom_batch.JS_COLLECT_IDS,
++            "JS_EXPAND_MORE": dom_batch.JS_EXPAND_MORE,
++            "JS_EXTRACT_CARDS": dom_batch.JS_EXTRACT_CARDS,
++            "JS_SCROLL_METRICS": dom_batch.JS_SCROLL_METRICS,
++            "JS_GROWTH_PROBE": dom_batch.JS_GROWTH_PROBE,
++            "JS_VISIBLE_TEXT_OF": dom_batch.JS_VISIBLE_TEXT_OF,
++        }
++        assert scripts, "denominator is zero — nothing was graded"
++        for name, src in scripts.items():
++            leftover = re.findall(r"__[A-Z][A-Z0-9_]*__", src)
++            assert not leftover, f"{name} has unsubstituted tokens: {leftover}"
++
++    def test_every_selector_in_js_comes_from_rawreview(self):
++        """A selector present in the JS but not on RawReview is a second copy.
++
++        Ranges over every selector *group* the extractor templates in, and
++        reports how many it graded so a shrinking selector set is visible as a
++        number that dropped rather than as continued green.
++        """
++        owned = set()
++        for attr in dir(RawReview):
++            if attr.startswith("_") or not attr.isupper():
++                continue
++            value = getattr(RawReview, attr)
++            if isinstance(value, str):
++                owned.add(value)
++            elif isinstance(value, tuple):
++                owned.update(value)
++        assert len(owned) >= 18, f"only {len(owned)} selectors owned by RawReview"
++
++        # Selectors are templated in as JSON, so `"` is escaped in the JS.
++        js = dom_batch.JS_EXTRACT_CARDS
++        graded = sum(1 for sel in owned if json.dumps(sel) in js)
++        # Every selector the extractor uses must appear verbatim in the JS.
++        used = set(RawReview.MORE_BTN) | set(RawReview.RATING_SELECTORS) \
++            | set(RawReview.DATE_SELECTORS) | set(RawReview.TEXT_SELECTORS) \
++            | set(RawReview.PHOTO_BTN_SELECTORS) | set(RawReview.OWNER_RESP_SELECTORS) \
++            | set(RawReview.OWNER_DATE_SELECTORS) | set(RawReview.OWNER_TEXT_SELECTORS) \
++            | set(RawReview.SUB_RATING_SELECTORS) \
++            | {RawReview.LIKE_BTN, RawReview.AUTHOR_SEL,
++               RawReview.PROFILE_SEL, RawReview.AVATAR_SEL}
++        missing = [s for s in used if json.dumps(s) not in js]
++        assert not missing, f"selectors missing from the rendered JS: {missing}"
++        assert graded >= len(used), f"graded only {graded} of {len(used)}"
++
++    def test_js_has_no_invisible_code_points(self):
++        """A regex whose correctness is invisible on screen cannot be reviewed."""
++        import pathlib
++        src = pathlib.Path(dom_batch.__file__).read_text(encoding="utf-8")
++        bad = sorted({hex(ord(c)) for c in src
++                      if ord(c) in (0x00a0, 0x200b, 0x200e, 0x200f, 0xfeff)
++                      or (ord(c) < 0x20 and c not in "\n\t")})
++        assert not bad, f"invisible/control code points in dom_batch.py: {bad}"
++
++
++class TestFromPayloadReplaysTheOldLoops:
++    """`from_payload` is the single parser; it must replay from_card exactly."""
++
++    @staticmethod
++    def payload(**over):
++        p = {
++            "id": "rid-1",
++            "author_texts": [], "profile_attrs": [], "avatar_attrs": [],
++            "rating_attrs": [[], []],
++            "date_texts": [[], []],
++            "text_texts": [[], [], []],
++            "like_present": False, "like_text": None, "like_aria": None,
++            "photo_styles": [[], [], []],
++            "owner_date_texts": None, "owner_text_texts": None,
++            "sub_labels": [], "more_left": 0,
++        }
++        p.update(over)
++        return p
++
++    def test_review_id_passthrough(self):
++        assert RawReview.from_payload(self.payload(id="ChZabc")).id == "ChZabc"
++
++    def test_missing_id_becomes_empty_string(self):
++        assert RawReview.from_payload(self.payload(id=None)).id == ""
++
++    def test_first_nonempty_after_strip_wins(self):
++        raw = RawReview.from_payload(
++            self.payload(author_texts=["", "   ", "  Alice  ", "Bob"]))
++        assert raw.author == "Alice"
++
++    def test_rating_out_of_range_persists_across_selectors(self):
++        """models.py:104 assigns before the :105 range check — that is stateful.
++
++        An out-of-range value must survive the loop when no later selector
++        supplies a valid one.
++        """
++        raw = RawReview.from_payload(self.payload(rating_attrs=[["7 stars"], []]))
++        assert raw.rating == 7.0
++
++    def test_rating_later_selector_can_correct_an_out_of_range_value(self):
++        raw = RawReview.from_payload(
++            self.payload(rating_attrs=[["7 stars"], ["4 stars"]]))
++        assert raw.rating == 4.0
++
++    def test_rating_comma_decimal(self):
++        raw = RawReview.from_payload(self.payload(rating_attrs=[["4,0 estrellas"], []]))
++        assert raw.rating == 4.0
++
++    def test_date_keeps_last_selector_value_when_none_are_truthy(self):
++        raw = RawReview.from_payload(self.payload(date_texts=[[""], [""]]))
++        assert raw.date == ""
++
++    def test_text_first_truthy_selector_wins(self):
++        raw = RawReview.from_payload(
++            self.payload(text_texts=[[""], ["second selector"], ["third"]]))
++        assert raw.text == "second selector"
++        assert raw.lang == "en"
++
++    def test_lang_detection_runs_on_the_chosen_text(self):
++        raw = RawReview.from_payload(self.payload(text_texts=[["สวัสดี"], [], []]))
++        assert raw.lang == "th"
++
++    def test_likes_prefers_text_then_aria(self):
++        assert RawReview.from_payload(self.payload(
++            like_present=True, like_text="12", like_aria="99 people")).likes == 12
++        assert RawReview.from_payload(self.payload(
++            like_present=True, like_text="", like_aria="7 people")).likes == 7
++        assert RawReview.from_payload(self.payload(
++            like_present=True, like_text="", like_aria=None)).likes == 0
++
++    def test_absent_like_button_is_zero_not_a_read(self):
++        assert RawReview.from_payload(self.payload(like_present=False)).likes == 0
++
++    def test_photos_order_preserving_dedupe(self):
++        styles = ['background-image: url("https://x/A");',
++                  'background-image: url("https://x/B");',
++                  'background-image: url("https://x/A");']
++        raw = RawReview.from_payload(self.payload(photo_styles=[styles, [], []]))
++        assert raw.photos == ["https://x/A", "https://x/B"]
++
++    def test_photo_selector_that_matches_but_yields_nothing_falls_through(self):
++        """models.py:140 breaks only when `photos` is non-empty."""
++        raw = RawReview.from_payload(self.payload(photo_styles=[
++            ["color: red;"], ['background-image: url("https://x/C");'], []]))
++        assert raw.photos == ["https://x/C"]
++
++    def test_owner_response_absent(self):
++        raw = RawReview.from_payload(self.payload())
++        assert raw.owner_text == "" and raw.owner_date == ""
++
++    def test_owner_response_present(self):
++        raw = RawReview.from_payload(self.payload(
++            owner_date_texts=[["2 months ago"], []],
++            owner_text_texts=[[""], ["Thanks!"]]))
++        assert raw.owner_date == "2 months ago"
++        assert raw.owner_text == "Thanks!"
++
++    def test_sub_ratings_aria_wins_and_text_is_the_fallback(self):
++        raw = RawReview.from_payload(self.payload(sub_labels=[[
++            {"aria": "Service: 5/5", "text": None},
++            {"aria": "", "text": "Food: 4/5"},
++        ], []]))
++        assert raw.sub_ratings == {"service": 5, "food": 4}
++
++    def test_sub_ratings_precedence_is_observable(self):
++        """The `or` order is only decidable when both fields are populated."""
++        raw = RawReview.from_payload(self.payload(sub_labels=[[
++            {"aria": "Service: 5/5", "text": "Service: 1/5"}], []]))
++        assert raw.sub_ratings == {"service": 5}
++
++    def test_sub_ratings_unknown_category_goes_to_other(self):
++        raw = RawReview.from_payload(self.payload(sub_labels=[[
++            {"aria": "Totally unknown xyz: 3/5", "text": None}], []]))
++        assert raw.sub_ratings["_other"]["totally unknown xyz"] == 3
++
++    def test_sub_ratings_selector_with_no_parse_falls_through(self):
++        raw = RawReview.from_payload(self.payload(sub_labels=[
++            [{"aria": "not a rating", "text": None}],
++            [{"aria": "Rooms: 2/5", "text": None}]]))
++        assert raw.sub_ratings == {"rooms": 2}
++
++    def test_empty_payload_yields_an_empty_review_not_a_crash(self):
++        raw = RawReview.from_payload({})
++        assert raw.id == "" and raw.rating == 0.0 and raw.photos == []
++
++
++class TestEmptyPayloadDetection:
++    def test_populated_payload_is_not_empty(self):
++        p = TestFromPayloadReplaysTheOldLoops.payload(author_texts=["Alice"])
++        assert dom_batch.is_empty_payload(p) is False
++
++    def test_content_free_payload_is_empty(self):
++        p = TestFromPayloadReplaysTheOldLoops.payload()
++        assert dom_batch.is_empty_payload(p) is True
++
++    def test_payload_without_an_id_is_never_flagged(self):
++        p = TestFromPayloadReplaysTheOldLoops.payload(id="")
++        assert dom_batch.is_empty_payload(p) is False
++
++    def test_rating_only_card_is_not_empty(self):
++        p = TestFromPayloadReplaysTheOldLoops.payload(rating_attrs=[["5 stars"], []])
++        assert dom_batch.is_empty_payload(p) is False
++
++
++class TestWrappersDegradeInsteadOfRaising:
++    """Each wrapper returns None on a WebDriver error — the T1/T2 contract."""
++
++    class _Boom:
++        def execute_script(self, *a, **k):
++            from selenium.common.exceptions import JavascriptException
++            raise JavascriptException("boom")
++
++    class _Wrong:
++        def __init__(self, value):
++            self.value = value
++
++        def execute_script(self, *a, **k):
++            return self.value
++
++    def test_collect_ids_none_on_error(self):
++        assert dom_batch.collect_ids(self._Boom(), None) is None
++
++    def test_collect_ids_none_on_wrong_shape(self):
++        assert dom_batch.collect_ids(self._Wrong("not-a-list"), None) is None
++
++    def test_collect_ids_passes_a_list_through(self):
++        assert dom_batch.collect_ids(self._Wrong(["a", "b"]), None) == ["a", "b"]
++
++    def test_extract_cards_none_on_error(self):
++        assert dom_batch.extract_cards(self._Boom(), []) is None
++
++    def test_expand_more_none_on_error(self):
++        assert dom_batch.expand_more(self._Boom(), []) is None
++
++    def test_growth_probe_none_on_error(self):
++        assert dom_batch.growth_probe(self._Boom()) is None
++
++    def test_growth_probe_none_on_wrong_arity(self):
++        assert dom_batch.growth_probe(self._Wrong([1])) is None
++
++    def test_growth_probe_tuple(self):
++        assert dom_batch.growth_probe(self._Wrong([12, 3400])) == (12, 3400)
++
++
++class _FakeDriver:
++    """Minimal driver stand-in: answers each execute_script from a queue.
++
++    Records every script it was handed, so a test can assert *which* call was
++    made and not only what came back.
++    """
++
++    def __init__(self, answers):
++        self.answers = list(answers)
++        self.scripts = []
++
++    def execute_script(self, script, *args):
++        self.scripts.append((script, args))
++        if not self.answers:
++            raise AssertionError("FakeDriver ran out of answers")
++        a = self.answers.pop(0)
++        if isinstance(a, Exception):
++            raise a
++        return a
++
++    def find_elements(self, *a, **k):
++        return []
++
++
++def _scraper(tmp_path, **cfg):
++    from modules.scraper import GoogleReviewsScraper
++    base = {"db_path": str(tmp_path / "t.db")}
++    base.update(cfg)
++    return GoogleReviewsScraper(base)
++
++
++class TestCollectFreshIds:
++    """The O(n^2) rescan replacement, and its T1 fallback."""
++
++    def test_batched_scan_partitions_ids(self, tmp_path):
++        s = _scraper(tmp_path)
++        d = _FakeDriver([["a", "b", "c"]])
++        fresh, seen_count, by_id = s._collect_fresh_ids(
++            d, None, ["handle"], processed_ids=set(), seen={"b"})
++        assert fresh == ["a", "c"]
++        assert seen_count == 1
++        assert by_id == {}
++        assert len(d.scripts) == 1, "must be ONE round trip, not one per card"
++
++    def test_already_processed_ids_are_skipped(self, tmp_path):
++        s = _scraper(tmp_path)
++        d = _FakeDriver([["a", "b"]])
++        processed = {"a"}
++        fresh, seen_count, _ = s._collect_fresh_ids(
++            d, None, ["h"], processed_ids=processed, seen=set())
++        assert fresh == ["b"]
++        assert processed == {"a", "b"}
++
++    def test_empty_ids_are_ignored(self, tmp_path):
++        s = _scraper(tmp_path)
++        d = _FakeDriver([["", "a", ""]])
++        fresh, _, _ = s._collect_fresh_ids(d, None, ["h"], set(), set())
++        assert fresh == ["a"]
++
++    def test_falls_back_to_the_per_card_loop_on_script_error(self, tmp_path):
++        from selenium.common.exceptions import JavascriptException
++
++        class Card:
++            def __init__(self, rid):
++                self.rid = rid
++
++            def get_attribute(self, name):
++                assert name == "data-review-id"
++                return self.rid
++
++        s = _scraper(tmp_path)
++        d = _FakeDriver([JavascriptException("boom")])
++        fresh, seen_count, by_id = s._collect_fresh_ids(
++            d, None, [Card("a"), Card("b")], set(), {"b"})
++        assert fresh == ["a"]
++        assert seen_count == 1
++        assert list(by_id) == ["a"], "fallback must keep the handle it already read"
++        assert s._batch_fail_ids == 1
++
++    def test_empty_answer_with_cards_present_is_a_fallback_not_a_result(self, tmp_path):
++        """An empty list while the DOM has cards is the wrong answer, not zero."""
++        class Card:
++            def get_attribute(self, name):
++                return "z"
++
++        s = _scraper(tmp_path)
++        d = _FakeDriver([[]])
++        fresh, _, _ = s._collect_fresh_ids(d, None, [Card()], set(), set())
++        assert fresh == ["z"]
++        assert s._batch_fail_ids == 1
++
++    def test_empty_answer_with_no_cards_is_a_real_result(self, tmp_path):
++        s = _scraper(tmp_path)
++        d = _FakeDriver([[]])
++        fresh, _, _ = s._collect_fresh_ids(d, None, [], set(), set())
++        assert fresh == []
++        assert s._batch_fail_ids == 0
++
++    def test_kill_switch_skips_the_script_entirely(self, tmp_path):
++        class Card:
++            def get_attribute(self, name):
++                return "q"
++
++        s = _scraper(tmp_path, batch_extract=False)
++        d = _FakeDriver([])          # any execute_script would raise
++        fresh, _, _ = s._collect_fresh_ids(d, None, [Card()], set(), set())
++        assert fresh == ["q"]
++        assert d.scripts == []
++
++
++def _payload(rid, author="Alice"):
++    p = TestFromPayloadReplaysTheOldLoops.payload(id=rid)
++    p["author_texts"] = [author]
++    return p
++
++
++class TestExtractBatch:
++    def test_batched_path_yields_parsed_reviews(self, tmp_path):
++        s = _scraper(tmp_path)
++        d = _FakeDriver([{"clicked": 0, "cards": 2},
++                         [_payload("a"), _payload("b", "Bob")]])
++        stats = {}
++        out = list(s._extract_batch(d, {}, ["a", "b"], stats))
++        assert [r.id for r in out] == ["a", "b"]
++        assert [r.author for r in out] == ["Alice", "Bob"]
++        assert s._batch_cards_fallback == 0
++        assert stats == {}
++
++    def test_extract_failure_degrades_the_whole_iteration(self, tmp_path):
++        from selenium.common.exceptions import JavascriptException
++
++        class Card:
++            def __init__(self, rid):
++                self.rid = rid
++
++        s = _scraper(tmp_path)
++        d = _FakeDriver([{"clicked": 0, "cards": 1}, JavascriptException("boom")])
++        seen = []
++
++        def fake_from_card(card):
++            seen.append(card.rid)
++            return RawReview(id=card.rid)
++
++        RawReview_from_card = RawReview.from_card
++        RawReview.from_card = staticmethod(fake_from_card)
++        try:
++            out = list(s._extract_batch(d, {"a": Card("a")}, ["a"], {}))
++        finally:
++            RawReview.from_card = RawReview_from_card
++        assert [r.id for r in out] == ["a"]
++        assert seen == ["a"], "must have used the per-card path"
++        assert s._batch_fail_extract == 1
++        assert s._batch_cards_fallback == 1
++
++    def test_missing_card_is_a_per_card_fallback_for_that_id_only(self, tmp_path):
++        class Card:
++            def __init__(self, rid):
++                self.rid = rid
++
++        s = _scraper(tmp_path)
++        d = _FakeDriver([{"clicked": 0, "cards": 2}, [_payload("a")]])
++        calls = []
++        orig = RawReview.from_card
++        RawReview.from_card = staticmethod(
++            lambda c: calls.append(c.rid) or RawReview(id=c.rid))
++        try:
++            out = list(s._extract_batch(d, {"b": Card("b")}, ["a", "b"], {}))
++        finally:
++            RawReview.from_card = orig
++        assert [r.id for r in out] == ["a", "b"]
++        assert calls == ["b"], "only the missing id degrades"
++        assert out[0].author == "Alice", "the present id used the batched payload"
++        assert out[1].author == "", "the missing id came from the per-card path"
++        assert s._batch_fail_missing == 1
++        assert s._batch_cards_fallback == 1
++
++    def test_content_free_payload_is_re_read_per_card(self, tmp_path):
++        class Card:
++            rid = "a"
++
++        s = _scraper(tmp_path)
++        empty = TestFromPayloadReplaysTheOldLoops.payload(id="a")
++        d = _FakeDriver([{"clicked": 0, "cards": 1}, [empty]])
++        calls = []
++        orig = RawReview.from_card
++        RawReview.from_card = staticmethod(
++            lambda c: calls.append("used") or RawReview(id="a", author="real"))
++        try:
++            out = list(s._extract_batch(d, {"a": Card()}, ["a"], {}))
++        finally:
++            RawReview.from_card = orig
++        assert calls == ["used"]
++        assert out[0].author == "real"
++        assert s._batch_fail_field == 1
++
++    def test_no_fresh_ids_makes_no_round_trips(self, tmp_path):
++        s = _scraper(tmp_path)
++        d = _FakeDriver([])
++        assert list(s._extract_batch(d, {}, [], {})) == []
++        assert d.scripts == []
++
++
++class TestBatchCircuitBreaker:
++    def test_consecutive_failures_trip_it(self, tmp_path):
++        from modules.scraper import BATCH_CONSECUTIVE_FAILURE_LIMIT
++        assert BATCH_CONSECUTIVE_FAILURE_LIMIT == 3, "threshold changed — is that intended?"
++        s = _scraper(tmp_path)
++        assert s._batch_ok is True
++        s._note_batch_failure(True)
++        s._note_batch_failure(True)
++        assert s._batch_ok is True, "must not trip early"
++        s._note_batch_failure(True)
++        assert s._batch_ok is False
++
++    def test_a_success_resets_the_streak(self, tmp_path):
++        s = _scraper(tmp_path)
++        s._note_batch_failure(True)
++        s._note_batch_failure(True)
++        s._note_batch_failure(False)
++        s._note_batch_failure(True)
++        assert s._batch_ok is True
++
++    def test_fallback_ratio_trips_it(self, tmp_path):
++        from modules.scraper import BATCH_FALLBACK_RATIO_LIMIT
++        assert BATCH_FALLBACK_RATIO_LIMIT == 0.30
++        s = _scraper(tmp_path)
++        s._batch_cards_total = 100
++        s._batch_cards_fallback = 31
++        s._check_batch_fallback_ratio()
++        assert s._batch_ok is False
++
++    def test_fallback_ratio_under_the_limit_does_not_trip_it(self, tmp_path):
++        s = _scraper(tmp_path)
++        s._batch_cards_total = 100
++        s._batch_cards_fallback = 30
++        s._check_batch_fallback_ratio()
++        assert s._batch_ok is True
++
++    def test_env_kill_switch(self, tmp_path, monkeypatch):
++        monkeypatch.setenv("GRS_BATCH_EXTRACT", "0")
++        assert _scraper(tmp_path)._batch_ok is False
++
++
++class TestExhaustionDetector:
++    """Never truncate: exhaustion is reported only on positive evidence."""
++
++    @staticmethod
++    def metrics(top=900, height=1000, client=100, cards=300, busy=0):
++        return {"scrollTop": top, "scrollHeight": height,
++                "clientHeight": client, "cards": cards, "busy": busy}
++
++    @staticmethod
++    def drive(sequence, last_height=1000, last_cards=300, got_fresh=False,
++              dt=2.0):
++        """Run the detector over a sequence of metrics, exactly as the scroll
++        loop does — including how it carries the previous values forward.
++
++        Returns (exhausted, steps).
++        """
++        from modules.scraper import GoogleReviewsScraper as G
++        streak, started, exhausted = 0, None, False
++        steps = 0
++        for i, m in enumerate(sequence):
++            (streak, started, exhausted,
++             last_height, last_cards) = G._exhaustion_step(
++                m, got_fresh, last_height, last_cards, streak, started, i * dt)
++            steps += 1
++            if exhausted:
++                # The scroll loop breaks here; a later reset is never reached.
++                break
++        assert steps <= len(sequence)
++        return exhausted, steps
++
++    def test_flush_at_bottom_and_static_for_three_steps_exhausts(self):
++        ex, n = self.drive([self.metrics()] * 3)
++        assert ex is True and n == 3
++
++    def test_two_steps_is_not_enough(self):
++        from modules.scraper import EXHAUST_STREAK
++        assert EXHAUST_STREAK == 3, "threshold changed — is that intended?"
++        # dt is well past EXHAUST_MIN_SECONDS so ONLY the streak rule can
++        # decide this; otherwise the time floor masks a streak regression.
++        assert self.drive([self.metrics()] * 2, dt=5.0)[0] is False
++        assert self.drive([self.metrics()] * 3, dt=5.0)[0] is True
++
++    def test_three_steps_inside_the_time_floor_is_not_enough(self):
++        """Three fast iterations fit inside one XHR round trip."""
++        assert self.drive([self.metrics()] * 3, dt=0.05)[0] is False
++
++    def test_fresh_reviews_reset(self):
++        assert self.drive([self.metrics()] * 5, got_fresh=True)[0] is False
++
++    def test_growth_in_height_resets(self):
++        seq = [self.metrics(height=1000 + 100 * i) for i in range(1, 6)]
++        assert self.drive(seq, last_height=1000)[0] is False
++
++    def test_growth_in_card_count_resets(self):
++        seq = [self.metrics(cards=300 + 10 * i) for i in range(1, 6)]
++        assert self.drive(seq, last_cards=300)[0] is False
++
++    def test_a_shrink_then_regrow_is_activity_not_exhaustion(self):
++        """Previous value, not a high-water mark — virtualisation must be safe.
++
++        The detector owns the carry-forward, so a high-water-mark rule anywhere
++        in the chain turns this sequence into a false exhaustion.
++        """
++        seq = [self.metrics(height=h, cards=n) for h, n in
++               ((900, 250), (880, 240), (860, 230), (1000, 300), (1100, 350))]
++        assert self.drive(seq, last_height=1000, last_cards=300)[0] is False
++
++    def test_a_run_of_shrinking_iterations_never_exhausts(self):
++        """An exhausted pane is static. Movement in EITHER direction resets."""
++        seq = [self.metrics(height=h, cards=n) for h, n in
++               ((900, 250), (880, 240), (860, 230), (840, 220), (820, 210))]
++        assert self.drive(seq, last_height=1000, last_cards=300)[0] is False
++
++    def test_a_pane_that_settles_at_a_lower_size_still_exhausts(self):
++        """Liveness: after a shrink, a static pane must still reach the exit.
++
++        A high-water-mark carry-forward would keep reporting "changed" forever
++        and the run would never get the early stop it exists for.
++        """
++        seq = [self.metrics(height=900, cards=250)] * 5
++        assert self.drive(seq, last_height=1000, last_cards=300)[0] is True
++
++    def test_card_count_shrinking_alone_resets(self):
++        seq = [self.metrics(height=1000, cards=c) for c in (290, 280, 270, 260)]
++        assert self.drive(seq, last_height=1000, last_cards=300)[0] is False
++
++    def test_not_at_the_bottom_resets(self):
++        assert self.drive([self.metrics(top=100)] * 5)[0] is False
++
++    def test_a_busy_pane_blocks_the_exit(self):
++        assert self.drive([self.metrics(busy=1)] * 5)[0] is False
++
++    def test_absent_metrics_are_unknown_not_exhausted(self):
++        assert self.drive([None] * 5)[0] is False
++        assert self.drive([{}] * 5)[0] is False
++
++    def test_a_partial_metrics_object_is_unknown_not_a_pane_at_zero(self):
++        """Absent is not zero: a script whose shape drifted must not exhaust."""
++        partial = {"cards": 300, "busy": 0}          # geometry keys missing
++        assert self.drive([partial] * 5)[0] is False
++
++    def test_unusable_metrics_do_not_overwrite_the_previous_values(self):
++        """A reading we could not take must not be written back as the state."""
++        from modules.scraper import GoogleReviewsScraper as G
++        _, _, _, h, n = G._exhaustion_step(None, False, 4321, 99, 0, None, 0.0)
++        assert (h, n) == (4321, 99)
++
++    def test_usable_metrics_are_carried_forward(self):
++        from modules.scraper import GoogleReviewsScraper as G
++        _, _, _, h, n = G._exhaustion_step(
++            self.metrics(height=1234, cards=42), False, 0, 0, 0, None, 0.0)
++        assert (h, n) == (1234, 42)
++
++    def test_zero_cards_is_a_failure_not_an_exhaustion(self):
++        assert self.drive([self.metrics(cards=0)] * 5, last_cards=0)[0] is False
++
++    def test_bottom_epsilon_tolerates_a_few_pixels(self):
++        from modules.scraper import BOTTOM_EPS_PX
++        assert BOTTOM_EPS_PX == 4
++        ok = self.metrics(top=900 - BOTTOM_EPS_PX, height=1000, client=100)
++        assert self.drive([ok] * 3)[0] is True
++        short = self.metrics(top=900 - BOTTOM_EPS_PX - 1, height=1000, client=100)
++        assert self.drive([short] * 5)[0] is False
++
++
++class TestWaitForGrowth:
++    def test_returns_true_as_soon_as_the_pane_grows(self, tmp_path):
++        from modules.scraper import GoogleReviewsScraper
++        d = _FakeDriver([[300, 5000], [310, 5000]])
++        assert GoogleReviewsScraper._wait_for_growth(d, 300, 5000, 5.0) is True
++        assert len(d.scripts) == 2
++
++    def test_height_growth_alone_counts(self, tmp_path):
++        from modules.scraper import GoogleReviewsScraper
++        d = _FakeDriver([[300, 5200]])
++        assert GoogleReviewsScraper._wait_for_growth(d, 300, 5000, 5.0) is True
++
++    def test_returns_false_at_the_deadline(self, tmp_path):
++        from modules.scraper import GoogleReviewsScraper
++        d = _FakeDriver([[300, 5000]] * 200)
++        assert GoogleReviewsScraper._wait_for_growth(d, 300, 5000, 0.2) is False
++
++    def test_a_dead_driver_stops_polling_immediately(self, tmp_path):
++        from selenium.common.exceptions import WebDriverException
++        from modules.scraper import GoogleReviewsScraper
++        d = _FakeDriver([WebDriverException("gone")])
++        assert GoogleReviewsScraper._wait_for_growth(d, 0, 0, 5.0) is False
++        assert len(d.scripts) == 1
++
++
++class TestStaleLikeButtonIsNotZero:
++    """A like count we could not read must never be stored as a stated 0.
++
++    Before batching, `from_card` let StaleElementReferenceException escape and
++    the scroll loop skipped the whole card, picking it up next iteration. The
++    batching refactor briefly caught it and substituted `""`/`None`, which
++    `safe_int` turns into `0` — writing a wrong number to the DB and flipping
++    `engagement_hash` (sha256 of f"{likes}|{owner_text}") for every affected
++    review. One deferred card is cheaper than a confident wrong count.
++    """
++
++    def test_stale_like_button_propagates_instead_of_storing_zero(self):
++        from selenium.common.exceptions import (NoSuchElementException,
++                                                StaleElementReferenceException)
++
++        from modules.models import RawReview
++
++        class _StaleBtn:
++            @property
++            def text(self):
++                raise StaleElementReferenceException("like button unmounted")
++
++            def get_attribute(self, name):
++                raise StaleElementReferenceException("like button unmounted")
++
++        class _Card:
++            """Everything is absent except the like button, which is stale.
++
++            `try_find` swallows NoSuchElement/Stale, so a bare "no match" must be
++            NoSuchElementException — anything else would be swallowed by the
++            broad handler in the scroll loop and hide what we are testing.
++            """
++
++            def find_element(self, by, sel):
++                if RawReview.LIKE_BTN in sel or "toggleThumbsUp" in sel:
++                    return _StaleBtn()
++                raise NoSuchElementException(sel)
++
++            def find_elements(self, by, sel):
++                return []
++
++            def get_attribute(self, name):
++                return "rev-stale" if name == "data-review-id" else None
++
++        with pytest.raises(StaleElementReferenceException):
++            RawReview.from_card(_Card())
++
++
++class TestGrowthWaitBaseline:
++    """The growth wait must be seeded with the JUST-MEASURED pane size.
++
++    `_exhaustion_step` returns the freshly-measured (height, cards). Seeding
++    `_wait_for_growth` with the PREVIOUS pass's values instead makes its very
++    first poll exceed the baseline on any pass where the pane grew — so it
++    returns True immediately, waits for nothing, and the loop burns barren
++    passes instead of letting Google deliver the next batch.
++
++    This is a source-level assertion because the defect is an argument-passing
++    mistake in a loop that cannot be exercised without a live review pane; the
++    predicate ("the baseline args are the post-step names") is decidable.
++    """
++
++    def test_wait_for_growth_is_seeded_from_the_fresh_measurement(self):
++        import inspect
++        import re
++
++        from modules.scraper import GoogleReviewsScraper
++
++        src = inspect.getsource(GoogleReviewsScraper._scrape_once)
++        call = re.search(
++            r"self\._wait_for_growth\(\s*driver,\s*([A-Za-z_]+),\s*([A-Za-z_]+)",
++            src,
++        )
++        assert call, "could not find the _wait_for_growth call site"
++        cards_arg, height_arg = call.group(1), call.group(2)
++        assert (cards_arg, height_arg) == ("last_card_count", "last_scroll_height"), (
++            f"_wait_for_growth seeded with ({cards_arg}, {height_arg}); it must use "
++            "the values _exhaustion_step just measured, or the wait is a no-op"
++        )
+diff --git a/tests/test_dom_batch_parity.py b/tests/test_dom_batch_parity.py
+new file mode 100644
+index 0000000..630f258
+--- /dev/null
++++ b/tests/test_dom_batch_parity.py
+@@ -0,0 +1,144 @@
++"""Browser-backed parity gate for the batched DOM extractor.
++
++`tests/test_dom_batch.py` drives a `_FakeDriver` that answers `execute_script`
++from a queue — it grades the Python around the JS and **executes no JavaScript
++at all**. That leaves the risky half ungated: `dom_batch.JS_VISIBLE_TEXT` is a
++75-line hand port of ChromeDriver's `bot.dom.getVisibleText` atom, and a single
++divergence on a construct Google uses in review bodies changes `text`, and with
++it the content hash, `review_date` and `lang` — so `upsert_review` would report
++every review as `changed` on every run, forever.
++
++This file is the gate that can turn red for that. It launches real headless
++Chrome and asserts two things against the *same* DOM:
++
++  1. the JS visible-text port equals `WebElement.text` element by element;
++  2. the batched path and the original per-card path produce identical
++     `RawReview`s, `review_id` included.
++
++It reports how many elements and cards it graded, so a selector that silently
++stops matching shows up as a number that dropped rather than as continued green.
++"""
++
++from __future__ import annotations
++
++import uuid
++from pathlib import Path
++
++from dataclasses import replace
++
++import pytest
++from selenium.webdriver.common.by import By
++
++HERE = Path(__file__).resolve().parent
++FIXTURE = (HERE / "fixtures" / "reviews_fixture.html").as_uri()
++
++# Constructs where a naive innerText port diverges from ChromeDriver. Each one
++# cost a real mismatch during development; keep them.
++PROBE_EXTRA = """
++<div id="probe-extra">
++  <div style="display:none">hidden text</div>
++  <div style="visibility:hidden">invisible text</div>
++  <span>zero​width</span>
++  <p>para one</p><p>para two</p>
++  <div>a<br><br>b</div>
++  <table><tr><td>c1</td><td>c2</td></tr></table>
++  <div>   </div>
++  <div>nbsp joined</div>
++  <div style="white-space:pre-line">pre
++line</div>
++</div>
++"""
++
++
++@pytest.fixture(scope="module")
++def driver():
++    sb = pytest.importorskip("seleniumbase")
++    from seleniumbase import config as sb_config
++    from seleniumbase.config import settings as sb_settings
++
++    drv_dir = Path("/tmp") / f"grs-parity-{uuid.uuid4().hex[:8]}"
++    drv_dir.mkdir(parents=True, exist_ok=True)
++    # Without these, SeleniumBase probes debug port 9222 and collides with any
++    # other Chrome on the machine — the failure looks like a parity failure.
++    sb_config.multi_proxy = True
++    sb_settings.NEW_DRIVER_DIR = str(drv_dir)
++    sb_config.settings = sb_settings
++    d = sb.Driver(uc=True, headless=True, undetectable=True)
++    try:
++        yield d
++    finally:
++        try:
++            d.quit()
++        except Exception:
++            pass
++
++
++def test_visible_text_port_matches_chromedriver(driver):
++    from modules import dom_batch
++
++    driver.get(FIXTURE)
++    driver.execute_script(
++        "document.body.insertAdjacentHTML('beforeend', arguments[0]);", PROBE_EXTRA
++    )
++    els = driver.find_elements(
++        By.CSS_SELECTOR,
++        "div[role='main'], div[role='main'] *, #probe-extra, #probe-extra *",
++    )
++    graded, bad = 0, []
++    for e in els:
++        try:
++            expected = e.text
++        except Exception:
++            continue
++        actual = driver.execute_script(dom_batch.JS_VISIBLE_TEXT_OF, e)
++        graded += 1
++        if expected != actual:
++            bad.append((e.tag_name, e.get_attribute("id"), repr(expected), repr(actual)))
++
++    # A parity run over nothing is not a pass. The fixture plus the probe block
++    # reliably yield 100+ elements; a collapse means the selector stopped matching.
++    assert graded >= 50, f"graded only {graded} elements — the selector stopped matching"
++    assert not bad, f"vtext diverged from WebElement.text on {len(bad)}/{graded}: {bad[:5]}"
++    print(f"\nvtext parity: {graded} elements graded, 0 mismatches")
++
++
++def test_batched_and_per_card_paths_agree(driver):
++    from modules import dom_batch
++    from modules.models import RawReview
++
++    # Batched path.
++    driver.get(FIXTURE)
++    pane = driver.find_element(By.CSS_SELECTOR, "div[role='main']")
++    ids = dom_batch.collect_ids(driver, pane)
++    assert ids, "collect_ids returned nothing — the fixture or the selector broke"
++    dom_batch.expand_more(driver, ids)
++    payloads = dom_batch.extract_cards(driver, ids)
++    assert payloads, "extract_cards returned nothing"
++    batched = {p["id"]: RawReview.from_payload(p) for p in payloads}
++
++    # Per-card path, on a fresh DOM (from_card clicks "More" itself).
++    driver.get(FIXTURE)
++    per_card = {}
++    for card in driver.find_elements(By.CSS_SELECTOR, "div[data-review-id]"):
++        raw = RawReview.from_card(card)
++        per_card[raw.id] = raw
++
++    assert per_card, "fixture produced no cards — the gate has a zero denominator"
++    assert set(batched) == set(per_card), (
++        f"id sets differ: batched-only={set(batched) - set(per_card)}, "
++        f"per-card-only={set(per_card) - set(batched)}"
++    )
++    # `review_date` is derived from a RELATIVE string ("2 hours ago") against
++    # `utcnow()` at the moment each path runs, and the two paths run seconds
++    # apart — so comparing it exactly asserts that the clock did not move. It
++    # did: measured 16:34:21 vs 16:34:26 on the same fixture, which made this
++    # gate permanently red and therefore no gate at all. Compare it to the
++    # second-independent part and everything else exactly.
++    for rid in per_card:
++        a, b = batched[rid], per_card[rid]
++        a_date, b_date = a.review_date, b.review_date
++        assert (a_date or "")[:10] == (b_date or "")[:10], (
++            f"card {rid} resolved to different DAYS: {a_date} vs {b_date}")
++        a, b = replace(a, review_date=""), replace(b, review_date="")
++        assert a == b, f"card {rid} differs between paths"
++    print(f"\npath equivalence: {len(per_card)} cards identical, review_id included")
+diff --git a/tests/test_fixture_hygiene.py b/tests/test_fixture_hygiene.py
+new file mode 100644
+index 0000000..a5869ab
+--- /dev/null
++++ b/tests/test_fixture_hygiene.py
+@@ -0,0 +1,48 @@
++"""Fixtures must carry no real reviewer data.
++
++This scraper's fixtures are captured from live Google Maps pages, and the
++place-intel repo that vendors it publishes this patch to a PUBLIC mirror — so a
++fixture is the one file where a real avatar URL or contributor id becomes
++permanent, world-readable, and attached to a named person.
++
++Measured 2026-08-31: `reviews_fixture.html` shipped 4 real
++`lh*.googleusercontent.com` avatar URLs, 3 real contributor ids and 4 real
++display names, and was already staged inside the tracked vendor patch.
++
++The patterns are assembled from FRAGMENTS so this file does not match itself —
++a detector that spells its own banned strings flags its own source, and the
++obvious fix (exclude this file) carves out the one file guaranteed to
++accumulate them.
++"""
++import re
++from pathlib import Path
++
++import pytest
++
++FIXTURES = Path(__file__).parent / "fixtures"
++_G = "google" + "usercontent"
++_REAL_CONTRIB = re.compile(r"/maps/contrib/" + r"1\d{15,}")
++_REAL_PHOTO = re.compile(r"https://lh\d\." + _G + r"\.com/")
++
++
++def _fixture_files():
++    return sorted(p for p in FIXTURES.rglob("*") if p.is_file())
++
++
++def test_there_are_fixtures_to_grade():
++    # An empty sweep passes every assertion beneath it.
++    assert _fixture_files(), "no fixtures found — this gate has a zero denominator"
++
++
++@pytest.mark.parametrize("path", _fixture_files(), ids=lambda p: p.name)
++def test_fixture_carries_no_real_reviewer_data(path):
++    try:
++        text = path.read_text(encoding="utf-8")
++    except (UnicodeDecodeError, OSError):
++        pytest.skip(f"{path.name} is not text")
++    assert not _REAL_PHOTO.search(text), (
++        f"{path.name} holds a real reviewer photo/avatar URL — replace the host "
++        "with example.invalid")
++    assert not _REAL_CONTRIB.search(text), (
++        f"{path.name} holds a real contributor id — replace it with zeros")
++    print(f"graded {path.name} ({len(text):,} chars)")

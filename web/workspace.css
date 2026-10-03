@@ -1,0 +1,118 @@
+.compare-pick { align-self: center; white-space: nowrap; }
+.compare-tray { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin: 0.6rem 0; color: var(--ink-55); font-family: var(--mono); font-size: 0.76rem; }
+
+/* ============ library ============ */
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1.5px solid var(--line);
+  padding-bottom: 0.5rem;
+  margin-bottom: 1.1rem;
+}
+.section-head h2 { font-size: 1.05rem; font-weight: 700; }
+.history-head { margin-top: 2.6rem; }
+.scout-past { margin-top: 1.6rem; }
+.library-tools { display: grid; grid-template-columns: 1fr minmax(11rem, 14rem); gap: 0.6rem; margin: -0.35rem 0 1rem; }
+.library-count { font-family: var(--mono); font-size: 0.72rem; color: var(--ink-55); margin: -0.2rem 0 0.7rem; }
+.library-more { grid-column: 1 / -1; justify-self: center; margin-top: 0.4rem; }
+.shop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 0.9rem;
+}
+.shop-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  text-align: left;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.05rem 1.1rem;
+  transition: transform var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+.shop-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: 0 6px 18px color-mix(in oklab, var(--ink) 8%, transparent);
+}
+.shop-card-top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+.shop-rating { font-family: var(--mono); font-size: 0.84rem; color: var(--accent); font-weight: 600; }
+.badge {
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 4px;
+  padding: 0.15em 0.5em;
+  white-space: nowrap;
+}
+.badge-risk {
+  background: color-mix(in oklab, var(--danger) 18%, transparent);
+  color: var(--danger);
+}
+.shop-name { font-size: 1.02rem; font-weight: 650; line-height: 1.35; }
+.shop-cat { font-family: var(--mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-55); }
+.shop-stats { display: flex; gap: 0.9rem; font-family: var(--mono); font-size: 0.72rem; color: var(--ink-70); margin-top: 0.15rem; }
+.shop-addr { font-size: 0.78rem; color: var(--ink-55); line-height: 1.45; }
+.shop-fresh { font-family: var(--mono); font-size: 0.68rem; color: var(--ink-40); margin-top: auto; padding-top: 0.35rem; }
+
+/* history */
+.history { list-style: none; }
+.search-row { padding: 0.8rem 0.1rem; border-bottom: 1px dashed var(--line); }
+.search-main { display: flex; flex-wrap: wrap; gap: 0.3rem 0.7rem; align-items: baseline; }
+.search-query { font-family: var(--mono); font-weight: 700; font-size: 0.95rem; }
+.search-loc { font-size: 0.82rem; color: var(--ink-70); }
+.search-meta { font-family: var(--mono); font-size: 0.68rem; color: var(--ink-40); margin-left: auto; }
+.search-places { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.45rem; }
+.chip-more { color: var(--ink-40); border-color: var(--line-soft); }
+/* WCAG 2.2 (2.5.8): standalone tappable chips meet the 24px minimum target */
+.chip-link, .command-mode .chip { min-height: 24px; display: inline-flex; align-items: center; }
+.chip-link { cursor: pointer; transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+.chip-link:hover { border-color: var(--accent); color: var(--accent); }
+.chip-link.has-report { font-weight: 800; border-color: color-mix(in oklab, var(--accent) 64%, var(--line)); color: var(--ink); }
+
+/* ============ ask / answers ============ */
+.answer {
+  border: 1.5px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--card);
+  padding: 1.2rem 1.4rem;
+  margin-top: 1.2rem;
+}
+.answer-label {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+  font-weight: 700;
+  margin-bottom: 0.4rem;
+}
+
+.answer-cached {
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  font-family: var(--mono); font-size: 0.72rem; color: var(--ink-55);
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.65rem; margin-bottom: 0.7rem;
+}
+.btn-refresh { font-size: 0.7rem; padding: 0.15rem 0.5rem; min-height: 24px; display: inline-flex; align-items: center; }
+
+.qa-chips {
+  display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center;
+  margin: 0.8rem 0 0.2rem;
+}
+.qa-chips-label {
+  font-family: var(--mono); font-size: 0.68rem; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--ink-40); margin-right: 0.2rem;
+}
+
+.btn-danger {
+  margin-left: 0.6rem; font-size: 0.7rem; padding: 0.15rem 0.55rem;
+  color: var(--ink-55);
+}
+.btn-danger:hover { border-color: var(--accent); color: var(--accent); }

@@ -1,0 +1,254 @@
+#!/usr/bin/env python3
+"""Prove each safety guard in the review-fetch path can actually go red.
+
+A guard that has only ever seen correct code is the same green light as a check
+nobody ran. Each probe below breaks one guard on purpose and asserts the suite
+notices. Not part of the normal suite: it rewrites source files, so it is a
+deliberate run.
+
+    scripts/mutation-probe                 # every probe
+    scripts/mutation-probe --list          # what would run, and against what
+    scripts/mutation-probe -k coverage     # only probes whose name matches
+
+Exit 0 only when the baseline is GREEN before and after AND every probe was
+CAUGHT. An escaped mutant, a pattern that no longer matches, or a baseline that
+was already red all exit non-zero.
+
+Sibling of `scripts/mutation-probe` in ads-ops-control-plane — same name, same
+exit contract, same counters. The runtime-specific trap differs:
+
+  * CPython decides a `.pyc` is stale by comparing mtime at WHOLE-SECOND
+    granularity plus size. This loop rewrites one module several times a second,
+    so without `-B` and `PYTHONDONTWRITEBYTECODE=1` a restored file can execute
+    the mutant that was there a moment ago — producing false REDs and, worse,
+    false CAUGHTs.
+  * A mutant left in the working tree is real source corruption, so the restore
+    runs from a signal handler as well as a `finally`. CPython's default SIGTERM
+    handler calls `_exit()` without unwinding, so `finally` alone loses the race
+    with any supervisor or tool timeout.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import signal
+import subprocess
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+LOCK = REPO / ".mutation-probe.lock"
+#: The suite every probe is graded against. Narrow on purpose — a probe
+#: run is ~10 full suite runs otherwise, and these guards all live here.
+BASELINE = "tests.test_maps_rpc_integration"
+#: Probes may name tests in either module; the baseline covers both.
+BASELINE_ALSO = "tests.test_maps_rpc_contract"
+
+#: name, file, the exact source to break, what to break it into, and the test
+#: that must notice. Add a row whenever you add a guard — the point of the row
+#: is that the guard has been SEEN to fail.
+PROBES: list[dict[str, str]] = [
+    {
+        "name": "contiguity-gate",
+        "file": "placeintel/maps_rpc.py",
+        "find": '        verdict = "gap" if gap else "contiguous"',
+        "into": '        verdict = "contiguous"',
+        "test": "tests.test_maps_rpc_integration.VerifyAndWalkTests"
+                ".test_a_gap_between_the_head_and_the_walk_is_refused",
+    },
+    {
+        "name": "head-first-ordering",
+        "file": "placeintel/maps_rpc.py",
+        "find": "    return tuple(out), MergeReport(",
+        "into": "    out = list(walked) + [r for r in out if r not in walked]\n"
+                "    return tuple(out), MergeReport(",
+        "test": "tests.test_maps_rpc_integration.VerifyAndWalkTests"
+                ".test_the_head_is_first_so_a_cap_keeps_the_newest",
+    },
+    {
+        "name": "coverage-floor",
+        "file": "placeintel/maps_rpc_fetch.py",
+        "find": '    elif listed and result["coverage"] < floor:',
+        "into": "    elif False:",
+        "test": "tests.test_maps_rpc_integration.VerifyAndWalkTests"
+                ".test_coverage_below_the_floor_is_refused_so_the_complete_path_runs",
+    },
+    {
+        "name": "coverage-floor-configurable",
+        "file": "placeintel/maps_rpc_fetch.py",
+        "find": '    return _env_float("PLACEINTEL_MAPS_RPC_MIN_COVERAGE", '
+                "MIN_COVERAGE_DEFAULT)",
+        "into": "    return MIN_COVERAGE_DEFAULT",
+        "test": "tests.test_maps_rpc_integration.VerifyAndWalkTests"
+                ".test_the_coverage_floor_is_operator_tunable",
+    },
+    {
+        "name": "head-sample-dedupe",
+        "file": "placeintel/maps_rpc_fetch.py",
+        "find": "        current = [i for i in dict.fromkeys("
+                "driver.execute_script(script) or []) if i]",
+        "into": "        current = [i for i in (driver.execute_script(script) or []) if i]",
+        "test": "tests.test_maps_rpc_integration.SettledDomIdsTests"
+                ".test_duplicate_elements_per_card_collapse_to_one_id_each",
+    },
+    {
+        "name": "head-absent-is-not-zero",
+        "file": "placeintel/maps_rpc_fetch.py",
+        "find": "        rating=int(rating) if isinstance(rating, (int, float)) "
+                "and rating else None,",
+        "into": "        rating=int(rating) if isinstance(rating, (int, float)) else None,",
+        "test": "tests.test_maps_rpc_integration.HeadCardMappingTests"
+                ".test_unextracted_fields_become_none_not_zero",
+    },
+    {
+        "name": "head-timestamp",
+        "file": "placeintel/maps_rpc_fetch.py",
+        "find": "        timestamp_us=_head_timestamp_us(relative),",
+        "into": "        timestamp_us=None,",
+        "test": "tests.test_maps_rpc_integration.HeadCardMappingTests"
+                ".test_the_head_carries_a_timestamp_or_it_sorts_last_and_gets_capped",
+    },
+    {
+        "name": "rewind-noop-detection",
+        "file": "placeintel/maps_rpc_fetch.py",
+        "find": "    original = maps_rpc.parse_page(post(maps_rpc.build_body("
+                "template, page_size=page_size)))",
+        "into": "    original = maps_rpc.ReviewPage()",
+        "test": "tests.test_maps_rpc_integration.RewindTests"
+                ".test_a_rewind_that_returns_the_same_rows_is_not_a_rewind",
+    },
+    {
+        # The failure that actually happened: the gate was green while the
+        # tracked vendor patch carried real reviewer avatar URLs, because its
+        # subject list named one directory.
+        "name": "hygiene-denominator",
+        "file": "tests/test_maps_rpc_contract.py",
+        "find": '    SUBJECT_DIRS = ("tests/fixtures", "vendor-patches")',
+        "into": '    SUBJECT_DIRS = ("tests/fixtures",)',
+        "test": "tests.test_maps_rpc_contract.FixtureHygieneTests",
+    },
+    {
+        "name": "identity-gate",
+        "file": "placeintel/maps_rpc_fetch.py",
+        "find": '    if verdict == "mismatch":',
+        "into": "    if False:",
+        "test": "tests.test_maps_rpc_integration.VerifyAndWalkTests"
+                ".test_identity_mismatch_refuses_and_never_walks",
+    },
+    {
+        "name": "rpc-opt-in-switch",
+        "file": "placeintel/reviews.py",
+        "find": '    return os.environ.get("PLACEINTEL_ENABLE_MAPS_RPC", "")'
+                '.strip().lower() in (',
+        "into": "    return True or os.environ.get("
+                '"PLACEINTEL_ENABLE_MAPS_RPC", "").strip().lower() in (',
+        "test": "tests.test_maps_rpc_integration.OptInSwitchTests",
+    },
+]
+
+
+def _run_tests(target: str) -> subprocess.CompletedProcess:
+    env = os.environ | {"PYTHONDONTWRITEBYTECODE": "1"}
+    python = REPO / ".venv" / "bin" / "python"
+    return subprocess.run(
+        [str(python if python.exists() else sys.executable), "-B", "-m", "unittest", target],
+        cwd=REPO, env=env, capture_output=True, text=True, timeout=900)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("-k", dest="filter", default="",
+                    help="only probes whose name contains this")
+    ap.add_argument("--list", action="store_true", help="show probes and exit")
+    args = ap.parse_args()
+
+    probes = [p for p in PROBES if args.filter in p["name"]]
+    if args.list:
+        for probe in probes:
+            print(f"{probe['name']:32} {probe['file']:32} -> {probe['test'].split('.')[-1]}")
+        print(f"\n{len(probes)} probe(s) of {len(PROBES)} total")
+        return 0
+    if not probes:
+        # An empty run passes every assertion beneath it. Refuse instead.
+        print(f"ABORT: no probe matches -k {args.filter!r}", file=sys.stderr)
+        return 2
+
+    try:
+        LOCK.mkdir()
+    except FileExistsError:
+        print(f"ABORT: another run holds {LOCK}. Remove it if that is stale.",
+              file=sys.stderr)
+        return 2
+
+    originals: dict[Path, str] = {}
+
+    def restore() -> None:
+        for path, text in originals.items():
+            path.write_text(text, encoding="utf-8")
+        originals.clear()
+        try:
+            LOCK.rmdir()
+        except OSError:
+            pass
+
+    def on_signal(*_):                       # SIGTERM does not unwind the stack
+        restore()
+        print("\nINTERRUPTED — sources restored", file=sys.stderr)
+        os._exit(2)
+
+    signal.signal(signal.SIGTERM, on_signal)
+    signal.signal(signal.SIGINT, on_signal)
+
+    caught = escaped = broken = 0
+    try:
+        print("baseline: ", end="", flush=True)
+        base = _run_tests(BASELINE)
+        if base.returncode == 0:
+            base = _run_tests(BASELINE_ALSO)
+        if base.returncode != 0:
+            print("RED — nothing below would mean anything")
+            print(base.stderr[-2000:], file=sys.stderr)
+            return 1
+        print("GREEN")
+
+        for probe in probes:
+            path = REPO / probe["file"]
+            text = path.read_text(encoding="utf-8")
+            hits = text.count(probe["find"])
+            if hits != 1:
+                print(f"  {probe['name']:32} BROKEN (pattern matched {hits}x, "
+                      "expected exactly 1)")
+                broken += 1
+                continue
+            originals[path] = text
+            path.write_text(text.replace(probe["find"], probe["into"], 1),
+                            encoding="utf-8")
+            try:
+                result = _run_tests(probe["test"])
+            finally:
+                path.write_text(text, encoding="utf-8")
+                originals.pop(path, None)
+            if result.returncode != 0:
+                print(f"  {probe['name']:32} CAUGHT")
+                caught += 1
+            else:
+                print(f"  {probe['name']:32} ESCAPED  <-- the guard is decorative")
+                escaped += 1
+
+        print("re-baseline: ", end="", flush=True)
+        after = _run_tests(BASELINE)
+        if after.returncode == 0:
+            after = _run_tests(BASELINE_ALSO)
+        print("GREEN" if after.returncode == 0 else "RED — a mutant was left behind")
+        if after.returncode != 0:
+            return 1
+    finally:
+        restore()
+
+    print(f"\ngraded {len(probes)} probe(s): {caught} caught, {escaped} escaped, "
+          f"{broken} broken")
+    return 0 if escaped == 0 and broken == 0 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

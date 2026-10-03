@@ -1,0 +1,195 @@
+# placeintel — Walk In Armed 🎯
+
+进店之前，先读完它的几百条评价。Never get quoted a "tourist price" unprepared again.
+
+Say *"会安 吉他租赁"* — in **any language** — and the AI plans the search itself:
+translates into bilingual Google Maps queries, extracts the location, picks the
+report profile, discovers places, **filters out off-category junk with stated
+reasons** (no more motorbike rentals in a guitar search), scrapes the **full review
+history** (hundreds of reviews — the official API caps at 5), caches everything
+locally, embeds reviews for semantic search, and has Gemini reason out an intel
+report: **价格情报 · 硬信息核实 · 红旗预警 · 30-second walk-in brief**.
+
+## Install
+
+```bash
+git clone https://github.com/vecyang1/place-intel.git
+cd place-intel
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[web]"          # add the web app; use `pip install -e .` for CLI-only
+
+# Review scraper (vendored separately, MIT) to keep this repo lean:
+git clone https://github.com/georgekhananaev/google-reviews-scraper-pro.git \
+  vendor/google-reviews-scraper-pro
+
+cp .env.example .env             # then add at least one Gemini key
+```
+
+## Quick start
+
+```bash
+.venv/bin/placeintel scout "会安 吉他租赁"                 # AI plans everything
+.venv/bin/placeintel shop "D'Class Guitar" --near "Hoi An" # ONE shop (name or Maps URL)
+.venv/bin/placeintel ask "哪家有耐心的老师?"               # RAG over everything cached
+.venv/bin/placeintel plan "在岘港学冲浪"                   # debug: see the AI's plan
+.venv/bin/placeintel-web                                   # web app → http://127.0.0.1:9618
+```
+
+The web app opens on a command-center Scout input: paste a Maps URL, type a shop
+name, ask a cached-evidence question, or describe a broad need, and it recommends
+Scout, Shop, or Ask before submit. The four views remain: **侦察 Scout** (free
+text + live progress timeline plus final results showing the AI's plan, filter
+verdicts, deep-dived shops, retry/cache groups, and Compare picks), **单店 Shop**
+(one name/URL → focused dossier), **资料库 Library**
+(cached shops + past searches → shop dossier with report, scoped ask, review
+browser), **提问 Ask** (cross-shop RAG + all previous questions, including
+shop-scoped ones labeled by shop).
+
+## Verify locally
+
+```bash
+.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+npm install
+npm run test:web   # requires the local web app on http://127.0.0.1:9618
+.venv/bin/placeintel doctor --json
+```
+
+Agent and ops contracts:
+- System architecture: [`docs/architecture.md`](docs/architecture.md)
+- HTTP API: [`docs/API.md`](docs/API.md)
+- Agent CLI: [`docs/agent-cli.md`](docs/agent-cli.md)
+- Operations runbook: [`docs/operations.md`](docs/operations.md)
+
+## Private deploy
+
+The private deployment path is GitHub Actions → SSH → native systemd service. The
+FastAPI app should stay on loopback (`127.0.0.1:9618`) unless it is behind an
+explicit protected proxy.
+
+Required private-repo secrets use placeholder names in this public README:
+
+```text
+PLACEINTEL_DEPLOY_HOST
+PLACEINTEL_DEPLOY_USER
+PLACEINTEL_DEPLOY_PORT
+PLACEINTEL_DEPLOY_SSH_KEY
+PLACEINTEL_DEPLOY_DIR
+GOOGLE_API_KEY
+VECTORENGINE_API_KEY
+SERPAPI_API_KEY
+PLACEINTEL_REASON_MODEL
+```
+
+After deploy, verify through an SSH tunnel or authenticated internal URL:
+
+```bash
+ssh -fN -L 9619:127.0.0.1:9618 <vps-ssh-alias>
+EXPECTED_VERSION=$(.venv/bin/python -c "import placeintel; print(placeintel.__version__)")
+.venv/bin/placeintel deploy-smoke \
+  --base-url "http://127.0.0.1:9619" \
+  --expected-version "$EXPECTED_VERSION" \
+  --format json
+```
+
+For a protected public domain, keep the real URL and Basic Auth values in local
+gitignored files or deployment secrets. The public-safe auth check is:
+
+```bash
+EXPECTED_VERSION=$(.venv/bin/python -c "import placeintel; print(placeintel.__version__)")
+.venv/bin/placeintel deploy-smoke \
+  --base-url "http://127.0.0.1:9619" \
+  --public-url "https://PLACEHOLDER_PROTECTED_DOMAIN" \
+  --expected-version "$EXPECTED_VERSION" \
+  --format json
+```
+
+See [`docs/operations.md`](docs/operations.md) for the full deploy smoke,
+backup, restore, and rollback runbook.
+
+## How it works
+
+```
+free text ─► planner.py ──── AI plan: intent, bilingual queries, location, profile,
+              │              discover-vs-single mode  (fail-open: raw passthrough)
+              ▼
+        discover.py ──────── gosom/google-maps-scraper (Docker, free)
+              │              └ fallback: SerpAPI google_maps
+              ▼
+        planner.filter ───── AI relevance verdicts per candidate (fail-open: keep all)
+              ▼
+        reviews.py ────────── vendor/google-reviews-scraper-pro (Selenium, incremental)
+              │              └ fallback: SerpAPI google_maps_reviews
+              ▼
+        cache.py ──────────── data/placeintel.db (SQLite: places/reviews/reports/vectors)
+              │
+        embed.py ──────────── Gemini Embedding 2, Google official (768-dim, true batch)
+              │
+        analyze.py ────────── Gemini Flash (VectorEngine) long-context over ALL reviews
+              │
+        cli.py / server.py (events → live timeline) / web/ SPA / Claude skill
+```
+
+Design choices that matter:
+- **AI is fail-open everywhere**: a dead LLM degrades to raw-query passthrough and
+  keep-all-candidates — it never blocks the scrape pipeline.
+- **Reasoning over retrieval for per-place reports**: a place's full review set fits in
+  Flash's context, so the report reads *everything* — embeddings serve cross-place
+  `ask` queries over the growing cache instead.
+- **Cache-first**: same search within 7 days = no re-discovery; reviews are scraped
+  incrementally; reports are **reused** when no new reviews arrived.
+- **Provider split** (user decision): embedding → Google official (true Content-list
+  batching, 64 docs/2s); reasoning → VectorEngine (same models, cheaper).
+- **Profiles** (`profiles/*.yaml`): `_core.yaml` (price/hard-facts/red-flags) merges
+  into every profile; add a YAML to add a domain (lessons, rental, ...).
+- **Transparency is a feature**: every stage emits events `{t, stage, msg}` rendered
+  as a live timeline in both CLI and web — including *why* each shop was excluded.
+
+## Requirements & keys
+
+- Docker (for free discovery) — auto-started on macOS
+- Chrome (for the review scraper)
+- Keys via `.env` or environment variables (see `.env.example`): `GOOGLE_API_KEY`
+  (AIza…, embedding), `VECTORENGINE_API_KEY` (sk-…, reasoning), and optional
+  `SERPAPI_API_KEY` (fallback). At least one Gemini key is required.
+
+### The paid fallback is opt-in
+
+Discovery and reviews both scrape for free first. SerpAPI is a **billable**
+fallback, so it fires only with permission — otherwise a broken free path stops
+the run and says what broke, instead of quietly buying the same data:
+
+```bash
+placeintel spend                    # what is allowed right now, and why
+placeintel spend --allow            # persist: paid fallback permitted
+placeintel spend --block            # persist: free paths only (default)
+placeintel scout "…" --allow-serpapi  # just this run
+placeintel scout "…" --no-serpapi     # just this run, overriding any setting
+```
+
+Precedence: run flag > `PLACEINTEL_ALLOW_SERPAPI` > saved setting > blocked.
+`--force-serpapi` is an explicit request for the paid engine and carries its own
+permission.
+
+## Gotchas (hard-won)
+
+- A plain list-of-strings embed input is **aggregated into ONE vector** on both
+  providers — true batching needs explicit `types.Content` objects (embed.py).
+- Reasoning prompts must include **today's date** or the model flags recent reviews
+  as "future-dated fakes" (analyze.py).
+- Vietnamese diacritics break naive name matching ("Hội An" ≠ "Hoi An") — use
+  `cache.norm_name` (NFD strip + đ→d + token-AND).
+- `genai.Client` must be constructed before fanning out threads.
+- gosom output may be NDJSON or a JSON array; reviews-scraper-pro maps back via
+  `places.original_url`; SeleniumBase needs the 9222-collision bootstrap (reviews.py).
+
+## Credits
+
+Stands on the shoulders of open source — please ⭐ them:
+
+- [gosom/google-maps-scraper](https://github.com/gosom/google-maps-scraper) — free place discovery (Docker)
+- [georgekhananaev/google-reviews-scraper-pro](https://github.com/georgekhananaev/google-reviews-scraper-pro) — full review-history scraping (MIT)
+- [Google Gemini](https://ai.google.dev/) — embedding + reasoning · [SerpAPI](https://serpapi.com) — optional fallback
+
+## License
+
+MIT — see [LICENSE](LICENSE).

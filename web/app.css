@@ -1,0 +1,213 @@
+/* placeintel — editorial paper/ink/red. Light + dark via prefers-color-scheme. */
+
+/* ============ tokens ============ */
+:root {
+  --paper: oklch(97% 0.005 90);
+  --ink: oklch(22% 0.01 270);
+  --accent: oklch(45% 0.2 25);
+  --on-accent: oklch(99% 0.003 90);
+  --accent-soft: oklch(92% 0.055 25);
+  --ok: oklch(52% 0.11 155);
+  --danger: oklch(51% 0.22 22);
+  --line: oklch(85% 0.01 270);
+  --line-soft: oklch(90% 0.008 270);
+  --card: color-mix(in oklab, var(--paper) 96%, var(--accent));
+  --ink-70: color-mix(in oklab, var(--ink) 82%, var(--paper));
+  --ink-55: color-mix(in oklab, var(--ink) 72%, var(--paper));
+  --ink-40: color-mix(in oklab, var(--ink) 62%, var(--paper));
+  --mono: "SF Mono", ui-monospace, Menlo, monospace;
+  --serif: "Songti SC", "Noto Serif SC", Georgia, serif;
+  --sans: -apple-system, "PingFang SC", "Segoe UI", sans-serif;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 150ms;
+  --dur: 300ms;
+  --radius: 12px;
+  --radius-sm: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: oklch(20% 0.01 270);
+    --ink: oklch(92% 0.005 90);
+    --accent: oklch(70% 0.16 25);
+    /* the light coral fill needs dark ink on top for WCAG AA (white on it is only 2.8:1) */
+    --on-accent: oklch(21% 0.04 25);
+    --accent-soft: oklch(28% 0.05 25);
+    --ok: oklch(72% 0.1 155);
+    --danger: oklch(72% 0.19 22);
+    --line: oklch(34% 0.01 270);
+    --line-soft: oklch(28% 0.01 270);
+    --card: color-mix(in oklab, var(--paper) 92%, var(--accent));
+  }
+}
+
+/* ============ base ============ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
+html { color-scheme: light dark; scrollbar-gutter: stable; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font: 16px/1.65 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+body.no-scroll { overflow: hidden; }
+::selection { background: var(--accent-soft); }
+a { color: var(--accent); text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+.skip-link {
+  position: fixed; z-index: 100; top: 0.7rem; left: 0.7rem;
+  transform: translateY(-150%); transition: transform var(--dur-fast) var(--ease);
+  background: var(--paper); color: var(--accent); border: 1.5px solid var(--accent);
+  border-radius: var(--radius-sm); padding: 0.35rem 0.7rem; font-family: var(--mono);
+}
+.skip-link:focus-visible { transform: translateY(0); }
+.shell { max-width: 920px; margin: 0 auto; padding: 2.2rem 1.25rem 4rem; }
+
+.label-en, .tab-en, .en {
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-size: 0.86em;
+  color: var(--ink-55);
+}
+
+/* ============ masthead ============ */
+.masthead h1 {
+  font-family: var(--mono);
+  font-size: clamp(1.7rem, 4.5vw, 2.4rem);
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+.masthead h1 em { color: var(--accent); font-style: normal; }
+.masthead .tagline { color: var(--ink-55); font-size: 0.92rem; margin-top: 0.15rem; }
+.masthead .en { margin-left: 0.35em; font-size: 0.78em; }
+
+/* ============ tabs ============ */
+.tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.25rem; margin: 1.9rem 0 0; border-bottom: 1.5px solid var(--line); }
+.tab {
+  position: relative; width: 100%; padding: 0.55rem 0.25rem 0.7rem;
+  font-weight: 600; font-size: 0.9rem; text-align: center; color: var(--ink-55);
+  transition: color var(--dur-fast) var(--ease);
+}
+.tab .tab-en { display: block; font-size: 0.62rem; margin-top: -0.1rem; color: var(--ink-40); }
+.tab:hover { color: var(--ink); }
+.tab::after {
+  content: ""; position: absolute; left: 50%; bottom: -1.5px;
+  width: min(3.4rem, 72%); height: 2.5px; background: var(--accent);
+  transform: translateX(-50%) scaleX(0); transform-origin: center;
+  transition: transform var(--dur) var(--ease);
+}
+.tab.is-active { color: var(--ink); }
+.tab.is-active .tab-en { color: var(--accent); }
+.tab.is-active::after { transform: translateX(-50%) scaleX(1); }
+
+/* ============ panels & forms ============ */
+.panel { padding-top: 1.9rem; animation: rise var(--dur) var(--ease) both; }
+.field { margin-bottom: 0.9rem; }
+label {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  display: block;
+  margin-bottom: 0.3rem;
+}
+input, select, textarea {
+  width: 100%;
+  padding: 0.65rem 0.8rem;
+  font: inherit;
+  font-size: 1rem;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  transition: border-color var(--dur-fast) var(--ease);
+}
+input::placeholder, textarea::placeholder { color: var(--ink-40); opacity: 1; }
+input:hover, select:hover, textarea:hover { border-color: var(--ink-55); }
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+textarea { resize: vertical; min-height: 3.2em; }
+textarea.query-input { min-height: 6em; }
+.query-input { font-size: 1.12rem; padding: 0.85rem 1rem; line-height: 1.55; }
+.is-invalid { border-color: var(--accent) !important; animation: shake 0.3s var(--ease); }
+.command-mode { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: -0.2rem 0 0.65rem; }
+.command-mode .chip { text-align: left; }
+.command-mode .chip[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.chip-help { display: block; margin-top: 0.08rem; font-size: 0.62rem; color: inherit; opacity: 0.72; }
+.command-mode .chip[aria-pressed="true"] .chip-help { opacity: 1; } /* 0.72 dropped --on-accent to 3.89:1 on the coral active chip */
+.mode-reason { margin: -0.25rem 0 0.75rem; font-size: 0.78rem; color: var(--ink-55); }
+
+.advanced { margin: 0.4rem 0 1.1rem; border-top: 1.5px dashed var(--line-soft); }
+.advanced summary {
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.6rem 0.1rem;
+  cursor: pointer;
+  color: var(--ink-55);
+  list-style: none;
+}
+.advanced summary::-webkit-details-marker { display: none; }
+.advanced summary::before { content: "▸ "; color: var(--accent); }
+.advanced[open] summary::before { content: "▾ "; }
+.advanced summary:hover { color: var(--ink); }
+.advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.9rem;
+  padding: 0.3rem 0 0.5rem;
+}
+.checks { display: flex; flex-direction: column; gap: 0.45rem; justify-content: end; }
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  text-transform: none;
+  font-size: 0.8rem;
+  margin: 0;
+  cursor: pointer;
+}
+.check input { width: auto; accent-color: var(--accent); margin: 0; }
+
+.btn-primary {
+  width: 100%;
+  padding: 0.85rem;
+  font-size: 1.02rem;
+  font-weight: 650;
+  background: var(--accent);
+  color: var(--on-accent);
+  border-radius: var(--radius-sm);
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), opacity var(--dur-fast);
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 14px color-mix(in oklab, var(--accent) 30%, transparent); }
+.btn-primary:active { transform: translateY(0); box-shadow: none; }
+.btn-primary[disabled] { opacity: 0.5; cursor: wait; transform: none; box-shadow: none; }
+.btn-ghost {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  letter-spacing: 0.05em;
+  padding: 0.45rem 0.9rem;
+  border: 1.5px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-70);
+  transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.btn-ghost:hover { border-color: var(--accent); color: var(--ink); }
+.btn-small {
+  font-weight: 650;
+  font-size: 0.9rem;
+  padding: 0.55rem 1rem;
+  background: var(--accent);
+  color: var(--on-accent);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+.btn-small:hover { transform: translateY(-1px); }
+.form-hint { font-size: 0.8rem; color: var(--ink-40); margin-top: 0.6rem; line-height: 1.6; }

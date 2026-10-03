@@ -1,0 +1,11 @@
+{
+  "name": "placeintel-web-smoke",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:web": "playwright test --reporter=list --output=output/playwright/test-results"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1"
+  }
+}

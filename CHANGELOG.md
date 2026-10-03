@@ -1,0 +1,1478 @@
+# Changelog — place-intel
+
+## [2026-09-12] - 2026-09-12
+
+### Features
+- Prefer in-process resolution via ulcs.proxy (`3373175`)
+
+### Fixes
+- Sanitize proxy URLs, test secrets, and private tokens (`0916d95`)
+- Use git reset --hard and clone fallback for vendor patch (`ae95065`)
+- Clean untracked files before applying vendor patch on VPS (`5d19702`)
+- Add fallback relative date parser when vendor date_converter is absent (`1ab5ddb`)
+- Mock _primary_blockers in test_proxy to ensure clean CI execution without local vendor venv (`a0d8acc`)
+- Scrub real reviewer data from the vendored fixture (`b2c4eb2`)
+
+### Documentation
+- Record the head-merge result and what it closed (E11) (`073167a`)
+
+### Maintenance
+- Sync pyproject.toml version with __version__ (0.4.82) (`adbf149`)
+
+## v0.4.82 — 2026-08-31 — the head is merged in, so the RPC path is complete
+
+v0.4.81 wired the RPC in and then shipped it off, because the walk could not
+reach the newest reviews. This closes that hole. `PLACEINTEL_ENABLE_MAPS_RPC=1`
+still gates it; it is now worth turning on, and is on in production.
+
+**Measured on the target place, through the deployed worker:**
+
+| | v0.4.81 | v0.4.82 |
+|---|---|---|
+| reviews | 74 of 85 (87%) | **85 of 85 (100%)** |
+| contiguity | — | `contiguous`, gap 0 |
+| rows with no date | 1 (the newest) | **0** |
+| wall clock | 110 s, then refused | **124 s**, accepted |
+
+Against the DOM scraper on the same place in the same session: **170 s**
+(17:29:22 → 17:32:12) for the same 85 reviews. The RPC's cost is a near-fixed
+~123 s bootstrap plus ~0.5 s per 100 reviews, so the margin widens with size —
+1,385 reviews walked in 15.2 s on another place. It is not a large win on a
+small place and was never going to be; it is the tail that pays.
+
+**How the head is recovered.** Maps renders the first ~10 cards server-side, so
+the page's own earliest request already carries cursor offset 10 and no
+position-0 request exists to capture. Confirmed three ways rather than assumed:
+the page HTML contains no `qv9Egd` payload and no `AF_initDataCallback`, so
+there is nothing embedded to parse; rewriting the cursor to `<blob>:0` is
+accepted and returns the identical rows; and the other rpcids the page calls
+(`hspqX`, `T4jwAf`, `r4skrb`) do not move `qv9Egd`'s earliest offset off 10. So
+the head is read from the DOM — through `modules/dom_batch.py`, the vendor's own
+extractor, which already owns every review selector in this codebase — and
+concatenated with the walk.
+
+**The gates changed, and one was retired on purpose.** `parity`'s `no-overlap`
+rule blocked when nothing on screen appeared in the walk. Every time it fired it
+was a true positive, but the cause was structural: the walk began at offset 10
+while the pane showed 0-9, so the two were disjoint *by construction*. Now that
+the head is merged deliberately, disjointness is the healthy shape. It is
+replaced by two checks that are exact rather than heuristic:
+
+* **contiguity** — the head must reach at least as far as the walk begins.
+  A 7-card head against a walk starting at 10 loses reviews 7, 8 and 9 while
+  every other signal still looks healthy, so this refuses.
+* **coverage** — the merged total against the count read off the page, an
+  observer independent of the walk. Below `PLACEINTEL_MAPS_RPC_MIN_COVERAGE`
+  (default 0.95) the run is refused and the DOM path takes over.
+
+`identity` (feature id) is unchanged and is still the only defence against
+scraping a similarly-named shop.
+
+**Bugs found and fixed while building it**
+
+* **The vendored date converter never handled hours, minutes or "just now"**,
+  though its own docstring listed `"an hour ago"` as supported. Everything under
+  a day old converted to `None` — and `_order_and_cap` sorts on
+  `review_date or ""` descending, so undated rows sink to the bottom and a
+  `max_reviews` cap discards them first. That is the newest reviews on every
+  page, and it applies to the **DOM scraper too**, not just the new path. Fixed
+  in the vendor with a regression test over every unit Maps renders.
+* **Those datetimes are naive UTC** and were being read with `.timestamp()`,
+  which assumes local time. Production runs CEST — a two-hour shift, enough to
+  file a review under the wrong day near midnight.
+* **The cursor rewind could not observe its own result.** It checked only that
+  the rewound request answered, and the server answers `<blob>:0` with the same
+  rows — so it recorded `start_offset` 0 for a walk that still began at 10, which
+  would have let the new contiguity gate compare against a zero it invented.
+* **`div[data-review-id]` matches two elements per card**, so a 10-card head
+  arrived as 20 rows. The gate's denominator inflating is the one way it passes
+  while wrong: a head truly stopping at 10 would "reach" a walk starting at 15.
+* **`scripts/maps_rpc_probe.py` is deleted.** It was a second browser bootstrap
+  against Google with no identity check, no `hl=en` forcing, and the `chdir`
+  into the root-owned vendor tree that had already been fixed in the real path —
+  and the entry-point contract test was pointed at *it* rather than at the
+  worker, which is how it looked covered. One entry point:
+  `python -m placeintel.maps_rpc_fetch`.
+
+**New** — `scripts/mutation-probe`, the Python sibling of the same tool in
+`ads-ops-control-plane`: same name, same exit contract, breaks each guard on
+purpose and asserts the suite notices. 10 probes, all CAUGHT. It disables
+bytecode caching, because CPython judges `.pyc` staleness at whole-second
+granularity and this loop rewrites a module several times a second.
+
+**Also new** — `--dump-page` on the worker, which writes the bootstrapped page
+and the non-secret capture fields for offline diagnosis (no cookies, no
+BotGuard token; it does carry reviewers' personal data, so keep it out of the
+repo), and `_collect` now records *every* batchexecute rpcid rather than
+filtering to one. The performance log is consume-on-read, so a filter there is
+a filter forever — that cost a second 110 s bootstrap to answer one question.
+
+**Tunable**: `PLACEINTEL_MAPS_RPC_MIN_COVERAGE` (0.95),
+`PLACEINTEL_MAPS_RPC_HEAD_SAMPLE` (40), `PLACEINTEL_MAPS_RPC_HEAD_SETTLE_S`
+(1.0). Each is read through a function, not captured into a module constant at
+import — a value frozen at import is not configuration.
+
+## v0.4.81 — 2026-08-31 — the RPC is wired in, guarded, and OFF by default
+
+v0.4.80 captured the real reviews endpoint but left it unwired. This wires it in
+with the DOM scraper behind it and adds the consistency checks — and then, on
+the strength of what those checks found, ships it **opt-in**.
+
+**The ladder is** `maps-rpc` → `scraper-pro` (DOM) → SerpAPI (paid). Every way
+the RPC can fail raises `ScraperProError`, so the DOM ladder is reached by
+exactly the path it already had; an unexpected crash in the new code is caught
+too, because a new path must never be the reason an established one stops
+running.
+
+**`PLACEINTEL_ENABLE_MAPS_RPC=1` turns it on. Absent, it does not run.** The
+reason, measured in production: **the walk cannot reach the newest reviews.**
+Maps renders the first ~10 review cards from data embedded in the page, so the
+first RPC call it makes is already at offset 10 — there is no position-0 request
+to capture, because the page never needs one. On the target place that is
+`74 of the 85 reviews Google lists (87%)`, with the missing 11 being the most
+recent. The parity gate refuses it and the DOM scraper takes over, so nothing
+wrong is ever stored; the cost is a wasted ~110 s bootstrap, which is not a good
+default. The fix is to merge the on-screen head with the walk rather than to
+hunt for a position-0 cursor — plan doc E10.
+
+**This also corrects v0.4.80.** That entry reported 1,385 reviews in 83.5 s as a
+6.8x speedup. The count and the timing were real; the *set* was missing its
+newest ~10, which is why its newest review was ~3 weeks older than what the DOM
+held for the same place on the same day. It is a fast read of most of the
+history, not a current one.
+
+### The identity check — the wrong-listing failure, finally made loud
+
+The vendored scraper reaches a place with `maps/search/<place name>/` (its
+documented bypass for Google's limited view) and accepts whatever page comes
+back so long as it shows a reviews tab. **Nothing checks which business that
+is.** On a street with several near-identically-named shops it scrapes the wrong
+one and reports `reviews_found: 300, status: completed` — measured 2026-08-31 as
+314 stored reviews sharing 3 of 291 texts with the page they claimed.
+
+The RPC does not fix that by itself; it answers faithfully about whatever
+feature id the request names. But the request *states* that id, and
+`parse_maps_url` already extracts the expected one from the URL's `ftid`. So:
+
+- `maps_rpc.feature_id_of()` reads the landed id out of the captured `f.req`,
+  `feature_id_in()` reads the expected one out of the Maps URL, and both go
+  through one normaliser so the two sides cannot disagree about formatting.
+- `same_feature()` treats unknown as **not a match**. A missing id must not read
+  as agreement, or the guard passes exactly when it has nothing to check.
+- When the name search lands elsewhere, the bootstrap now re-navigates by direct
+  URL — the vendor's own step-4 fallback — instead of scraping on.
+- A mismatch that survives that is a refusal, not a stored row.
+
+### The parity check — a gate, and the bug it caught that nearly got it deleted
+
+DOM review ids from the same session against the walk. Three prod runs reported
+total disjointness, each looked like a rendering artefact, and each artefact was
+real and worth fixing:
+
+- Compared head-to-head it reported `3 vs 20, overlap 0` — the two only line up
+  when both start at the same offset. Widened to compare against the whole walk.
+- The pane renders lazily after a re-sort *and* virtualises. Added a settle loop
+  and a minimum sample.
+- The bare `[data-review-id]` selector matches the profile button and its avatar
+  as well as the card, so a 20-element slice covered ~7 reviews. Narrowed to
+  `div[data-review-id]`.
+
+After all three it still failed, and it was about to be demoted to a log line on
+the theory that it was unreliable. It was not: the reviews on screen were a week
+old and the walk's newest was six months old, and the walk genuinely could not
+see them. **It stays a gate.** Before softening a check because you cannot
+explain why it fires, find the mechanism — "I do not understand this" is not
+evidence that the check is wrong, and demoting it here would have shipped a
+review history missing everything recent.
+
+Chasing it also produced a real fix and one wrong turn worth recording. The fix:
+the bootstrap now wraps `driver.get` to append `hl=en` to every google.com
+navigation, because the prod box egresses from a German datacenter IP and
+`Accept-Language` plus a `PREF` cookie do not reach the `maps/search/<name>/`
+URL the vendor builds internally. The wrong turn: a German UI was blamed for the
+disjointness, on the theory that the English-only sort control had silently
+no-opped. Forcing English fixed the review-count readout and changed nothing
+else — the cause was the offset, not the ordering.
+
+### The completeness check — coverage against Google's own total
+
+`no next cursor — end of reviews` is the server saying it has nothing more to
+give *for the enumeration you asked for*. That is not a statement about the
+place. The bootstrap reads the review count off the page and every fetch reports
+`coverage` — `None` when Google did not say, never a confident 100%. Below 90%
+it warns that the DOM path may find more.
+
+### Fixes found by building this
+
+- **The walk was starting mid-list.** The bootstrap can only capture a request
+  the page chose to make, and that cursor carries an offset — so the walk
+  silently skipped the newest N reviews and still reported a clean "end of
+  reviews". This is what made v0.4.80's headline read 1,385 of 1,395. The
+  captured cursor is now rewound to `:0` and the rewind is *verified* (sent
+  once, kept only if it answers), because a hand-edited opaque cursor would be
+  rejected the way everything else here is — HTTP 200 with an empty envelope.
+  Measured on prod: `rewound the captured cursor from offset 10 to 0`.
+- **Candidates captured before the sort are discarded.** They describe the
+  relevance-ordered pane, and a walk from one of those returns "the first N by
+  relevance" while the caller asked for the newest N.
+- **`reviews` and `maps-rpc` share the `gsp:` id namespace.** `review_id` is the
+  reviews table's primary key and the DOM's `data-review-id` is the same value
+  the RPC returns, so a shared prefix makes the two paths deduplicate against
+  each other instead of storing every review twice. The prefix names the id
+  namespace; `source` names the fetcher.
+- **`is_full_history()` replaces two `source == "scraper-pro"` literals** in
+  pipeline.py. Adding a second full-history source would otherwise have silently
+  stopped the stale-SerpAPI-first-page cleanup from ever firing again — a gate
+  that keeps passing while its subject set shrinks to nothing.
+- **A `timeout_s=SCRAPER_TIMEOUT_S` default argument froze the module
+  attribute**, detaching the existing grandchild-reaping test from what it was
+  testing. It reported as a failure two minutes later rather than as a hang.
+  Caught by the suite; resolved inside the function body instead.
+- Browser teardown is idempotent. The walk closes Chrome deliberately (the
+  pagination is HTTP) while `fetch` keeps a `finally` for the paths that never
+  get that far, and a second `quit()` raising from a `finally` would have
+  replaced a good result with a connection error.
+
+### Tests
+
+`tests/test_maps_rpc_integration.py` (new) covers the ladder in both directions
+— an RPC failure falls back, a successful RPC does **not** also launch the DOM
+scraper (asserted with a trap, since a second 70-second browser run fails no
+assertion about the returned rows) — plus the kill switch, the id namespace, the
+rewind, and the worker's terminal branches. That last group exists because a
+`NameError` shipped inside a `no-overlap` error message: the branch only ran
+against a live Google, and an error string is still code.
+
+## v0.4.80 — 2026-08-31 — the reviews endpoint everyone documents is retired; here is the real one
+
+Five hand-built `pb=` probes of `/maps/rpc/listugcposts` had all returned 403,
+identically from a datacenter IP and from residential exits — which says *format*,
+not policy, so a sixth guess was worth nothing. A CDP capture of a real paginating
+reviews pane settled it: **zero requests to `/maps/rpc/` of any kind.** Reviews ride
+`POST /maps/_/MapsWizUi/data/batchexecute?rpcids=qv9Egd`.
+
+- `placeintel/maps_rpc.py` — stdlib-only parser and cursor walker for that RPC.
+- `scripts/maps_rpc_probe.py` — bootstrap a page in a browser, then walk the
+  reviews over plain HTTP. Measured on prod against a 1,395-review shop:
+  **1,385 reviews in 83.5 s** (68.3 s bootstrap + 15.2 s walk) = 0.060 s/review,
+  against 0.47 s/review for the DOM path. Verified 10/10 on review id and author
+  against the DOM of the same page in the same session.
+- Three things the measurements forced into the design:
+  - **HTTP 200 is not success.** Every failure — bad BotGuard token, missing
+    cookies, non-browser UA, oversized page — is a 200 with a ~150-byte empty
+    envelope. `parse_page` reports `has_payload` instead of a status.
+  - **Page size 20 is honoured; 25/50/100/200 return zero.** Rejected, not
+    clamped, so `build_body` refuses them locally rather than on the wire.
+  - **A cursor that stops advancing looks exactly like one that works**, so the
+    walk asserts each page contributes something new and stops when it does not.
+- The fixture is a real captured response with reviewer names, profile and photo
+  URLs redacted — the mirror repo is public — but it keeps the stale length
+  prefix, the multibyte text, both review-id encodings and the discriminating
+  rating spread. Both parser bugs this module survives live in the envelope, and
+  a fixture written from a description of the format would have had neither.
+- **Not wired into `reviews.py`.** Moving the product onto an undocumented
+  internal API needs a DOM fallback and a parity gate first.
+- Found in passing and NOT diagnosed: a DOM scrape that morning stored 314 reviews
+  under this place that share 3 of 291 texts with what the page actually shows.
+  A scrape that lands on the wrong listing is currently silent — it reports
+  `reviews_found: 300, status: completed`. Tracked separately.
+
+## v0.4.79 — 2026-08-31 — two scrapes of one place were destroying each other's reviews
+
+A shop Google lists 1,395 reviews for delivered 97 to the app. Not a cap: the
+scraper fetched 300 and 209 of them were deleted mid-flight. Two scrapes of the
+same place ran concurrently over one SQLite file (sessions 128 and 129 overlapped
+by 2m20s); the second one's refresh wipe removed the `places` row the first one's
+in-flight INSERTs referenced. The vendor swallowed `FOREIGN KEY constraint failed`
+in a bare `except Exception` and kept counting *attempted* upserts, so it reported
+`new: 300` into a table holding 91. Reconstructed from `review_history`:
+300 inserted − 269 deleted + 61 recreated = 92 read, +5 pre-existing = 97.
+
+- `scrape_lock.py`: one scrape per place, machine-wide, plus a ceiling on
+  concurrent browsers (`PLACEINTEL_MAX_CONCURRENT_SCRAPES`, default 3). `flock`
+  rather than a `threading.Lock` because the measured collision was between a
+  root CLI run and the systemd service — no in-process primitive can see that.
+- The refresh wipe, the subprocess, and the read-back now happen inside one lock.
+  The non-refresh early-return read was also unlocked and could return a
+  mid-scrape partial set as a finished result.
+- A refresh that queued behind another refresh now reuses its result. The
+  boundary is asserted both ways: a scrape completing *after* the request counts,
+  one completing before does not, so `refresh` cannot decay into "recent enough".
+- The scraper runs in its own process group and a timeout reaps the whole tree.
+  `subprocess.run(timeout=)` SIGKILLs only the direct child and the browser is two
+  levels below it — prod was holding four abandoned trees, 48 processes, 4.7 GB
+  RSS, all `PPid 1` and outside the service cgroup while systemd reported 82 MB.
+  `MemoryHigh=5G` / `MemoryMax=6G` / `TasksMax=4096` added as the backstop.
+- `_clear_scraper_db_entry` matches the vendor's 30 s lock budget and raises
+  instead of `except sqlite3.Error: pass`. Swallowed, a failed wipe turned
+  "refresh" into "append to stale rows" with nothing to distinguish them.
+- `proxy_relay.py`: residential-proxy credentials reach the upstream through a
+  loopback relay. `Driver(headless=True, proxy="user:pass@host")` — what this
+  code passed before — loads a blank page and raises nothing, because SeleniumBase
+  answers proxy auth with a Chrome extension and extensions do not load in
+  headless. Measured egress `""` before, `113.182.209.222` after. Prod also had no
+  proxy source configured at all, so the fallback added in 98b14ac could never
+  have fired there; it is now plumbed through the deploy env.
+- `?q=place_id:X` Maps URLs now carry an identity. They previously carried none,
+  so the pipeline text-searched the literal string "place_id:ChIJ…" and reported
+  a cached shop as not found. Two functions in this package *generate* that URL
+  shape, so the round-trip is asserted against the generators.
+- `deploy/remote-bootstrap.sh` re-applies a tracked vendor patch and refuses to
+  deploy if it does not apply, instead of aborting `git pull --ff-only` against a
+  dirty vendor tree.
+
+### Scraping is 6.8x faster — 954.9 s -> 141.0 s for 300 reviews
+
+Measured on the same prod box, same place, with `overlap_pct: 100.0` against the
+slow path's review_ids — the same data arriving sooner, not a shorter scrape.
+
+The 955 s was never Google throttling: ~703 s of it was our own WebDriver round
+trips. `RawReview.from_card` made 25-30 individual Selenium calls per review, and
+the scroll loop re-read every card in the DOM on every iteration (O(n^2), 0.077 s
+per card per iteration). `get_attribute` in Selenium 4.44 is itself an
+`execute_script` shipping a 4754-byte JS atom, so a 300-review run pushed ~60 MB
+of atom source over the wire.
+
+- New `modules/dom_batch.py` batches the DOM reads into a handful of
+  `execute_script` calls. Round trips per 30-iteration run: dedup rescan
+  ~4,650 -> 30, per-card parsing ~12,600 -> 60, idle tail 25 iterations -> 3.
+- Both paths converge on one parser (`from_payload`), so any divergence is
+  structurally confined to the string-read layer. The per-card loop survives as
+  a fallback behind a circuit breaker; a Google DOM change degrades rather than
+  breaks.
+- Pane exhaustion now ends the scroll instead of grinding out 25 idle iterations,
+  and is conservative by construction: no-fresh AND unchanged AND not-busy AND
+  at-bottom, for >=3 iterations *and* >=3.0 s wall-clock, with the pre-existing
+  `idle >= max_idle` bound left in place as the backstop.
+
+Three defects an adversarial review caught after the suite was green, each now
+gated: the cited browser-backed parity harness did not exist in the repo (all 74
+tests drove a fake driver and executed zero JS, while `JS_VISIBLE_TEXT` is a
+hand port feeding the content hash); `likes` became a stated `0` when the like
+button went stale, where the old code skipped the card; and `_wait_for_growth`
+was seeded with the previous pass's pane size, so it returned immediately having
+waited for nothing.
+
+Not changed: `max_reviews` still defaults to 300, and the UI already exposes it.
+Verified on prod — 300 scraped, **300 returned** (was 91), one session, zero new
+FK errors, zero orphaned browsers. 251 tests; every new suite mutation-checked.
+
+## v0.4.78 — 2026-08-13 — the paid fallback is opt-in, and fails closed
+
+Discovery (gosom in Docker) and reviews (vendored scraper-pro) are free; SerpAPI
+is billable. The fallback fired on ANY primary failure — a stopped Docker
+daemon, a missing vendor venv — logged one warning, and spent credits. Silent
+degradation from free to paid looks exactly like success in the timeline, so the
+bill was the first place it showed up. Local cache: 1287 free / 670 paid
+reviews; production: 1454 / 328, on a box provisioned for the free lane.
+
+- `spend.py` is now the only door to the SerpAPI key. Permission resolves
+  run-flag > `PLACEINTEL_ALLOW_SERPAPI` > `allow_serpapi` in settings.json >
+  **blocked**. Without it, `PaidPathBlocked` names the free-path failure and the
+  remedy, and nothing is sent.
+- One choke point per module rather than one guard per branch: `_fetch_via_serpapi`
+  acquires the key for all four review-fallback paths, `_discover_serpapi` for
+  discovery. A guard on three of four branches is the bug this shape prevents,
+  and `SingleDoorTest` fails the build if any other module reads the key.
+- `--allow-serpapi` / `--no-serpapi` on scout and shop; `placeintel spend`
+  shows and persists the standing choice. `--force-serpapi` is an explicit
+  request for the paid engine and carries its own permission — combining it with
+  `--no-serpapi` is refused rather than silently ranked.
+- New exit code 7 / `paid_path_blocked`, recoverable, with the remedy in
+  `next_action`. Reporting a deliberate policy stop as `internal_error` (10)
+  would tell agents to file a bug and retry the identical command.
+- Web: `/api/config` reports the resolved policy and its source, shown in the
+  System panel. Deliberately read-only over HTTP — the proxy credential is
+  shared with guests, so anything a request could set, a guest could spend. The
+  deploy pins `PLACEINTEL_ALLOW_SERPAPI=0`, overridable by repo *variable*.
+- A blocked job logs a warning instead of an exception, so the guard working as
+  designed no longer pages the owner through Sentry.
+- Considered and rejected: a pre-scrape Docker readiness probe. It would fail
+  before paying to plan a doomed search, but it also fired on cache hits, where
+  the old code touched Docker not at all — turning a free instant answer into a
+  90s wait. Refusing late is cheaper than being slow always; a test pins the
+  probe out of the pipeline.
+- Gate: 219 Python tests OK under both an unset and an exported
+  `PLACEINTEL_ALLOW_SERPAPI=1` (the policy is read from the environment, so a
+  single run would have proven nothing), suite credit delta 0. E2E with Docker
+  genuinely stopped: refused, exit 7, delta 0; with `--allow-serpapi`, delta 2 —
+  the permitted lane still works.
+
+## v0.4.77 — 2026-08-13 — sharing guards: owner-only routes and a spend ceiling
+
+The site is shared with guests through one proxy credential, which by
+construction cannot tell the owner from a friend. Two guards close the gap that
+authentication alone would not have closed.
+
+- Owner-only routes. `DELETE /api/places/{place_id}`, `POST /api/settings`, and
+  `POST /api/settings/language` now require the `X-PlaceIntel-Owner` header,
+  compared in constant time against `PLACEINTEL_OWNER_TOKEN`. They fail CLOSED:
+  an unset token refuses rather than opens, because a destructive route must not
+  fall open on a missing environment variable. Scout, shop, ask, translate,
+  favorite, and every read stay open to guests — sharing is the point.
+- Rolling-24h job budget. `POST /api/scout` and `POST /api/shop` return `429`
+  past `PLACEINTEL_DAILY_JOB_LIMIT` (default 50, `0` disables). The count comes
+  from the `jobs` table, so it cannot drift from what actually ran and needs no
+  reset job; a malformed limit falls back to the default instead of silently
+  removing the ceiling.
+- The web System panel gained an owner-token field stored in that browser only,
+  so the owner keeps delete/settings while guests simply never set one.
+- Deploy propagates `PLACEINTEL_OWNER_TOKEN` and validates it like the other
+  required secrets. Non-secret owners recorded in the operations runbook.
+- Split `server.py` to honour the project's own <800-line rule (AGENTS.md). It
+  had already crossed at 826 during v0.4.75 and these guards pushed it to 876;
+  it is now 635, with the Sentry wiring in `telemetry.py` and the guards in
+  `guards.py`. Behaviour unchanged — server.py re-exports both, so existing
+  callers and tests are untouched. Also removed two imports the split orphaned
+  and corrected the module docstring, which still claimed "no auth".
+- Note this is authorization, not identity. The SQLite schema still has no owner
+  column, so an app-level login would not by itself have produced per-user
+  permissions — which is why the token guard was the cheaper, and correct, move.
+
+## v0.4.76 — 2026-08-13 — photo link expiry told honestly, and detected
+
+- Fixed the reported "no source photo" boxes. The cause was NOT rendering: every
+  stored Google photo URL has been revoked at Google's edge. Measured 113/113
+  thumbnails returning HTTP 403, from two continents, with and without a
+  `Referer`, and with and without the `hiRes()` size rewrite. The decisive
+  control: freshly scraped URLs from the same host and the same `gps-cs-s` /
+  `grass-cs` buckets, put through the same `hiRes()` rewrite, all return 200.
+  Only the stored tokens are dead.
+- The UI was reusing the empty-state copy for the broken state, so an expired
+  link was indistinguishable from a shop that has no photo. `is-broken` now
+  reads "photo link expired" / "图片链接已失效" via a new `--photo-broken`
+  token, leaving the genuine `is-empty` copy untouched.
+- Added the `photo_liveness` deep-health check: it samples stored photo URLs,
+  reports the alive fraction, fails when none resolve, and treats an empty
+  sample as inconclusive rather than as a pass. This is the check whose absence
+  let a fully broken photo layer look healthy for seven weeks.
+- Deliberately NOT done: no server-side image proxy. The VPS receives the same
+  403, so a proxy would relay the identical failure while adding a route,
+  bandwidth, and a cache to maintain.
+
+## v0.4.75 — 2026-08-11 — privacy-safe Sentry monitoring
+
+- Kept the existing observability owners instead of adding Better Stack Logs or
+  a second error tracker: systemd/journald for service evidence, durable SQLite
+  job events for pipeline history, and Sentry for grouped errors/traces.
+- Sentry now disables request bodies and frame locals, drops customer-authored
+  request/extra/breadcrumb/span/exception text from outbound events, and retains
+  only diagnostic metadata. Common credential forms and private home paths are
+  redacted defensively; default PII remains off.
+- Reduced the default trace sample from 100% to 10% and made invalid/out-of-range
+  environment values fall back safely instead of breaking application startup.
+- `GET /api/health` now returns HTTP 503 with its existing `ok:false` JSON body
+  when a critical local check fails, preventing status-only monitors from
+  reporting a broken database/data/static layer as healthy. Concurrent health
+  checks use unique, automatically cleaned data-directory probe files.
+- Added the least-privilege `GET /api/health/monitor` contract: only a dedicated
+  token can obtain the minimal readiness result, so the uptime vendor never
+  receives the owner-facing Basic Auth credential.
+- Added the one-minute Sentry Uptime detector `PlaceIntel production health`:
+  three consecutive failures open an incident, one success recovers it, the
+  project team owns it, and the existing high-priority email workflow is attached.
+- Removed the permanent crash endpoint, and kept the System panel actionable
+  when cheap health correctly returns HTTP 503.
+- Added regression tests for telemetry privacy, SDK option wiring, deployment
+  secret propagation, monitor authorization, bounded sampling, failed-health
+  HTTP/UI behavior, and documented collector/query/incident/recovery ownership.
+
+## v0.4.74 — 2026-08-06 — Sentry error tracking
+
+- Wired Sentry (org `wi-0s`, project `place-intel`) into the web server:
+  errors + tracing via `sentry-sdk[fastapi]`, initialised before app creation
+  so the Starlette integration instruments every route.
+- Disabled by default: local runs send nothing unless `SENTRY_DSN` is set; the
+  deploy workflow injects the DSN from the `SENTRY_DSN` repo secret and pins
+  `SENTRY_ENVIRONMENT=production`. Release tagged `placeintel@<version>`.
+- `before_send` scrubs `api_key=…`-style secrets from exception text and log
+  messages via `config.redact_secrets` before events leave the box;
+  `send_default_pii` stays off.
+- Added `/api/sentry-debug` (deliberate, harmless 500) to verify the wiring end
+  to end per environment.
+
+- Added support for Google's current `Maps (your places)/Saved Places.json`
+  GeoJSON name alongside the earlier `Starred places` export name.
+- Identity-less blank/tag-only export placeholders are skipped with a count in
+  the local import receipt and JSON contract; rows with other orphaned content
+  still reject atomically for review.
+- `saved-import` now accepts a safe opaque `--source-label`, so two Google
+  Takeout accounts can keep identically named collections separate while exact
+  shared saved places remain deduplicated.
+- Import receipts retain the source label and legacy-adoption count. A prior
+  unlabelled archive can be scoped with `--adopt-unlabeled` only after every
+  source-file digest matches; mismatches fail atomically.
+- `saved-inventory --source-label` returns account-scoped counts and collection
+  provenance without accepting or displaying account email addresses.
+
+## v0.4.72 — 2026-07-16 — production hardening Task 1
+
+- Added `docs/architecture.md` as the system-map owner for product flows,
+  modules, storage, integrations, runtime/deploy boundaries, invariants, and
+  update triggers.
+- Added the production-trust-hardening PRD, approved design spec, and reviewed
+  TDD execution plan for bounded jobs, private operations, AI provenance,
+  source-verifiable reports, and reproducible release proof. Runtime behavior is
+  unchanged until those milestones land.
+- Linked the architecture owner from `README.md`, `FILE_MAP_INDEX.md`, and
+  `VAULT.md`; runtime behavior and public contracts are unchanged.
+- Added root-scoped Playwright discovery for the 39 intended browser tests,
+  excluding duplicated `.claude/worktrees` tests from normal runs.
+- Split the no-build frontend into purpose-owned CSS assets and extracted the
+  durable job/SSE/polling lifecycle into `web/jobs.js` without changing the
+  existing selectors, declarations, or `window.__pi.startJob` contract.
+- Cheap doctor now validates every local CSS/JS asset linked by `index.html`
+  instead of relying on a fixed historical filename list.
+- Playwright may reuse an already running current-checkout server in CI, matching
+  the deployment gate that runs loopback `deploy-smoke` before browser tests.
+
+## v0.4.71 — 2026-07-05 — Maps share links lock the shop by identity, no search
+A pasted `maps.app.goo.gl` share link already names ONE exact place (its
+`ftid`/`cid` identity), yet single-shop mode still ran a Google Maps text
+search and matched by name (fuzzy + LLM pick) — visibly redundant, and the
+source of occasional wrong-shop matches (same-name branches, lookalikes).
+
+- `scout_single` now resolves URL inputs by identity: cache lookup by the
+  URL's `data_id` first (new `cache.find_place_by_data_id`), then a direct
+  lock on the place parsed from the URL — no search, no name guessing.
+  When a search still runs (no usable identity in the URL), candidates are
+  matched by `cid` before any name-based pick, and name-matched cache rows
+  with a *conflicting* identity are rejected instead of silently reused.
+- `scout()` passes the original URL through to single mode; it used to
+  forward only the parsed shop NAME, dropping the link's identity entirely.
+- Listing metadata (★rating / review count / address) for URL-locked places
+  is backfilled from SerpAPI's `place_info` during the review fetch and
+  persisted, so skipping discovery doesn't blind the report or the
+  first-page-gap guards. scraper-pro's zero-row consent-wall check now also
+  fires when the listed review count is unknown.
+- Short-link expansion seeds Google consent cookies and recovers the real
+  URL from `consent.google.com/m?continue=…` bounces (EU VPS), so the
+  identity in the link survives expansion; expansions are memoized (the
+  same link was resolved up to 3× per job).
+- The plan card no longer advertises "searches run" for identity-locked
+  links — no search happens.
+
+## v0.4.70 — 2026-07-02 — bypass EU consent wall + true 300-review default
+Fixes the production "0 reviews" failures at their root. VPS journal + vendor
+scraper logs showed every scraper-pro run on the EU VPS landed on Google's
+GDPR interstitial ("Bevor Sie zu Google Maps weitergehen") — the vendor's
+cookie dismissal only matches English "Accept" buttons — so each scrape
+recorded the consent page with zero review rows and fell back to SerpAPI,
+draining the 250/month quota (190 used) until fallbacks also failed with 0.
+
+- scraper-pro bootstrap now wraps `setup_driver` to pre-seed Google consent
+  cookies (`SOCS=CAI`, `CONSENT=PENDING+987`) via robots.txt before any Maps
+  navigation, so EU datacenter IPs skip the interstitial entirely.
+- SerpAPI page math accounts for its 8-item first page: a 20-review cap now
+  fetches page 2 instead of silently returning 8 reviews as "success".
+- Web: the review cap really defaults to 300 now. `savedMaxReviews()` clamped
+  `localStorage.getItem() === null` (→ `Number(null) === 0`) up to the minimum
+  20, so every fresh browser ran jobs with a 20-review cap since v0.4.65. The
+  storage key moves to `placeintel.maxReviews.v2`, the poisoned v1 key is
+  removed on load, and only committed in-range edits (change event, 20–5000)
+  are remembered — partial keystrokes no longer persist clamped values.
+
+## v0.4.69 — 2026-06-25 — reuse existing scraper-pro rows before Chrome
+Completes the Xóm Mèo production fix. If scraper-pro's persistent DB already
+contains review rows for the target URL, PlaceIntel now reads and returns those
+rows before launching another Chrome scrape. This lets a retry use the 240
+scraper-pro rows already collected on production immediately, instead of
+starting a new browser run and risking another long consent/selector session.
+
+## v0.4.68 — 2026-06-25 — match scraper-pro resolved URLs
+Fixes the final Xóm Mèo production mapping issue. The vendor scraper may store
+the submitted Google Maps URL in `places.resolved_url` while keeping a different
+canonical URL in `places.original_url`; PlaceIntel only matched `original_url`,
+so it missed review rows that were already present in the vendor DB and fell
+back to SerpAPI's small first page.
+
+The scraper DB mapper now matches `places.original_url`, `places.resolved_url`,
+and `place_aliases.original_url`, allowing the 240 Xóm Mèo scraper-pro rows
+already collected on production to be ingested instead of being ignored.
+
+## v0.4.67 — 2026-06-25 — skip repeated empty scraper-pro retries
+Follow-up to v0.4.66. Production showed that a 600-review retry could spend a
+long time re-running scraper-pro against a URL already known in the vendor DB as
+a zero-row scrape. PlaceIntel now checks the persistent scraper DB before
+launching Chrome; if the target URL is already mapped but has zero review rows
+while Google lists reviews, it skips the primary scraper and goes straight to
+SerpAPI fallback.
+
+This makes repeated no-report retries recover promptly instead of waiting on a
+doomed browser session first.
+
+## v0.4.66 — 2026-06-25 — fall back when scraper-pro hits Google consent
+Fixes production Shop jobs where scraper-pro successfully exited after landing
+on Google's consent interstitial instead of the business page. The vendor DB
+recorded that consent page with zero review rows, so PlaceIntel previously
+trusted the empty primary result and skipped report generation.
+
+When scraper-pro maps the requested URL but returns zero rows for a place that
+Google lists with reviews, PlaceIntel now treats the primary scrape as failed
+and activates the existing SerpAPI fallback. This keeps exact-place Shop
+refreshes from ending as "0 reviews" when the VPS browser is blocked by a
+consent page.
+
+## v0.4.65 — 2026-06-25 — expand short Maps URLs and remember review caps
+Fixes Shop submissions that use `maps.app.goo.gl` short links. The planner now
+expands short Maps URLs before planning, extracts the redirected business name
+and `ftid`/hex data id, and the single-shop pipeline preserves that exact URL
+for review fetching even when discovery supplies separate listing metadata.
+This lets scraper-pro fetch the real place instead of searching the raw short
+URL or transforming `ftid` into a weaker `place_id` query.
+
+The web app also remembers the user's max-review cap in browser storage. If the
+owner changes the advanced review count from 300 to 600, Scout, Shop, and
+in-dossier refresh/generate jobs all reuse 600 across reloads.
+
+## v0.4.64 — 2026-06-21 — remove stale SerpAPI rows after full scraper fetch
+Prevents reports from double-counting SerpAPI's old 8-review first page after a
+successful scraper-pro refresh. When scraper-pro returns more than SerpAPI's
+initial page size, the pipeline removes stale SerpAPI rows for that place before
+embedding/reporting, so report coverage matches the real full scrape.
+
+## v0.4.63 — 2026-06-21 — give scraper Chrome a writable home
+Sets scraper-pro subprocess `HOME`, `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`, and
+`XDG_DATA_HOME` to writable directories under `DATA_DIR`. The production service
+user had `HOME=/opt/gmr`, which Chrome could not write, causing crashpad/local
+state failures before SeleniumBase could connect to the browser.
+
+## v0.4.62 — 2026-06-21 — keep SeleniumBase driver cache writable
+Points SeleniumBase `NEW_DRIVER_DIR` at
+`DATA_DIR/vendor/google-reviews-scraper-pro/drivers` before scraper-pro imports
+its driver launcher. This prevents ChromeDriver downloads/patches from writing
+inside the vendored virtualenv's `site-packages/seleniumbase/drivers` directory,
+which is not writable under the production systemd user.
+
+## v0.4.61 — 2026-06-21 — run scraper-pro from writable data workdir
+Moves the scraper-pro subprocess working directory out of the deployed vendor
+tree and into `DATA_DIR/vendor/google-reviews-scraper-pro/work`. The wrapper
+now loads `start.py` and vendor modules by absolute path, while relative runtime
+scratch files such as SeleniumBase `downloaded_files/` are created in writable
+data storage.
+
+This follows the v0.4.60 log-path fix after production showed SeleniumBase still
+needed a writable cwd before it could launch Chrome.
+
+## v0.4.60 — 2026-06-21 — make scraper-pro logs path deploy-safe
+Fixes the production scraper-pro fallback where the vendor CLI tried to create
+a relative `logs/` directory inside the deployed `vendor/` tree and failed with
+`PermissionError`. The generated scraper config now sends both SQLite storage
+and rotating logs to absolute writable paths under PlaceIntel's data directory.
+
+This keeps the primary scraper usable under systemd/read-only deploy layouts and
+prevents the app from dropping back to SerpAPI's known 8-review first page when
+the vendor log directory is unwritable.
+
+## v0.4.59 — 2026-06-21 — refresh dossier reviews by exact cached place id
+Hardens the dossier "Fetch more reviews" and inline report-generation path so
+it refreshes the place the user is actually viewing. `/api/shop` now accepts an
+optional `place_id`; when present, the pipeline loads that cached place directly
+and skips Google Maps rediscovery, then applies the normal review/report flow.
+
+This prevents ambiguous names such as "Bay Mau Coconut Forest" from drifting to
+a nearby similarly named result like "Bay Mau Coconut Forest Tour" during a
+dossier refresh. The web dossier now includes the current `place_id` in its
+`/api/shop` job body, while keeping the name/address as readable context.
+
+Added backend coverage for exact-place refresh without rediscovery, a durable
+job regression proving the server passes `place_id` through, and a Playwright
+regression proving the dossier refresh action sends the exact place id.
+
+## v0.4.58 — 2026-06-21 — make scraper-pro storage path subprocess-safe
+Fixes the Bay Mau Coconut Forest failure where scraper-pro died before scraping
+with `sqlite3.OperationalError: unable to open database file`, forcing the app
+into the SerpAPI fallback and then into the known 8-review first-page failure.
+
+Root cause: the project `.env` can set `PLACEINTEL_DATA_DIR=data`, and the
+vendored scraper runs with `cwd=vendor/google-reviews-scraper-pro`. Passing the
+relative `data/scraper_pro_reviews.db` path into that subprocess made SQLite
+open the vendor-local `data/` directory, which does not exist. The scraper
+config and reader now resolve the scraper DB to an absolute path before crossing
+the subprocess boundary.
+
+Added a regression asserting the scraper config always passes an absolute DB
+path. Live local E2E proof: `placeintel shop "Bay Mau Coconut Forest" --near
+"Hoi An, Vietnam" --max-reviews 90 --refresh` now returns 90 scraper-pro
+reviews, embeds 77 new vectors, and produces a report with `90 analyzed`.
+
+## v0.4.57 — 2026-06-21 — do not accept SerpAPI's 8-review first page as a complete cache
+Fixes the production/mobile symptom where newly fetched places often showed
+exactly 8 cached reviews even when Google listed many more. SerpAPI's Google
+Maps Reviews API returns an initial page of 8 reviews before pagination; when
+that next page timed out or failed, the pipeline was treating the first page as
+a usable completed cache and could generate reports from only those 8 reviews.
+
+The SerpAPI fallback now raises a first-page-only `PartialReviewsError` instead
+of silently saving an underfilled result as complete. The deep-dive pipeline
+detects existing 8-review first-page caches, retries review fetches even when
+the place row is otherwise fresh, and refuses to generate a report from that
+known-incomplete cache if the retry still fails. SerpAPI-discovered places now
+also keep a name-rich Google Maps URL when the API result lacks a link, giving
+the primary scraper a usable `/maps/place/<name>/...` target instead of a bare
+`place_id` query URL.
+
+Added regression coverage for the SerpAPI first-page guard, scraper-friendly
+fallback Maps URLs, and the report pipeline refusing to analyze known
+first-page-only caches.
+
+## v0.4.56 — 2026-06-21 — handle first-page review fetch resets without misleading no-report errors
+Fixes the report-generation failure mode seen when SerpAPI resets on page 1
+for a cached place. The shared deep-dive pipeline now re-reads the SQLite
+review cache after any review-fetch exception: if cached reviews exist, it
+continues report generation from those reviews and emits an explicit
+"using cached reviews" progress event; if no analyzable reviews exist, it skips
+the report cleanly instead of calling `analyze_place()` and adding a second,
+misleading `no cached reviews` error.
+
+The dossier's no-report message now avoids promising that completed steps will
+hit cache when the review cache is empty. It explains that cached reviews are
+reused automatically when present, otherwise the user needs to retry the review
+fetch. Added backend regression coverage for both empty-cache and cached-review
+fallback paths plus a Playwright check for the corrected no-report copy.
+
+## v0.4.55 — 2026-06-21 — stabilize dossier report actions and UI smoke language
+Hardens the dossier action contract used by the deploy smoke suite. The
+in-dossier "generate report" action and the partial-cache "fetch more reviews"
+action now expose distinct `data-report-action` values, so automation can click
+the intended action without confusing refresh and report-generation controls.
+The no-report dossier smoke now verifies the inline modal refresh path after the
+focused report job completes.
+
+Also makes Playwright language setup explicit before page load for English and
+Chinese expectations. This preserves the real browser behavior where a user's
+saved language/translation target is remembered, while preventing tests from
+accidentally inheriting the runner's locale.
+
+## v0.4.54 — 2026-06-20 — remember report translation and explain partial review caches
+Fixes the dossier translation UX after the cached report-translation release.
+When a user chooses/translates a report to Chinese, the browser now remembers
+that report-display preference and reopens the dossier in the translated view
+until the user explicitly switches back to original. While translated, the
+report model pill and status line show the translation model/provider
+(`gemini-3.1-flash-lite @ VectorEngine`) instead of making the translated text
+look like it came from the original reasoning model.
+
+Also clarifies the common "210 listed / only 1 cached" case: the dossier now
+shows partial cache counts as `cached / listed` and exposes a direct
+`补抓评价 / Fetch more reviews` action when local cached reviews are below the
+Google listing count. The action reuses the existing in-dossier single-shop
+pipeline with `refresh:true`.
+
+## v0.4.53 — 2026-06-20 — cached report translation
+Adds cached, display-layer translation for generated dossier reports. New
+`report_translations` rows key by `report_id`, target language, and source
+markdown hash, so translated report text is reused only while the original
+`reports.report_md` is unchanged. New `POST /api/reports/translate` uses the
+existing cheap translation provider role and returns translated markdown,
+source/target language, provider/model, cache status, and creation time.
+
+The dossier now exposes the latest report id, shows a compact report
+translation toolbar, can translate the report into Chinese or any safe target
+language, labels cache hits, and restores the original report instantly without
+another API call. Original reports and raw reviews remain untouched. Added
+backend/API tests plus a Playwright dossier smoke for translate-from-cache and
+restore-original; static web files remain under the 800-line hard cap.
+
+## v0.4.52 — 2026-06-20 — agent-readiness PRD governance
+Adds a PRD router and contract gate so future agents can start from the right
+owner record instead of guessing across legacy files. New current-format PRD:
+`tasks/2026-06-20 - prd agent-readiness-governance.md`. New router:
+`tasks/README.md`, covering all 8 PRDs while preserving the 7 historical
+`tasks/prd-*.md` filenames. New executable gate:
+`scripts/validate-prd-contract.sh --allow-legacy .` verifies routing and
+required headers; strict mode intentionally rejects legacy filenames until a
+deliberate migration. Added `tests/test_prd_contract.py` for the contract gate.
+
+## v0.4.51 — 2026-06-19 — dossier: jump to the spot on Google Maps from the top
+Adds a prominent "📍 在 Google 地图打开 / Open in Google Maps ↗" action to the top of the
+dossier header (on the freshness row, beside *Remove from cache*), so you can jump straight to
+the place on Google Maps. Previously the only Maps link was buried at the very bottom of the
+dossier inside the facts `<dl>` ("地图 / Map") — easy to miss. That redundant fact row is
+removed; the link now lives where you see it first. `renderDetail` also gains a fallback: if a
+cached place has no stored `maps_url`, it builds a `google.com/maps/search` URL from the name +
+address, so the jump always works. The link opens in a new tab with `rel="noopener noreferrer"`
+and reuses the proven `--accent`/`--on-accent` button pairing (`.detail-map-link`). Localized
+via `ui()`; `app.css` stays within its 800-line budget.
+
+## v0.4.50 — 2026-06-19 — finish the language switch: result/library/dossier strings localize
+Completes the bilingual UI: the remaining hardcoded Chinese in the dynamic render layer now
+goes through the `ui('中文','English')` helper, so the EN/ZH switch covers the whole app, not
+just the static chrome. Localized surfaces include `renderResult` (job result summary, place
+list, AI-excluded block, warnings), `renderShopCard` / `compareCardHtml` (收藏/对比/打开档案 →
+Save/Compare/Open dossier and the compare-board facts), `renderPlanCard`, `renderLibrary`
+filters, `renderReviewCard`, `renderDetail`, and the nav landmark's `aria-label` (new
+`aria.nav` key + `data-i18n-aria`). Language-detection regexes, the deliberately bilingual
+labels (出错 error / 深挖报告 report), and the example-format placeholders (kept in the contract's
+required "例：…" shape) are unchanged. No API change;
+`app.js` stays within its 780-line budget. Closes the i18n gap flagged after v0.4.45.
+
+## v0.4.49 — 2026-06-19 — inline report generation: no more silent "jumps back to nothing"
+Fixes a real-user report: generating a report inside the dossier would stream a few steps,
+then quit and revert to the empty "no report yet" state with no explanation. Root cause was
+two stacked bugs, confirmed from the user's actual failed job (The Marble Mountains — a
+41,233-review place):
+- **Partial review scrapes were thrown away (backend, `reviews.py`).** The SerpAPI fallback
+  paginates ~20 reviews/page. When a *later* page timed out, the exception propagated and
+  **discarded the reviews already collected** — so analyze saw "no cached reviews" and produced
+  nothing. `_fetch_via_serpapi` now salvages what it has: a later-page failure keeps the
+  earlier pages (a report on the newest 20 beats an empty dossier); only a first-page failure
+  (nothing collected) still raises. New `tests/test_review_salvage.py`.
+- **A 0-report job silently reverted the dossier (frontend, `dossier.js`).** A job can finish
+  `status='done'` yet produce no report. `pollFinal` treated any non-error terminal status as
+  success and called `openDetail()`, which **wiped the live timeline back to the pristine empty
+  state**, swallowing the warnings the user had just watched stream by. It now only refreshes
+  in place when a report actually exists; otherwise it shows an honest "未生成报告 / no report"
+  box with the failure reasons and a **retry** button (the retry re-uses the cache). New
+  `.report-fail` style.
+
+## v0.4.48 — 2026-06-19 — dossier UX: photo opens the dossier, reports generate in place, sharper photos
+Three real-user UX fixes on the web app, all front-end (no API/contract change). New module
+`web/dossier.js` (loaded before `app.js`; keeps `app.js` under its 780-line budget).
+- **Card photo → dossier.** Clicking a library/compare card's photo now opens the shop
+  dossier (打开档案), not the image lightbox — the photo is the card's biggest target and
+  belongs to the place, not a viewer. `photoSourcesHtml(photos, variant, placeId)` renders
+  card/compare photos with `data-open-place` (+ `cursor: pointer`, aria "Open dossier")
+  instead of `data-photo-url`. The dossier's own gallery strip still opens the zoomable
+  lightbox — gallery viewing is unchanged.
+- **Reports generate in place, with live progress.** "生成报告 / Generate report" no longer
+  closes the dossier and jumps to the Shop tab. `generateReportInline` runs `/api/shop` and
+  streams the live timeline into the dossier's report slot (EventSource + polling fallback,
+  mirroring the tab job runners); on completion the dossier refreshes in place to show the
+  new report. Closing the dossier mid-run tears the stream down cleanly (the server job
+  finishes on its own and the library picks up the report).
+- **Sharper photos.** Card and lightbox images were Google thumbnails (`=w400`-class tokens)
+  upscaled on retina and zoom. `hiRes()` bumps the size token of `googleusercontent`/`ggpht`/
+  `gstatic` URLs — cards request `=w800`, the lightbox `=w1600` — while the lightbox's
+  "view original" link keeps the unmodified source URL. Non-Google/non-http URLs pass through.
+
+## v0.4.47 — 2026-06-19 — batch /api/places photo thumbnails (N+1 → 2 queries)
+The library list resolved a source-photo thumbnail per place — 1–2 indexed queries each,
+~218 for a 109-place cache. Replaced with `photos.resolve_place_thumbnails`, a single
+batched pass (one chunked review-image query + one raw-photo fallback query) that mirrors
+the per-place resolver exactly. Measured **218 → 2 queries (109× fewer)** on the live
+cache, **0 result mismatches** across all 109 places (+ a contract test). This was the
+last residual N+1 from the v0.4.45 photo-feature merge — the twin of the activity-risk
+batch already in the same loop.
+
+## v0.4.46 — 2026-06-19 — photo-lightbox + language accessibility hardening
+Adversarial audit of the just-merged photo + language feature code (0 security issues —
+the scraped-photo URLs are correctly `safeUrl()` + `esc()` guarded). Fixed 6 a11y/UX
+defects, all in the new feature surface:
+- **Photo-lightbox focus trap** now includes the source-URL `<a>`, so Tab can't escape
+  the modal onto background controls, and the "view original" link is keyboard /
+  screen-reader reachable (was buttons-only).
+- The lightbox opens focus on the always-enabled close button (was the nav button, which
+  is disabled for single-photo galleries — leaving focus outside the just-opened modal).
+- Opening the lightbox from a dossier now sets the dossier `inert`, so the layered second
+  modal no longer leaves the first one exposed to the screen-reader virtual cursor.
+- The "no source photo" empty/broken-image label is localized via a CSS variable (was
+  hardcoded English and double-rendered over the localized empty label); the lightbox
+  toolbar aria-labels and the language save-status now follow the UI language switch.
+- **Contrast:** the active command-mode chip's help text was 3.89:1 — `opacity: 0.72`
+  dragged `--on-accent` below AA on the coral chip; `opacity: 1` on the active state
+  restores AA. Lighthouse accessibility back to 100.
+
+## v0.4.45 — 2026-06-19 — merge: source photos + language switch ⊕ production hardening
+Reconciles two lines that diverged at v0.4.34: the **source-photo galleries + lightbox**
+and the **UI/answer/report language switch** (entries v0.4.35→v0.4.44 below) with a
+**production-hardening line** that ran in parallel. Both are now in. The hardening is
+folded in here (its parallel v0.4.35–v0.4.37 entries were collapsed into this merge to
+avoid version collisions):
+- **Security:** SerpAPI API key no longer leaks via `requests` exception text into job
+  events / error fields (`config.redact_secrets`, applied at the SerpAPI raise sites and
+  the job-error sink); `discover.py` now catches `RequestException` around `raise_for_status`.
+- **Reliability:** `/api/jobs/{id}/events` is async + `is_disconnected()`-aware so abandoned
+  streams don't pin threadpool threads; `/api/searches`, `/api/reports`, `/api/reports/{id}`
+  and `pipeline.ask()` release their SQLite connection via `try/finally`; SQLite opens in
+  **WAL** with a 15s busy-timeout (kills "database is locked" under concurrency).
+- **Hidden-tab job streams:** Scout/Shop `EventSource` streams pause when their tab is
+  hidden and re-attach on return; both `streamJob` and `resumeJobStream` honor the pause
+  flag (a tab switch during the submit POST can neither leak a stream nor freeze the job),
+  guarded by two regression tests.
+- **Performance:** `/api/places` activity-risk is a single scoped scan over risk-eligible
+  places (no per-row N+1).
+- **Accessibility / UX (carried from the hardening line):** risk badges use a real
+  `--danger` token; WCAG AA contrast on accent buttons (dark ink on coral in dark mode);
+  the no-risk state gets a calm green `✓`; the dossier modal sets the background `inert`
+  and exposes `aria-live` regions for job progress, library/history status, and answers;
+  standalone tap targets meet the 24px minimum; mobile library filters pair into two columns;
+  API request models enforce Pydantic `Field` bounds at the trust boundary.
+
+## v0.4.44 — 2026-06-16 — report-aware scout history
+- Past Scout rows now carry per-place `report_count` from `/api/searches`, so
+  places that already have generated reports can be visually emphasized in the
+  Scout history chips.
+- Dossiers without a report now show an in-modal "Generate report" action that
+  starts the existing single-shop job for that cached place instead of sending
+  the user to retype it in Shop manually.
+- Added backend and Playwright regressions for report-marked search history and
+  no-report dossier report generation.
+
+## v0.4.43 — 2026-06-16 — selected-language UI chrome
+- Chinese UI mode now renders app chrome in Chinese only instead of paired
+  Chinese/English glossary labels across tabs, Library filters, System,
+  dossiers, Ask evidence, Compare, translations, and source-photo controls.
+- English UI mode now keeps the same surfaces English-only, including dynamic
+  empty states, history labels, language-lens filters, and cached-answer notes.
+- Added Playwright regressions for both selected-language directions plus the
+  System panel so future UI copy changes do not reintroduce mixed-language
+  labels.
+
+## v0.4.42 — 2026-06-15 — eager photo gallery preload
+- Source-photo lightboxes now preload the rest of the active gallery as soon as
+  the viewer opens or a card thumbnail expands into the full place gallery, so
+  next/previous arrow navigation is warm before the user clicks.
+- Preloading is browser-memory only through URL-backed `Image()` objects. The
+  project still stores no image binaries and adds no photo cache to disk.
+
+## v0.4.41 — 2026-06-15 — card photo gallery lazy expansion
+- Library and Compare card photo clicks now lazy-load the existing
+  `/api/places/{place_id}` photo metadata before building the lightbox gallery,
+  so a card thumbnail can browse the same multi-photo set as the dossier.
+- Kept the photo storage policy lightweight: the app still uses source URLs
+  only, downloads no image binaries, and falls back to the clicked thumbnail if
+  a detail-photo lookup fails.
+
+## v0.4.40 — 2026-06-15 — language adaptation
+- Added a shared language owner for safe BCP-47-like output tags, UI defaults,
+  translation targets, and language-settings validation.
+- Ask, Scout, Shop, reports, CLI JSON, `/api/config`, and review translation no
+  longer force Chinese defaults. Ask cache entries are now language-specific, and
+  reports store `report_lang` plus `evidence_lang`.
+- Added `web/i18n.js` as the no-build locale catalog for English/Chinese UI
+  chrome, browser-language detection, `Intl` formatting, and request language
+  hints.
+- Added Settings/System controls for UI language, Ask/report output language,
+  review translation target, and optional app-wide defaults through
+  `/api/settings/language`.
+
+## v0.4.39 — 2026-06-15 — source URL photo gallery extension
+- The source-photo lightbox now quotes the exact original image URL in the
+  viewer, with an explicit clickable source link for user inspection.
+- Dossier source-photo strips now render up to 12 URL-only images, keeping the
+  no-binary-cache storage policy while making richer Google/source photo sets
+  browsable with the existing arrows and keyboard navigation.
+
+## v0.4.38 — 2026-06-15 — scrollable photo gallery lightbox
+- Added previous/next controls and keyboard ArrowLeft/ArrowRight navigation to
+  the source-photo lightbox so multi-photo Google/source sets can be reviewed
+  without closing the dossier.
+- Added mouse/trackpad wheel zoom inside the lightbox. Zoom now grows a real
+  scrollable canvas instead of transform-scaling an unscrollable image.
+- Kept the URL-only photo policy: the gallery uses existing source URLs and
+  still does not download or store image binaries.
+
+## v0.4.37 — 2026-06-15 — darker zoomable photo lightbox
+- Darkened and polished the source-photo lightbox so clicked Google/source
+  photos read as an intentional in-app viewer instead of a loose overlay.
+- Added in-lightbox zoom controls with visible 100%/125% state, reset support,
+  keyboard +/- zoom, and focus trapping across the photo controls.
+- Preserved the URL-only photo policy: no image binaries are downloaded, cached,
+  or added to the backup surface.
+
+## v0.4.36 — 2026-06-15 — aligned photo cards and lightbox
+- Library cards no longer promote the first results into wider featured tiles;
+  cached shop cards now keep comparable widths and align cleanly across the grid.
+- Source/review photo tiles now open an in-app lightbox instead of launching a
+  new browser tab. Escape closes the image viewer and returns to the dossier.
+- Cards without source photos get a fixed placeholder slot, keeping Library and
+  Compare layouts stable while still avoiding any image binary cache.
+
+## v0.4.35 — 2026-06-15 — source photos and navigation clarity
+- Added a URL-only photo resolver for cached places, exposing bounded
+  `thumbnail` and `photos[]` metadata without downloading image binaries or
+  changing backup scope.
+- Library cards, dossiers, and Compare cards now render lazy source/review
+  photos with stable fallback tiles and safe source links.
+- Aligned the top tabs into equal tracks and clarified Scout/Shop/Library/Ask
+  labels so Ask reads as cached-evidence Q&A, not a new Google Maps search.
+
+## v0.4.34 — 2026-06-15 — agent CLI global hardening
+- Added root-level agent options before subcommands:
+  `--format text|json|ndjson`, `--quiet`, `--no-color`, and `--timeout`.
+- Global `--format json` now maps to `doctor --json`; global NDJSON works for
+  long-running Scout/Shop streams while command-local `--format` remains
+  backwards compatible.
+- CLI user errors now return exit code `1`, timeouts return `6` with machine
+  errors, and unexpected internal failures return `10` without stack traces in
+  normal output.
+
+## v0.4.33 — 2026-06-15 — Settings/System status
+- Added `GET /api/config`, a non-secret runtime settings endpoint for owner and
+  agent status checks.
+- Added a compact footer System panel showing reasoning/translation models,
+  default answer language, evidence language, cache TTL, hidden data-dir status,
+  provider availability, and links to cheap/deep health.
+- Dangerous cache/restore actions remain separated in the CLI and require
+  explicit confirmation; the web panel is read-only and does not reveal keys or
+  private local paths.
+
+## v0.4.32 — 2026-06-15 — cached evidence Compare Board
+- Scout result picks and Library picks now open a cached-evidence Compare Board
+  once 2-5 places are selected.
+- Compare cards show listing facts, review volume, cached coverage, latest
+  scrape/report age, report verdict, activity risk, language mix, low-rating
+  themes, and walk-in advice.
+- The board reads existing dossiers only and does not start Scout, Shop, or
+  report generation; each card links back to its dossier.
+
+## v0.4.31 — 2026-06-15 — evidence-centered Ask
+- Ask answers can now include separate listing-fact and review-evidence cards,
+  keeping the compact answer first while exposing the source material nearby.
+- Fresh Ask results return `evidence[]`, `cache_scope`, and
+  `evidence_fresh_after` through the web API and CLI JSON envelope.
+- Cached-answer banners now explain exact scope and freshness while preserving
+  the existing `重新推理` cache-bypass behavior.
+
+## v0.4.30 — 2026-06-15 — dossier decision brief
+- Dossiers now open with a compact decision brief before the long report:
+  verdict, risk/freshness, top hard facts, and up to three walk-in bullets.
+- The scoped Ask form still appears before the full report, and the full report
+  remains readable below the brief.
+- The review lens, original raw review text, opt-in translation UI, and modal
+  focus trap remain covered by focused Playwright regressions.
+
+## v0.4.29 — 2026-06-14 — Library workspace filters
+- Added Library filters for category, cache freshness, activity risk, language
+  cohort, cached-review threshold, and newest report profile.
+- Library cards now show newest report age/profile when available, while keeping
+  cache freshness, risk, favorite, review count, and cached count visible.
+- Added a Library-local Compare tray for selecting 2-5 cached places without
+  opening dossiers. The full side-by-side evidence board remains a later UI PRD
+  story.
+- Extended `GET /api/places` with `latest_report_at` and
+  `latest_report_profile` for list-level report context.
+
+## v0.4.28 — 2026-06-14 — clearer Scout results
+- Scout results now repeat the AI plan, bilingual queries, location/profile,
+  and reasoning in the final result area.
+- AI filter verdicts render kept/excluded places with reason pills, making
+  rejected candidates easier to scan without reading the raw timeline.
+- Result rows now distinguish shops that received a deep report from candidates
+  that were only discovered.
+- Timeline rows visually tag retry and cache-hit events.
+- Scout result rows can be added to a local Compare pick tray without opening
+  each dossier. The full comparison board remains a later UI PRD story.
+
+## v0.4.27 — 2026-06-14 — command center
+- Turned the first Scout input into a command center: it accepts broad needs,
+  shop names, Maps URLs, and cached-evidence questions without forcing the user
+  to choose the right tab first.
+- Added local mode recommendation for Scout, Shop, and Ask with a visible reason
+  and manual override chips.
+- Maps links and shop-name style input can now start Shop from the first field;
+  question-style input can route directly into Ask.
+- Exact fresh Scout history matches are reused from the visible past-scout list
+  unless the user chooses force refresh, avoiding duplicate scrape jobs.
+
+## v0.4.26 — 2026-06-14 — favorite refresh
+- Added SQLite-backed favorite metadata for cached places. Refresh remains
+  opt-in and disabled by default for every newly favorited place.
+- Added `POST /api/places/{place_id}/favorite`; `/api/places` and
+  `/api/places/{place_id}` now expose favorite and refresh metadata for the
+  Library and dossier surfaces.
+- Added agent-safe `placeintel favorite`, `placeintel favorites`, and
+  `placeintel refresh-favorites` commands. Refresh defaults to dry-run, checks
+  cheap provider routing, caps places/reviews, emits NDJSON pipeline events in
+  run mode, and writes search history before each refresh attempt.
+- The Library now shows a compact favorite toggle while preserving the dossier
+  open action and the no-build web line budget.
+- Hardened touched read endpoints to close SQLite connections cleanly.
+
+## v0.4.25 — 2026-06-14 — deployment smoke
+- Added `placeintel deploy-smoke --format json`, a read-only runtime verifier
+  for `/api/meta`, `/api/health`, versioned static assets, Library reads, and
+  one cached dossier read.
+- Added optional `--public-url` auth-protection smoke: the unauthenticated public
+  URL must return 401/403 while the operator verifies the authenticated or
+  loopback `--base-url`.
+- Deploy-smoke failures now use the agent JSON error envelope with
+  `deploy_smoke_failed` and exit code 3.
+- Documented deployment smoke and rollback commands in the operations and agent
+  CLI runbooks.
+- Sanitized README deployment guidance to use placeholders instead of a real
+  protected domain or private proxy topology.
+- Updated the private deployment workflow to run the same smoke check after
+  restart and to accept `PLACEINTEL_*` deployment secrets while remaining
+  compatible with the legacy secret names.
+
+## v0.4.24 — 2026-06-14 — backup and restore
+- Added `placeintel backup --format json`, creating an allow-listed local backup
+  package under `data/backups` with `manifest.json`, file sizes, and SHA-256
+  hashes.
+- Backups include `placeintel.db`, `scraper_pro_reviews.db` when present,
+  `settings.json`, and generated `reports/`, while excluding `.env` and other
+  unlisted files.
+- Added `placeintel restore <manifest-or-dir> --yes --format json`, with hash
+  verification, required explicit confirmation, default restore-root safety, and
+  post-restore SQLite schema validation.
+- Added temp-data backup/restore round-trip tests.
+
+## v0.4.23 — 2026-06-14 — resumable job event stream
+- Added `GET /api/jobs/{id}/events` as an SSE stream over durable
+  `job_events`, with `after` and `Last-Event-ID` resume support.
+- Job event payloads now include the append-only event `id`, so the web timeline
+  can dedupe streamed events from fallback polling.
+- The web UI uses `EventSource` for Scout/Shop progress when available and
+  falls back to the existing polling path for final state/results.
+- Guarded stale job submissions so a slower previous submit cannot start
+  polling a newer job.
+
+## v0.4.22 — 2026-06-14 — durable web jobs
+- Persisted Scout/Shop job records in SQLite before worker threads start.
+- Added append-only `job_events` storage while preserving the existing
+  `{t, stage, msg, data?}` event contract.
+- Changed `/api/jobs/{id}` to read durable state, including results, errors,
+  request payloads, and retry hints.
+- Startup now marks old `running` jobs from a previous process as
+  `interrupted` instead of silently losing them.
+- The web UI shows interrupted jobs with a `用缓存重试` action that resubmits the
+  same request with cache reuse.
+
+## v0.4.21 — 2026-06-14 — Scout/Shop machine output
+- Added `--format json|ndjson` to `placeintel scout` and `placeintel shop`.
+- NDJSON mode emits one compact `type:"event"` object per pipeline event using
+  the existing `{t, stage, msg, data?}` contract, followed by a final
+  `type:"result"` envelope.
+- JSON mode suppresses human progress text and prints only the final agent-safe
+  result envelope, while text mode remains backward compatible.
+- Fixed the CLI schema contract so health mode allows both `cheap` and `deep`.
+
+## v0.4.20 — 2026-06-14 — deep doctor + agent CLI contracts
+- Added opt-in deep health diagnostics through `placeintel doctor --live --json`
+  and `GET /api/health/deep`.
+- Deep diagnostics check reasoning model listing/ping, translation ping,
+  embedding ping, Chrome, Docker, gosom image, review-scraper vendor path, and
+  SerpAPI fallback configuration without exposing secrets.
+- Agent-facing CLI contracts now include schema output and machine-readable Ask
+  JSON, preserving exact place scope when a question is scoped to one shop.
+
+## v0.4.19 — 2026-06-14 — cleaner lists + Library controls
+- Past scout rows now hide AI-excluded place chips instead of showing a long
+  struck-through wall of rejected candidates.
+- The row meta still keeps the useful summary, such as `AI 排除 15 家`, while
+  the chip list focuses only on places the user may actually open.
+- Long kept-candidate lists are capped with a `+N 家` chip so past scouts stay
+  readable even when a cached search returned many places.
+- The Library tab now has a cached-shop search box, sort control, and a 12-card
+  initial cap with `显示更多`, so large caches are easier to scan.
+- Default Library ordering is now a smart score instead of raw cached-review
+  count only: reports, cached evidence, total review volume, rating, freshness,
+  and activity-risk signals all contribute.
+
+## v0.4.18 — 2026-06-14 — Scout past scouts
+- Added a visible **已侦察 / past scouts** section directly under the Scout form,
+  showing recent cached search runs before users start a new scout.
+- Reused `/api/searches` and the existing history row renderer, so past query,
+  location, source/cache age, AI-excluded chips, and clickable shop dossiers stay
+  consistent with the Library tab.
+- Scout history refreshes on tab load, manual refresh, and after a Scout job
+  completes, reducing accidental duplicate scraping/reasoning work.
+
+## v0.4.17 — 2026-06-14 — review rating filters
+- Added a rating filter row to the dossier raw-review lens: all, 5-star, 4-star,
+  and `≤3★` issue reviews.
+- Rating filters combine with the existing language filters, making it easier to
+  isolate low-score comments and understand which concrete issues caused bad
+  ratings.
+- Translation batches continue to respect the currently visible filtered review
+  list, so users can translate only the low-rating issue set when needed.
+
+## v0.4.16 — 2026-06-14 — cheaper batch review translation
+- Review translations now use a separate low-cost translation model role,
+  defaulting to `gemini-3.1-flash-lite` via the VectorEngine reasoning route,
+  instead of sharing the main report/Ask reasoning model.
+- Clicking any review translation button now translates every currently visible
+  review in that dossier section, respecting the active language filter and
+  skipping already translated cards.
+- Batch translation is guarded against rapid duplicate clicks and target changes
+  while requests are in flight, so stale responses do not overwrite the current
+  target-language view.
+- Added a remembered target-language selector in the review lens. The browser
+  default is Chinese (`zh` / CN), users can switch to English, and the choice is
+  saved in local storage for later dossiers.
+- The translation endpoint now accepts `cn` as a Chinese alias and `/api/meta`
+  exposes the separate `translate` model/provider for transparency.
+- Cached review translations now store provider metadata, keeping old cache rows
+  from being mislabeled after a future provider route change.
+
+## v0.4.15 — 2026-06-14 — optional review translation
+- Added per-review on-demand translation in shop dossiers. Raw reviews remain
+  original by default; users can click a compact `译文` control on a specific
+  review to see a translated overlay.
+- Added `POST /api/reviews/translate`, backed by the existing reasoning provider
+  rather than scrape-time Google translation. Translations are cached by
+  `review_id`, target language, and raw-text hash so refreshed reviews invalidate
+  stale translations.
+- Added tests for translation caching, API delegation, and the browser click path.
+
+## v0.4.14 — 2026-06-14 — compact review language lens
+- Kept the review language tabs visible, but moved the large per-language
+  insight cards behind a collapsed disclosure so raw comments remain easy to
+  read.
+- Tightened the language lens spacing and prevented nested insight summaries
+  from inheriting the raw-review disclosure marker style.
+
+## v0.4.13 — 2026-06-14 — review language lens
+- Added a language-aware lens to the shop dossier's raw reviews section. Reviews
+  are grouped by detected original language, with Chinese and English surfaced
+  first when present for Vec's reading flow.
+- Each language cohort now shows count, average rating, likely audience signal,
+  recurring topic chips, and a representative excerpt from the cached review
+  text.
+- Added review-language filter pills so users can switch the raw comments list
+  between all reviews and a single language cohort without leaving the dossier.
+- Fingerprinted the no-build `app.css` and `app.js` URLs with the server-injected
+  package version so already-open browser tabs pick up fresh styling after restart.
+- Kept country/region wording honest: the current cache has review text but no
+  reliable reviewer-country field, so the UI treats language as a signal rather
+  than inventing nationality.
+- Added a Playwright regression proving the language lens renders Chinese,
+  English, Vietnamese, and Korean cohorts and filters raw review cards, plus a
+  server contract for static asset fingerprinting.
+
+## v0.4.12 — 2026-06-14 — dossier ask placement polish
+- Moved the shop-scoped **只问这家店 / Ask this shop** form above the long dossier
+  report body, so users can ask follow-up questions immediately after opening a
+  shop instead of scrolling past the analysis.
+- Preserved the existing per-shop `place_id` ask scope, scoped QA history chips,
+  modal focus behavior, and report/review ordering.
+- The web shell now sends `Cache-Control: no-store` for `/` and `/static/*`, so
+  existing browser tabs do not keep running a stale no-build `app.js` after a
+  local patch/restart.
+- Added a Playwright regression proving the scoped ask form renders before the
+  report body while keeping its `data-place-id`, plus a server contract for
+  no-cache web assets.
+
+## v0.4.11 — 2026-06-14 — all-scope Ask history display
+- The top-level **提问 Ask** history now shows previously asked single-shop
+  questions as well as global questions, with the shop name appended to each
+  scoped chip.
+- Clicking a shop-scoped history chip from the Ask tab re-asks with the original
+  `place_id`, preserving the exact-scope QA cache rule instead of treating a
+  single-shop answer as global evidence.
+- Added `GET /api/qa?scope=all` as a display-only history mode. The default
+  `/api/qa` response remains global-only, and `/api/qa?place_id=...` remains
+  per-shop exact-scope.
+- Added server and Playwright regressions for all-scope history display and
+  scoped re-ask behavior.
+- Gated the VPS deploy workflow to the private deployment repo so the public
+  code-only mirror no longer creates false-red deploy runs when private secrets
+  are intentionally absent.
+
+## v0.4.10 — 2026-06-13 — report reasoning retry
+- Report generation now retries transient reasoning-model failures before giving
+  up: rate limits, 5xx provider errors, connection failures, and timeouts get
+  three exponential-backoff attempts.
+- The retry wrapper covers both single-pass report generation and map-reduce
+  evidence chunk mining, so large-review dossiers no longer fail on one temporary
+  model hiccup.
+- Report-stage progress now surfaces automatic retry activity in CLI/Web events
+  while preserving the existing fail-after-final-attempt behavior for real errors.
+- Added deterministic unit regressions with a flaky fake reasoning client.
+- Added API and Playwright regressions proving previously asked questions are
+  viewable from `/api/qa`, rendered on the Ask tab, and re-askable from chips.
+- Closed the `/api/qa` SQLite connection after each history read.
+
+## v0.4.9 — 2026-06-12 — browser chrome theming
+- Added light/dark `theme-color` metadata so mobile and desktop browser chrome
+  matches the app surface instead of falling back to default colors.
+- Declared CSS `color-scheme: light dark` on the document root so native form
+  controls and scrollbars align with the app's light/dark tokens.
+- Added an explicit on-accent text token so primary buttons stay readable and
+  intentional in dark mode.
+- Added static regressions for browser chrome metadata, CSS theme support, and
+  accent-button text color.
+
+## v0.4.8 — 2026-06-12 — placeholder polish + JS headroom
+- Tightened input placeholders against the Web Interface Guidelines: every
+  placeholder now shows an example pattern and ends with an ellipsis.
+- Added a static regression so future placeholders keep that shape across the
+  HTML shell and rendered shop-dossier ask form.
+- Reduced `web/app.js` from 799 to 780 lines, leaving budget headroom for urgent
+  no-build SPA fixes while staying inside the 3-file app constraint.
+
+## Deployment — 2026-06-12 — protected public domain
+- Added a protected public-domain deployment path through a private proxy stack.
+- Kept the app process loopback-only on `127.0.0.1:9618`; public traffic enters
+  only through an authenticated proxy.
+- Stored public-domain login values in local gitignored env files or deployment
+  secrets; the remote host stores only the Basic Auth hash.
+
+## v0.4.7 — 2026-06-12 — dossier modal focus trap
+- The shop dossier now traps Tab and Shift+Tab inside the modal while it is open,
+  so keyboard users do not land on hidden background controls.
+- Extended the deterministic Playwright dossier test to prove focus entry,
+  backward edge trapping, forward edge trapping, Escape close, and opener focus
+  restoration from the same mocked detail response.
+
+## v0.4.6 — 2026-06-12 — dossier dialog keyboard focus polish
+- The shop dossier overlay now moves keyboard focus to the close control as soon
+  as it opens, including while data is still loading.
+- Closing a dossier with Escape, the close button, backdrop, or cache-delete flow
+  restores focus to the opener when that opener is still present in the document.
+- Added a deterministic Playwright regression that mocks the detail API response,
+  opens a synthetic dossier, and verifies focus entry plus focus return without
+  depending on local cached places.
+
+## v0.4.5 — 2026-06-12 — accessibility + deep-link navigation polish
+- Added a skip link and main landmark target so keyboard users can jump past the
+  masthead/tabs into the primary app surface.
+- Tightened tab semantics: tabs now use roving `tabindex`, URL hash deep links
+  (`#scout`, `#shop`, `#library`, `#ask`), and Arrow/Home/End keyboard navigation.
+- Added stable `name` attributes and numeric input hints to form controls, making
+  the no-build SPA friendlier to browser autofill, accessibility tooling, and
+  future form instrumentation.
+- Fixed FastAPI app metadata drift by deriving `app.version` from the package
+  version instead of a stale literal.
+- Added regression coverage for the accessibility shell, app-version contract,
+  and hash/keyboard tab behavior.
+
+## v0.4.4 — 2026-06-12 — stale review activity risk tag
+- Added a deterministic `activity_risk` signal for places with many historical
+  reviews but no recent known reviews. Current thresholds are conservative:
+  80+ total reviews, newest parsed review at least 180 days old, high severity at
+  365+ days. The tag warns to verify current operation; it does not claim closure.
+- Fed the activity signal into the reasoning prompt and saved report JSON/Markdown
+  so generated reports include the current-status caveat even when the model is
+  otherwise focused on price/facts/review complaints.
+- Exposed `activity_risk` on `/api/places` and `/api/places/{id}`, and rendered a
+  small cautious badge in the library plus a fuller warning line in shop detail.
+- Added unit coverage for stale/recent/low-volume boundaries and Playwright
+  coverage for visible badge/detail rendering.
+
+## v0.4.3 — 2026-06-12 — list-valued Google category binding fix
+- Fixed a single-shop Google Maps failure where provider payloads could carry a
+  list-valued category/metadata field into a SQLite `TEXT` column, causing
+  `Error binding parameter 3: type 'list' is not supported`.
+- Added a cache contract regression that writes a `Place` with a list category and
+  verifies it is stored as readable text instead of crashing. Raw provider payloads
+  remain preserved in `raw_json`.
+
+## v0.4.2 — 2026-06-12 — mobile UX hardening + repeatable web smoke
+- Strengthened the web UI contrast system so helper text, placeholders, and the
+  primary Scout action read as active controls instead of disabled chrome on mobile.
+- Enlarged the natural-language query textarea and shortened the mobile placeholder
+  copy so examples no longer clip in the first viewport.
+- Added repeatable web guards: Python static contract tests for the no-build SPA
+  limits/contrast/copy, plus a Playwright smoke test for console errors, horizontal
+  overflow, and first-action visibility.
+- The private VPS deploy workflow now runs those checks against a local web server
+  before SSH sync/restart, so broken UI changes fail before touching systemd.
+
+## v0.4.1 — 2026-06-12 — private VPS deployment lane
+- Added a private GitHub Actions deployment workflow for a native systemd service
+  on a protected VPS. The service stays bound to `127.0.0.1:9618` by default
+  so the AI-key-backed web UI is not exposed publicly without an explicit proxy.
+- Added `deploy/remote-bootstrap.sh`: idempotent remote setup for Python venv,
+  Google Chrome, vendored review scraper, service restart, and local health check.
+- Expanded secret hygiene: `.env.*` is ignored, app/runtime keys are expected via
+  local/VPS env files and GitHub Secrets, never committed.
+
+## Open-sourced — 2026-06-11 (MIT)
+- First public release on GitHub: <https://github.com/vecyang1/place-intel>.
+- Added `LICENSE` (MIT), `.env.example`, and install/setup docs (including cloning
+  the vendored MIT review scraper). Config now also loads a project-local `.env`.
+- Open-source credits added (gosom maps scraper, google-reviews-scraper-pro, Gemini, SerpAPI).
+
+## v0.4.0 — 2026-06-11 — front-end model switching (live list, persisted)
+- **The reasoning model is now user-switchable and remembered**: footer 「更换模型 ⇄」
+  opens a picker; the choice is persisted in `data/settings.json` and shared by
+  Web + CLI across restarts. CLI: `placeintel model [--list] [name]`.
+- **Model list is LIVE from the provider** (`GET /api/models` →
+  VectorEngine `/v1beta/models`), never a baked-in list — agent training
+  knowledge of model names is stale by definition (the live list surfaced
+  gemini-3.5-flash / gemini-3-flash-preview / gemini-flash-latest, all unknown
+  to the agent). Free-text input also accepted for unlisted names.
+- **Smoke test before save**: `POST /api/settings` runs one real generateContent
+  call with the candidate model; failure → HTTP 400 with the provider's error,
+  nothing persisted. Verified live: fake model rejected (503 surfaced), real
+  switch to gemini-3-flash-preview saved and used by the next ask.
+- Precedence: settings.json > $PLACEINTEL_REASON_MODEL > default. settings.json
+  never holds keys.
+
+## v0.3.1 — 2026-06-11 — model/provider transparency
+- `GET /api/meta` exposes resolved models + providers (never keys); footer shows
+  "推理 gemini-2.5-flash @ VectorEngine · 向量 gemini-embedding-2-preview (768d)
+  @ Google 官方 · vX".
+- Timeline events name the model+provider when reasoning/embedding actually runs;
+  report meta line in the dossier shows the report's stored model; every ask answer
+  (cached included) carries a `model @ provider` tag.
+
+## v0.3.0 — 2026-06-11 — full-coverage analysis (map-reduce) + evidence translation
+- **Map-reduce review mining**: when a place has more cached reviews than fit one
+  prompt (>400), every chunk of 200 is mined into a dense evidence digest (3-wide
+  parallel), then a reduce pass writes the report from ALL digests + raw low-star +
+  newest raw reviews — nothing scraped goes unread (was: newest-400 + low-star cap).
+  Live progress: "分 N 块全量深读，一条不漏". Report header states exact coverage.
+- **Evidence language is configurable** (default: translated): quoted review
+  excerpts in reports AND ask answers are translated into the report language with
+  an original-language tag (`[2026-05-21|★5.0|原文:韩语] …`). Reviews are stored as
+  scraped originals (e.g. the E-Taxi shop's 237/300 Korean reviews are genuine
+  Korean originals, not Google auto-translate). `--evidence-lang original` /
+  `PLACEINTEL_EVIDENCE_LANG=original` keeps verbatim quotes.
+- Knobs: `PLACEINTEL_MAX_REVIEWS_PROMPT` (single-pass ceiling, default 400),
+  `PLACEINTEL_MAP_CHUNK` (default 200).
+
+## v0.2.1 — 2026-06-11 — grounded asks, persisted verdicts, QA answer cache
+- **Ask is now metadata-grounded**: place listing facts (address, hours, phone,
+  website, rating) are fed to the model as the authoritative source alongside
+  review evidence — "几点开门/地址在哪" questions answer from the listing instead
+  of "unknown".
+- **AI filter verdicts are persisted** on the search row and (a) reused on repeat
+  scouts (no re-judging, no extra LLM cost), (b) shown in 历史搜索 — excluded shops
+  render struck-through with the AI's reason (`AI 排除 N 家`).
+- **Semantic QA answer cache** (user idea): every reasoned answer is stored with its
+  question embedding; an identical or semantically similar question (same scope,
+  cosine ≥0.90) returns the cached answer instantly (~0.5s vs ~15s) with a
+  "⚡ 缓存答案" label + 重新推理 button. Invalidation: any new review scrape in the
+  scope voids older answers. CLI: `ask --fresh` bypasses.
+- **Q&A history**: recent questions render as re-askable chips under the Ask tab and
+  in each shop dossier (`GET /api/qa`).
+- **Delete from cache**: `DELETE /api/places/{id}` + dossier button removes a place
+  and all derived data (reviews/vectors/reports/QA) — for purging v0.1-era junk
+  like the 300-review E-Taxi; deleted places drop out of history rows.
+
+## v0.2.0 — 2026-06-11 — AI-native upgrade
+- **AI query planner** (`planner.py`): free-text input in ANY language → structured
+  plan (intent, bilingual search queries, location extraction, profile, report
+  language, discover-vs-single mode). Fail-open passthrough if the LLM dies.
+- **AI relevance filter**: one LLM call judges all discovered candidates against the
+  user's intent with per-place reasons — kills the motorbike-for-guitar bug class.
+  Live-verified: excluded motorbike rental / theme park / e-taxi / bar / clothing
+  store from a guitar-rental query.
+- **Single-shop mode** (`scout_single`, CLI `shop`, `POST /api/shop`): shop name or
+  Google Maps URL → focused report on that one place. Diacritic-insensitive cache
+  name matching (`Hội An` == `hoi an`).
+- **Live progress events**: pipeline emits `{t, stage, msg, data}` through `on_event`;
+  web UI renders a transparent timeline (AI plan card, filter verdicts ✓/✕, per-place
+  scrape/embed/report progress); CLI prints the same events.
+- **Report reuse**: skip re-analysis when no new reviews since the last report
+  (profile-aware; `generic` accepts any profile's report).
+- **Date-aware analysis**: today's date injected into reasoning prompts — kills false
+  "future-dated reviews" red flags from the model's stale training-cutoff sense of time.
+- **Web UI v2** (3-file SPA, no build step): tabs 侦察/单店/资料库/提问, live timeline,
+  shop dossier overlay (facts + report + scoped ask + review browser), library cards
+  with featured hierarchy, past-searches history, XSS-safe markdown, 320px responsive,
+  deliberate light/dark. Static assets served from `/static`.
+- New CLI commands: `shop`, `plan` (debug the AI's plan), `history`; new flags
+  `--no-ai`, `--report-lang` defaults to the language you typed in.
+- API: `/api/shop`, `/api/places/{id}` detail, `/api/searches`; job objects now
+  stream `events`.
+
+## v0.1.1 — 2026-06-11
+- Provider split (user decision): embedding → Google official, reasoning → VectorEngine.
+- True batch embedding via explicit `types.Content` lists: 64 docs in ~2s (was ~40s
+  per-item via VT thread pool); per-item fallback retained for aggregating gateways.
+- V.A.U.L.T. docs: VAULT.md router, project AGENTS.md, CHANGELOG, vault/ evidence dirs.
+
+## v0.1.0 — 2026-06-11
+- Initial release, live-verified e2e (Hoi An guitar-rental scout).
+- Pipeline: gosom discovery (Docker) → reviews-scraper-pro (incremental, vendored)
+  → SQLite cache → Gemini Embedding 2 vectors → Gemini Flash profile-driven reports.
+- SerpAPI fallback for both discovery and reviews.
+- CLI (`scout/ask/report/list/profiles/export`), FastAPI web shell (port 9618),
+  Claude skill `place-intel` (3-root symlinks).
+- Fixes during verification: VT key routing, batch-aggregation guard, genai client
+  thread race, SeleniumBase UC 9222 collision bootstrap, live-result ordering.
